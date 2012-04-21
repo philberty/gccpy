@@ -433,19 +433,7 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
     }
 
   if (o)
-    {
-#ifdef DEBUG
-      x->definition->tp_print (x1, stdout, false);
-      fprintf (stdout, "%s", op_str );
-      y->definition->tp_print (y1, stdout, true);
-#endif
-      retval = o (x1,y1);
-#ifdef DEBUG
-      fprintf (stdout, "evaluated to: ");
-      retval->o.object_state->definition->tp_print (retval, stdout, false);
-      fprintf (stdout, "!\n");
-#endif
-    }
+    retval = o (x1,y1);
   else
     fatal ("no binary protocol!\n");
  
