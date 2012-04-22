@@ -1182,13 +1182,27 @@ VEC(tree,gc) * gpy_dot_pass_genericify_TU (gpy_hash_tab_t * modules,
 	    /* assign the function to the decl */
 	    const char * funcid = DOT_IDENTIFIER_POINTER (DOT_FIELD (idtx));
 	    tree funcdecl = gpy_dot_pass_decl_lookup (context, funcid);
+	    gcc_assert (funcdecl != error_mark_node);
+
 	    tree str = gpy_dot_type_const_string_tree (funcid);
-	    append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
-					      funcdecl,
-					      GPY_RR_fold_func_decl (build_fold_addr_expr (str),
-								     t)),
-				      &stmts);
-          }
+	    tree fold_functor = GPY_RR_fold_func_decl (build_fold_addr_expr (str),
+						       t);
+
+	    if (TREE_CODE (funcdecl) == VAR_DECL)
+	      {
+		append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+						  funcdecl,
+						  fold_functor),
+					  &stmts);
+	      }
+	    else
+	      {
+		append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+						  build_fold_indirect_ref (funcdecl),
+						  fold_functor),
+					  &stmts);
+	      }
+	  }
           break;
 
 	case D_STRUCT_CLASS:

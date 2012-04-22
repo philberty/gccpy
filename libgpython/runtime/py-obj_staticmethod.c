@@ -83,7 +83,7 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
   gpy_assert (self->T == TYPE_OBJECT_DECL);
 
   struct gpy_object_staticmethod_t * state = self->o.object_state->state;
-  if (!state->code)
+  if (state->code)
     {
       staticmethod_fndecl fnptr = (staticmethod_fndecl)state->code;
       fnptr (args);

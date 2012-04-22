@@ -265,12 +265,15 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
   
   /* + 1 for sentinal */
   gpy_object_t ** args = calloc (nargs + 1, sizeof (gpy_object_t *));
-  va_list ap;
-  int idx;
-  va_start (ap, nargs);
-  for (idx = 0; idx < nargs; ++idx)
+  int idx = 0;
+  if (nargs > 0)
     {
-      args[idx] = va_arg (ap, gpy_object_t *);
+      va_list ap;
+      va_start (ap, nargs);
+      for (idx = 0; idx < nargs; ++idx)
+	{
+	  args[idx] = va_arg (ap, gpy_object_t *);
+	}
     }
   args[idx] = NULL;
 
@@ -280,6 +283,7 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
     }
   else
     fatal ("name is not callable!\n");
+  gpy_free (args);
     
   return retval;
 }
