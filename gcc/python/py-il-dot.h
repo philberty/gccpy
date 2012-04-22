@@ -34,6 +34,8 @@ typedef enum {
   D_CALL_EXPR,
   D_ATTRIB_REF,
 
+  D_STRUCT_WHILE,
+
   D_STRUCT_CLASS,
   D_STRUCT_METHOD,
 

@@ -171,6 +171,7 @@ extern void yyerror (const char *);
 %type<symbol> print_stmt
 %type<symbol> attributeref
 %type<symbol> ident
+%type<symbol> while_stmt
 
 %type<symbol> funcname
 %type<symbol> classname
@@ -197,8 +198,12 @@ decl: NEWLINE
     | statement
     ;
 
+while_stmt: WHILE expression ':' suite
+          { $$ = dot_build_decl2 (D_STRUCT_WHILE, $2, $4); }
+
 compound_stmt: funcdef
              | classdef
+             | while_stmt
              ;
 
 classdef: CLASS classname ':' suite
