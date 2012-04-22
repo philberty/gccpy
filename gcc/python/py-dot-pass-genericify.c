@@ -1167,7 +1167,6 @@ VEC(tree,gc) * gpy_dot_pass_genericify_TU (gpy_hash_tab_t * modules,
           gpy_dot_pass_lower_expr (idtx, &stmts, context);
           continue;
 	}
-
       switch (DOT_TYPE (idtx))
         {
 	case D_PRINT_STMT:

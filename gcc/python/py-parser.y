@@ -242,6 +242,7 @@ parameter_list: parameter_list ',' ident
 
 funcdef: DEF funcname '(' parameter_list_stmt ')' ':' suite
        {
+	 debug ("found func def!\n");
 	 gpy_dot_tree_t *dot = dot_build_func_decl ($2, $4, $7);
 	 $$ = dot;
        }
