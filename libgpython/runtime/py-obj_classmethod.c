@@ -26,9 +26,14 @@ along with GCC; see the file COPYING3.  If not see
 #include <gmp.h>
 #include <mpfr.h>
 
+#ifdef USE_LIBFFI
+# include <ffi.h>
+#endif
+
 #include <gpython/gpython.h>
 #include <gpython/vectors.h>
 #include <gpython/objects.h>
+#include <gpython/runtime.h>
 
 struct gpy_object_classmethod_t {
   unsigned char * code;
@@ -75,6 +80,8 @@ void gpy_object_classmethod_print (gpy_object_t * self, FILE *fd, bool newline)
     fprintf (fd, "\n");
 }
 
+#ifdef USE_LIBFFI
+
 gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
 					    gpy_object_t ** args)
 {
@@ -92,6 +99,28 @@ gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
     }
   return retval;
 }
+
+#else /* !defined(USE_LIBFFI) */
+
+gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
+					    gpy_object_t ** args)
+{
+  gpy_object_t * retval = NULL_OBJECT;
+  gpy_assert (self->T == TYPE_OBJECT_DECL);
+
+  struct gpy_object_classmethod_t * state = self->o.object_state->state;
+  if (state->code)
+    {
+      classmethod_fndecl fnptr = (classmethod_fndecl)state->code;
+      gpy_object_t ** ptr = args;
+      gpy_object_t * class = *ptr;
+      ptr++;
+      fnptr (class, ptr);
+    }
+  return retval;
+}
+
+#endif /* !defined(USE_LIBFFI) */
 
 unsigned char * gpy_object_classmethod_getaddr (gpy_object_t * self)
 {

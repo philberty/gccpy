@@ -406,7 +406,6 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
 				       gpy_object_t * y1,
 				       unsigned int op)
 {
-  char * op_str = NULL;
   gpy_object_t * retval = NULL;
 
   gpy_assert (x1->T == TYPE_OBJECT_STATE);
@@ -418,15 +417,12 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
   struct gpy_number_prot_t * binops = (*def).binary_protocol;
   struct gpy_number_prot_t binops_l = (*binops);
 
-  debug ("Eval expression!\n");
-
   binary_op o = NULL;
   switch( op )
     {
       /* addition */
     case 1:
       o = binops_l.n_add;
-      op_str = "+ ";
       break;
 
       /* FINISH .... */

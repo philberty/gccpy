@@ -163,10 +163,6 @@
 /* Define to 1 if you have the `vfprintf' function. */
 #undef HAVE_VFPRINTF
 
-/* Define to 1 or 0, depending whether the compiler supports simple visibility
-   declarations. */
-#undef HAVE_VISIBILITY
-
 /* Define to 1 if you have the `vprintf' function. */
 #undef HAVE_VPRINTF
 
@@ -178,9 +174,6 @@
 
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
-
-/* Define if the C++ compiler is configured for setjmp/longjmp exceptions. */
-#undef LIBGPYTHON_SJLJ_EXCEPTIONS
 
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
    */

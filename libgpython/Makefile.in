@@ -80,7 +80,9 @@ am__base_list = \
 am__installdirs = "$(DESTDIR)$(libdir)" \
 	"$(DESTDIR)$(library_includedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libgpython_la_LIBADD =
+am__DEPENDENCIES_1 =
+libgpython_la_DEPENDENCIES = $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 am_libgpython_la_OBJECTS = libgpython_la-py-obj_class.lo \
 	libgpython_la-py-obj_staticmethod.lo \
 	libgpython_la-py-obj_classmethod.lo \
@@ -138,7 +140,6 @@ CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CC_FOR_BUILD = @CC_FOR_BUILD@
 CFLAGS = @CFLAGS@
-CFLAG_VISIBILITY = @CFLAG_VISIBILITY@
 CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
@@ -154,7 +155,6 @@ EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
 GREP = @GREP@
-HAVE_VISIBILITY = @HAVE_VISIBILITY@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
@@ -270,8 +270,9 @@ include/gpython/runtime.h \
 include/gpython/vectors.h \
 include/gpython/objects.h
 
-libgpython_la_CFLAGS = -DGPYHON -DSHARED
-libgpython_la_LDFLAGS = -release 0.0.1
+libgpython_la_CFLAGS = -DGPYHON -DSHARED  $(LIBFFIINCS) $(PTHREAD_CFLAGS)
+libgpython_la_LDFLAGS = -release 0.0.1 $(PTHREAD_CFLAGS) $(AM_LDFLAGS)
+libgpython_la_LIBADD = $(LIBFFI) $(PTHREAD_LIBS) $(MATH_LIBS)
 libgpython_la_SOURCES = \
 runtime/py-obj_class.c \
 runtime/py-obj_staticmethod.c \

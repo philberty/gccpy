@@ -534,6 +534,8 @@ languages = { language=objc;	gcc-check-target=check-objc;
 languages = { language=obj-c++;	gcc-check-target=check-obj-c++; };
 languages = { language=go;	gcc-check-target=check-go;
 				lib-check-target=check-target-libgo; };
+languages = { language=python;	gcc-check-target=check-python;
+				lib-check-target=check-target-libgpython; };
 
 // Toplevel bootstrap
 bootstrap_stage = { id=1 ; };

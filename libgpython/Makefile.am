@@ -1,4 +1,7 @@
 ## Process this file with automake to produce Makefile.in
+LIBFFI = @LIBFFI@
+LIBFFIINCS = @LIBFFIINCS@
+
 lib_LTLIBRARIES = libgpython.la
 
 AM_CPPFLAGS = -I$(top_srcdir)/include
@@ -11,8 +14,9 @@ include/gpython/runtime.h \
 include/gpython/vectors.h \
 include/gpython/objects.h
 
-libgpython_la_CFLAGS = -DGPYHON -DSHARED
-libgpython_la_LDFLAGS = -release 0.0.1
+libgpython_la_CFLAGS = -DGPYHON -DSHARED  $(LIBFFIINCS) $(PTHREAD_CFLAGS)
+libgpython_la_LDFLAGS = -release 0.0.1 $(PTHREAD_CFLAGS) $(AM_LDFLAGS)
+libgpython_la_LIBADD = $(LIBFFI) $(PTHREAD_LIBS) $(MATH_LIBS)
 libgpython_la_SOURCES = \
 runtime/py-obj_class.c \
 runtime/py-obj_staticmethod.c \

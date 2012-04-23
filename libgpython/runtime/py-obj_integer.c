@@ -82,7 +82,6 @@ gpy_object_t *
 gpy_obj_integer_add (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
-  debug ("Integer Addition!\n");
 
   gpy_object_state_t * x = o1->o.object_state;
   gpy_object_state_t * y = o2->o.object_state;

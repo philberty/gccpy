@@ -26,6 +26,10 @@ along with GCC; see the file COPYING3.  If not see
 #include <gmp.h>
 #include <mpfr.h>
 
+#ifdef USE_LIBFFI
+# include <ffi.h>
+#endif
+
 #include <gpython/gpython.h>
 #include <gpython/vectors.h>
 #include <gpython/objects.h>
