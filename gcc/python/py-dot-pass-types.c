@@ -333,8 +333,7 @@ VEC(tree,gc) * gpy_dot_pass_generate_types (VEC(gpydot,gc) * decls)
 			case D_IDENTIFIER:
 			  {
 			    gpy_hashval_t h = gpy_dd_hash_string (DOT_IDENTIFIER_POINTER (target));
-			    void ** e = gpy_dd_hash_insert (h, target, &main_module);
-			    gcc_assert (!e);
+			    gpy_dd_hash_insert (h, target, &main_module);
 			  }
 			  break;
 
