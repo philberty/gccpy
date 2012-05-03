@@ -15,9 +15,13 @@
 #<http://www.gnu.org/licenses/>.
 
 language="python"
+
 compilers="gpy1\$(exeext)"
+
 build_by_default="no"
-target_libs=target-libgpython
+
+target_libs="target-libffi target-libgpython"
+
 gtfiles="\$(srcdir)/python/py-lang.c \
 \$(srcdir)/python/py-il-dot.h \
 \$(srcdir)/python/py-vec.h"

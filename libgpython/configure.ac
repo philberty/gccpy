@@ -26,13 +26,8 @@ AC_INIT(package-unused, version-unused,, libgpython)
 AC_CONFIG_SRCDIR(Makefile.am)
 AC_CONFIG_HEADER(config.h)
 
-AC_CONFIG_AUX_DIR(config)
-AC_CONFIG_MACRO_DIR(m4)
-
 libtool_VERSION=1:0:0
 AC_SUBST(libtool_VERSION)
-
-AM_ENABLE_MULTILIB(, ..)
 
 AC_CANONICAL_SYSTEM
 target_alias=${target_alias-$host_alias}
@@ -44,6 +39,7 @@ AH_TEMPLATE(VERSION, [Version number of package])
 m4_rename([_AC_ARG_VAR_PRECIOUS],[glibgpython_PRECIOUS])
 m4_define([_AC_ARG_VAR_PRECIOUS],[])
 AC_PROG_CC
+m4_rename_force([glibgpython_PRECIOUS],[_AC_ARG_VAR_PRECIOUS])
 
 AC_SUBST(CFLAGS)
 
@@ -69,12 +65,9 @@ dnl FIXME: This should be controlled by --enable-maintainer-mode.
 WERROR="-Werror"
 AC_SUBST(WERROR)
 
-# used for constant folding and rounding
-AC_CHECK_LIB([gmp], [__gmpz_init], ,
-  [AC_MSG_ERROR([GNU MP not found, see http://gmplib.org/])])
-AC_CHECK_LIB([mpfr],[mpfr_init] , ,
-  [AC_MSG_ERROR([MPFR not found, see http://www.mpfr.org/])])
-AC_CHECK_SIZEOF(mp_limb_t, , [#include <gmp.h>])
+# Check for GMP, MPFR
+AC_CHECK_LIB([gmp],[mpz_init])
+AC_CHECK_LIB([mpfr],[mpfr_init])
 
 # See if the user wants to configure without libffi.  Some
 # architectures don't support it.  FIXME: We should set a default
@@ -127,76 +120,30 @@ GCC_CHECK_UNWIND_GETIPINFO
 AC_SUBST(CFLAGS)
 AC_SUBST(LDFLAGS)
 
-AC_CHECK_SIZEOF(long)
-AC_CHECK_SIZEOF(char)
-AC_CHECK_SIZEOF(int)
-AC_CHECK_SIZEOF(void*)
-AC_CHECK_SIZEOF(short)
-AC_CHECK_SIZEOF(double)
-AC_CHECK_SIZEOF(float)
-AC_CHECK_SIZEOF(size_t)
-AC_CHECK_SIZEOF(long int)
-AC_CHECK_SIZEOF(long long)
-
 # Checks for header files.
-AC_HEADER_SYS_WAIT
 AC_HEADER_STDBOOL
 AC_HEADER_STDC
 AC_CHECK_HEADERS([stdlib.h string.h stdarg.h unistd.h \
-		  stdint.h stdio.h getopt.h \
-		  assert.h sys/types.h signal.h \
-		  fcntl.h pthread.h sys/wait.h \
-		  gmp.h mpfr.h])
+			   	      stdint.h stdio.h getopt.h \
+				      	         assert.h sys/types.h signal.h \
+						 	    fcntl.h pthread.h sys/wait.h \
+							    	      gmp.h mpfr.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_CHECK_FUNCS([popen fopen fclose sprintf fprintf strdup \
-		strlen strcpy strcmp getopt_long \
-		memcpy calloc system sysconf atoi \
-		getpid execl fork wait exit atof \
-		vfprintf memcmp getc fgets pipe \
-		waitpid fdopen])
+		      	    strlen strcpy strcmp getopt_long \
+			    	   memcpy calloc system sysconf atoi \
+				   	  getpid execl fork wait exit atof \
+					  	 vfprintf memcmp getc fgets pipe \
+						 	  waitpid fdopen])
 
 # Checks for library functions.
 AC_FUNC_MALLOC
 AC_FUNC_UTIME_NULL
 AC_FUNC_VPRINTF
-AC_CONFIG_FILES([Makefile])
 
-AC_CONFIG_COMMANDS([default],
-[if test -n "$CONFIG_FILES"; then
-   # Multilibs need MULTISUBDIR defined correctly in certain makefiles so
-   # that multilib installs will end up installed in the correct place.
-   # The testsuite needs it for multilib-aware ABI baseline files.
-   # To work around this not being passed down from config-ml.in ->
-   # srcdir/Makefile.am -> srcdir/{src,libsupc++,...}/Makefile.am, manually
-   # append it here.  Only modify Makefiles that have just been created.
-   #
-   # Also, get rid of this simulated-VPATH thing that automake does.
-   cat > vpsed << \_EOF
-s!`test -f '$<' || echo '$(srcdir)/'`!!
-_EOF
-   for i in $SUBDIRS; do
-    case $CONFIG_FILES in
-     *${i}/Makefile*)
-       #echo "Adding MULTISUBDIR to $i/Makefile"
-       sed -f vpsed $i/Makefile > tmp
-       grep '^MULTISUBDIR =' Makefile >> tmp
-       mv tmp $i/Makefile
-       ;;
-    esac
-   done
-   rm vpsed
- fi
-],
-[
-# Variables needed in config.status (file generation) which aren't already
-# passed by autoconf.
-SUBDIRS="$SUBDIRS"
-])
-
+AC_CONFIG_FILES(Makefile)
 AC_OUTPUT
-dnl libtoolize scans configure.ac  and needs to see some text
-m4_define([LIBTOOLIZE_AC_INIT], [])
