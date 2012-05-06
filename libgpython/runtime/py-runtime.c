@@ -279,6 +279,7 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
 
   if (type->tp_call)
     {
+      /* args length checks ... */
       retval = type->tp_call (decl, args);
     }
   else

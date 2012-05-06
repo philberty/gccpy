@@ -84,7 +84,7 @@ void gpy_object_staticmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 #ifdef USE_LIBFFI
 
 gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
-					     gpy_object_t ** args)
+					     gpy_object_t ** arguments)
 {
   gpy_object_t * retval = NULL_OBJECT;
   gpy_assert (self->T == TYPE_OBJECT_DECL);
@@ -93,7 +93,23 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
   if (state->code)
     {
       staticmethod_fndecl fnptr = (staticmethod_fndecl)state->code;
-      fnptr (args);
+      
+      ffi_cif cif;
+      ffi_type *args[1];
+      void *values[1];
+      
+      /* Initialize the argument info vectors */
+      args[0] = &ffi_type_pointer;
+      values[0] = (void *) &arguments;
+      
+      /* Initialize the cif */
+      if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 1,
+     		       &ffi_type_void, args) == FFI_OK)
+	{
+	  ffi_call(&cif, fnptr, NULL, values);
+	}
+      else
+	fatal ("error setting up the call!\n");
     }
   return retval;
 }
@@ -103,16 +119,7 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
 gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
 					     gpy_object_t ** args)
 {
-  gpy_object_t * retval = NULL_OBJECT;
-  gpy_assert (self->T == TYPE_OBJECT_DECL);
-
-  struct gpy_object_staticmethod_t * state = self->o.object_state->state;
-  if (state->code)
-    {
-      staticmethod_fndecl fnptr = (staticmethod_fndecl)state->code;
-      fnptr (args);
-    }
-  return retval;
+  fatal ("no libffi support!\n");
 }
 
 #endif /* !defined(USE_LIBFFI) */
