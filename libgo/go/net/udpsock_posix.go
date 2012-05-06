@@ -37,6 +37,13 @@ func (a *UDPAddr) family() int {
 	return syscall.AF_INET6
 }
 
+func (a *UDPAddr) isWildcard() bool {
+	if a == nil || a.IP == nil {
+		return true
+	}
+	return a.IP.IsUnspecified()
+}
+
 func (a *UDPAddr) sockaddr(family int) (syscall.Sockaddr, error) {
 	return ipToSockaddr(family, a.IP, a.Port)
 }
@@ -81,9 +88,7 @@ func (c *UDPConn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	err := c.fd.Close()
-	c.fd = nil
-	return err
+	return c.fd.Close()
 }
 
 // LocalAddr returns the local network address.

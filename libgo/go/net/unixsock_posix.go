@@ -59,7 +59,7 @@ func unixSocket(net string, laddr, raddr *UnixAddr, mode string) (fd *netFD, err
 		f = sockaddrToUnixpacket
 	}
 
-	fd, err = socket(net, syscall.AF_UNIX, sotype, 0, la, ra, f)
+	fd, err = socket(net, syscall.AF_UNIX, sotype, 0, false, la, ra, f)
 	if err != nil {
 		goto Error
 	}
@@ -141,9 +141,7 @@ func (c *UnixConn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	err := c.fd.Close()
-	c.fd = nil
-	return err
+	return c.fd.Close()
 }
 
 // LocalAddr returns the local network address, a *UnixAddr.
@@ -208,8 +206,8 @@ func (c *UnixConn) SetWriteBuffer(bytes int) error {
 }
 
 // ReadFromUnix reads a packet from c, copying the payload into b.
-// It returns the number of bytes copied into b and the return address
-// that was on the packet.
+// It returns the number of bytes copied into b and the source address
+// of the packet.
 //
 // ReadFromUnix can be made to time out and return
 // an error with Timeout() == true after a fixed time limit;
@@ -264,6 +262,11 @@ func (c *UnixConn) WriteTo(b []byte, addr Addr) (n int, err error) {
 	return c.WriteToUnix(b, a)
 }
 
+// ReadMsgUnix reads a packet from c, copying the payload into b
+// and the associated out-of-band data into oob.
+// It returns the number of bytes copied into b, the number of
+// bytes copied into oob, the flags that were set on the packet,
+// and the source address of the packet.
 func (c *UnixConn) ReadMsgUnix(b, oob []byte) (n, oobn, flags int, addr *UnixAddr, err error) {
 	if !c.ok() {
 		return 0, 0, 0, nil, syscall.EINVAL
@@ -276,6 +279,9 @@ func (c *UnixConn) ReadMsgUnix(b, oob []byte) (n, oobn, flags int, addr *UnixAdd
 	return
 }
 
+// WriteMsgUnix writes a packet to addr via c, copying the payload from b
+// and the associated out-of-band data from oob.  It returns the number
+// of payload and out-of-band bytes written.
 func (c *UnixConn) WriteMsgUnix(b, oob []byte, addr *UnixAddr) (n, oobn int, err error) {
 	if !c.ok() {
 		return 0, 0, syscall.EINVAL
@@ -398,7 +404,7 @@ func (l *UnixListener) SetDeadline(t time.Time) (err error) {
 
 // File returns a copy of the underlying os.File, set to blocking mode.
 // It is the caller's responsibility to close f when finished.
-// Closing c does not affect f, and closing f does not affect c.
+// Closing l does not affect f, and closing f does not affect l.
 func (l *UnixListener) File() (f *os.File, err error) { return l.fd.dup() }
 
 // ListenUnixgram listens for incoming Unix datagram packets addressed to the

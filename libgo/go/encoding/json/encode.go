@@ -6,7 +6,7 @@
 // RFC 4627.
 //
 // See "JSON and Go" for an introduction to this package:
-// http://blog.golang.org/2011/01/json-and-go.html
+// http://golang.org/doc/articles/json_and_go.html
 package json
 
 import (
@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"unicode"
 	"unicode/utf8"
@@ -43,7 +44,8 @@ import (
 // to keep some browsers from misinterpreting JSON output as HTML.
 //
 // Array and slice values encode as JSON arrays, except that
-// []byte encodes as a base64-encoded string.
+// []byte encodes as a base64-encoded string, and a nil slice
+// encodes as the null JSON object.
 //
 // Struct values encode as JSON objects. Each exported struct field
 // becomes a member of the object unless
@@ -414,9 +416,11 @@ func isValidTag(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		switch c {
-		case '$', '-', '_', '/', '%':
-			// Acceptable
+		switch {
+		case strings.ContainsRune("!#$%&()*+-./:<=>?@[]^_{|}~", c):
+			// Backslash and quote chars are reserved, but
+			// otherwise any punctuation chars are allowed
+			// in a tag name.
 		default:
 			if !unicode.IsLetter(c) && !unicode.IsDigit(c) {
 				return false

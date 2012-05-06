@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 )
 
 type (
@@ -460,6 +461,9 @@ var fmttests = []struct {
 	// zero reflect.Value, which formats as <nil>.
 	// This test is just to check that it shows the two NaNs at all.
 	{"%v", map[float64]int{math.NaN(): 1, math.NaN(): 2}, "map[NaN:<nil> NaN:<nil>]"},
+
+	// Used to crash because nByte didn't allow for a sign.
+	{"%b", int64(-1 << 63), "-1000000000000000000000000000000000000000000000000000000000000000"},
 }
 
 func TestSprintf(t *testing.T) {
@@ -828,5 +832,15 @@ func TestBadVerbRecursion(t *testing.T) {
 	Sprintf("recur@%p, value: %d\n", r, r.i)
 	if failed {
 		t.Error("fail with value")
+	}
+}
+
+func TestIsSpace(t *testing.T) {
+	// This tests the internal isSpace function.
+	// IsSpace = isSpace is defined in export_test.go.
+	for i := rune(0); i <= unicode.MaxRune; i++ {
+		if IsSpace(i) != unicode.IsSpace(i) {
+			t.Errorf("isSpace(%U) = %v, want %v", i, IsSpace(i), unicode.IsSpace(i))
+		}
 	}
 }

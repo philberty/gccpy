@@ -7,10 +7,8 @@
 package filepath
 
 import (
-	"bytes"
 	"errors"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 )
@@ -31,6 +29,9 @@ const (
 //	4. Eliminate .. elements that begin a rooted path:
 //	   that is, replace "/.." by "/" at the beginning of a path,
 //         assuming Separator is '/'.
+//
+// The returned path ends in a slash only if it represents a root directory,
+// such as "/" on Unix or `C:\` on Windows.
 //
 // If the result of this process is an empty string, Clean
 // returns the string ".".
@@ -191,64 +192,7 @@ func Ext(path string) string {
 // If path is relative the result will be relative to the current directory,
 // unless one of the components is an absolute symbolic link.
 func EvalSymlinks(path string) (string, error) {
-	if runtime.GOOS == "windows" {
-		// Symlinks are not supported under windows.
-		_, err := os.Lstat(path)
-		if err != nil {
-			return "", err
-		}
-		return Clean(path), nil
-	}
-	const maxIter = 255
-	originalPath := path
-	// consume path by taking each frontmost path element,
-	// expanding it if it's a symlink, and appending it to b
-	var b bytes.Buffer
-	for n := 0; path != ""; n++ {
-		if n > maxIter {
-			return "", errors.New("EvalSymlinks: too many links in " + originalPath)
-		}
-
-		// find next path component, p
-		i := strings.IndexRune(path, Separator)
-		var p string
-		if i == -1 {
-			p, path = path, ""
-		} else {
-			p, path = path[:i], path[i+1:]
-		}
-
-		if p == "" {
-			if b.Len() == 0 {
-				// must be absolute path
-				b.WriteRune(Separator)
-			}
-			continue
-		}
-
-		fi, err := os.Lstat(b.String() + p)
-		if err != nil {
-			return "", err
-		}
-		if fi.Mode()&os.ModeSymlink == 0 {
-			b.WriteString(p)
-			if path != "" {
-				b.WriteRune(Separator)
-			}
-			continue
-		}
-
-		// it's a symlink, put it at the front of path
-		dest, err := os.Readlink(b.String() + p)
-		if err != nil {
-			return "", err
-		}
-		if IsAbs(dest) {
-			b.Reset()
-		}
-		path = dest + string(Separator) + path
-	}
-	return Clean(b.String()), nil
+	return evalSymlinks(path)
 }
 
 // Abs returns an absolute representation of path.

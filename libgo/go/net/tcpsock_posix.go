@@ -9,7 +9,6 @@
 package net
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"syscall"
@@ -30,7 +29,7 @@ func sockaddrToTCP(sa syscall.Sockaddr) Addr {
 	default:
 		if sa != nil {
 			// Diagnose when we will turn a non-nil sockaddr into a nil.
-			panic(fmt.Sprintf("unexpected type in sockaddrToTCP: %T", sa))
+			panic("unexpected type in sockaddrToTCP")
 		}
 	}
 	return nil
@@ -44,6 +43,13 @@ func (a *TCPAddr) family() int {
 		return syscall.AF_INET
 	}
 	return syscall.AF_INET6
+}
+
+func (a *TCPAddr) isWildcard() bool {
+	if a == nil || a.IP == nil {
+		return true
+	}
+	return a.IP.IsUnspecified()
 }
 
 func (a *TCPAddr) sockaddr(family int) (syscall.Sockaddr, error) {
@@ -102,9 +108,7 @@ func (c *TCPConn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	err := c.fd.Close()
-	c.fd = nil
-	return err
+	return c.fd.Close()
 }
 
 // CloseRead shuts down the reading side of the TCP connection.
@@ -353,5 +357,5 @@ func (l *TCPListener) SetDeadline(t time.Time) error {
 
 // File returns a copy of the underlying os.File, set to blocking mode.
 // It is the caller's responsibility to close f when finished.
-// Closing c does not affect f, and closing f does not affect c.
+// Closing l does not affect f, and closing f does not affect l.
 func (l *TCPListener) File() (f *os.File, err error) { return l.fd.dup() }
