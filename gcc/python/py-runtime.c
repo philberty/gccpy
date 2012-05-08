@@ -75,12 +75,13 @@ tree GPY_RR_extend_globl_stack (tree size)
   return build_call_expr (fndecl, 1, size);
 }
   
-tree GPY_RR_fold_attrib (tree ident, tree addr, tree offset)
+tree GPY_RR_fold_attrib (tree ident, tree addr, tree offset, tree nargs)
 {
   tree fntype = build_function_type_list (gpy_attrib_type_ptr,
                          gpy_const_char_ptr,
                          gpy_unsigned_char_ptr,
                          integer_type_node,
+			 integer_type_node,
                          NULL_TREE);
   tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
 			    get_identifier ("gpy_rr_fold_attribute"),
@@ -93,7 +94,7 @@ tree GPY_RR_fold_attrib (tree ident, tree addr, tree offset)
   DECL_EXTERNAL (fndecl) = 1;
   TREE_PUBLIC (fndecl) = 1;
 
-  return build_call_expr (fndecl, 3, ident, addr, offset);
+  return build_call_expr (fndecl, 4, ident, addr, offset, nargs);
 }
   
 tree GPY_RR_fold_attrib_list (VEC(tree,gc) * attribs)
@@ -137,11 +138,12 @@ tree GPY_RR_fold_class_decl (tree attrib_list, tree size, tree identifier)
   return build_call_expr (fndecl, 3, attrib_list, size, identifier);
 }
   
-tree GPY_RR_fold_func_decl (tree identifier, tree func)
+tree GPY_RR_fold_func_decl (tree identifier, tree func, tree nargs)
 {
   tree fntype = build_function_type_list (gpy_object_type_ptr,
                          gpy_const_char_ptr,
 			 ptr_type_node,
+			 integer_type_node,
                          NULL_TREE);
   tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
 			    get_identifier ("gpy_rr_fold_staticmethod_decl"),
@@ -154,14 +156,15 @@ tree GPY_RR_fold_func_decl (tree identifier, tree func)
   DECL_EXTERNAL (fndecl) = 1;
   TREE_PUBLIC (fndecl) = 1;
 
-  return build_call_expr (fndecl, 2, identifier, build_fold_addr_expr (func));
+  return build_call_expr (fndecl, 3, identifier, build_fold_addr_expr (func), nargs);
 }
   
-tree GPY_RR_fold_classmethod_decl (tree identifier, tree func)
+tree GPY_RR_fold_classmethod_decl (tree identifier, tree func, tree nargs)
 {
   tree fntype = build_function_type_list (gpy_object_type_ptr,
                          gpy_const_char_ptr,
 			 ptr_type_node,
+			 integer_type_node,
                          NULL_TREE);
   tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
 			    get_identifier ("gpy_rr_fold_classmethod_decl"),
@@ -174,7 +177,7 @@ tree GPY_RR_fold_classmethod_decl (tree identifier, tree func)
   DECL_EXTERNAL (fndecl) = 1;
   TREE_PUBLIC (fndecl) = 1;
 
-  return build_call_expr (fndecl, 2, identifier, build_fold_addr_expr (func));
+  return build_call_expr (fndecl, 3, identifier, build_fold_addr_expr (func), nargs);
 }
   
 tree GPY_RR_fold_integer (tree integer)

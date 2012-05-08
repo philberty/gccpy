@@ -99,13 +99,13 @@ void gpy_rr_cleanup_final (void)
 
 gpy_object_attrib_t * gpy_rr_fold_attribute (const unsigned char * identifier,
 					     unsigned char * code_addr,
-					     unsigned int offset)
+					     unsigned int offset, int nargs)
 {
   gpy_object_attrib_t * attrib = gpy_malloc (sizeof (gpy_object_attrib_t));
   attrib->identifier = identifier;
   if (code_addr)
     {
-      gpy_object_t * f = gpy_rr_fold_classmethod_decl (identifier, code_addr);
+      gpy_object_t * f = gpy_rr_fold_classmethod_decl (identifier, code_addr, nargs);
       attrib->addr = f;
     }
   else
@@ -178,7 +178,8 @@ gpy_object_t * gpy_rr_fold_class_decl (gpy_object_attrib_t ** attribs,
 }
 
 gpy_object_t * gpy_rr_fold_staticmethod_decl (const char * identifier,
-					      unsigned char * code_addr)
+					      unsigned char * code_addr,
+					      int nargs)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
@@ -195,7 +196,7 @@ gpy_object_t * gpy_rr_fold_staticmethod_decl (const char * identifier,
 
   gpy_literal_t n;
   n.type = TYPE_INTEGER;
-  n.literal.integer = 0;
+  n.literal.integer = nargs;
 
   gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &i };
   gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &p };
@@ -217,7 +218,8 @@ gpy_object_t * gpy_rr_fold_staticmethod_decl (const char * identifier,
 }
 
 gpy_object_t * gpy_rr_fold_classmethod_decl (const char * identifier,
-					     unsigned char * code_addr)
+					     unsigned char * code_addr,
+					     int nargs)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
@@ -234,7 +236,7 @@ gpy_object_t * gpy_rr_fold_classmethod_decl (const char * identifier,
 
   gpy_literal_t n;
   n.type = TYPE_INTEGER;
-  n.literal.integer = 0;
+  n.literal.integer = nargs;
 
   gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &s };
   gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &p };
@@ -280,7 +282,14 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
   if (type->tp_call)
     {
       /* args length checks ... */
-      retval = type->tp_call (decl, args);
+      int nparms = type->tp_nparms (decl);
+      if (nargs == nparms)
+	retval = type->tp_call (decl, args);
+      else
+	{
+	  fatal ("call takes %i arguments (%i given)!\n", nparms, nargs);
+	  retval = NULL;
+	}
     }
   else
     fatal ("name is not callable!\n");

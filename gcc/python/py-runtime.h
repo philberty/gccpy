@@ -40,7 +40,7 @@ extern tree gpy_dot_type_const_string_tree (const char *);
 extern tree GPY_RR_extend_globl_stack (tree);
   
 /* Fold attribute info into an attribute type */
-extern tree GPY_RR_fold_attrib (tree, tree, tree);
+extern tree GPY_RR_fold_attrib (tree, tree, tree, tree);
   
 /* Requires the first tree in the arguments to be an integer_type_node of the number of arguments */
 extern tree GPY_RR_fold_attrib_list (VEC(tree,gc) *);
@@ -48,11 +48,11 @@ extern tree GPY_RR_fold_attrib_list (VEC(tree,gc) *);
 /* Fold class data into class object args = <attrib list><size><identifier> */
 extern tree GPY_RR_fold_class_decl (tree, tree, tree);
   
-/* Fold func into decl <identifier><fndcel> */
-extern tree GPY_RR_fold_func_decl (tree, tree);
+/* Fold func into decl <identifier><fndcel><nargs> */
+extern tree GPY_RR_fold_func_decl (tree, tree, tree);
   
-/* Fold func into decl <identifier><fndcel> */
-extern tree GPY_RR_fold_classmethod_decl (tree, tree);
+/* Fold func into decl <identifier><fndcel><nargs> */
+extern tree GPY_RR_fold_classmethod_decl (tree, tree, tree);
   
 /* Fold integer into Int object  via Int (x) */
 extern tree GPY_RR_fold_integer (tree);

@@ -98,6 +98,7 @@ gpy_object_t * gpy_object_classobj_new (gpy_typedef_t * type,
   ctype->tp_dealloc = type->tp_dealloc;
   ctype->tp_print = type->tp_print;
   ctype->tp_call = type->tp_call;
+  ctype->tp_nparms = type->tp_nparms;
   ctype->binary_protocol = type->binary_protocol;
   ctype->members_defintion = attribs;
 
@@ -107,10 +108,18 @@ gpy_object_t * gpy_object_classobj_new (gpy_typedef_t * type,
   unsigned char * __field_init__ = gpy_rr_eval_attrib_reference (retval, "__field_init__");
   gpy_object_t * field_init = *((gpy_object_t **) __field_init__);
   unsigned char * codeaddr = gpy_object_classmethod_getaddr (field_init);
-  gpy_assert (codeaddr);
+  
+  ffi_cif cif;
+  ffi_type *argsdecl[1];
+  void *values[1];
+  
+  argsdecl[0] = &ffi_type_pointer;
+  values[0] = (void *)&self;
 
-  __field_init_ptr c = (__field_init_ptr)codeaddr;
-  c (self);
+  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, 1,
+			    &ffi_type_void, argsdecl)
+	      == FFI_OK);
+  ffi_call (&cif, (void (*)(void))codeaddr, NULL, values);
 
   return retval;
 }
@@ -153,6 +162,7 @@ gpy_object_t ** gpy_object_classobj_setupargs (gpy_object_t ** args,
   for (ptr = args; *ptr != NULL; ++ptr)
     idx ++;
 
+  /* +1 for self +1 for NULL sentinal */
   gpy_object_t ** newargs = calloc (idx+2, sizeof (gpy_object_t *));
   *newargs = self;
   gpy_object_t ** newargsptr = newargs;
@@ -198,6 +208,29 @@ gpy_object_t * gpy_object_classobj_call (gpy_object_t * self,
   return retval;
 }
 
+int gpy_object_classobj_nparms (gpy_object_t * self)
+{
+  int retval = 0;
+  unsigned char * __init__ = gpy_rr_eval_attrib_reference (self, "__init__");
+  gpy_object_t * init = *((gpy_object_t **) __init__);
+
+  gpy_assert (init->T == TYPE_OBJECT_DECL);
+  gpy_typedef_t * calltype = init->o.object_state->definition;
+  if (calltype->tp_call)
+    {
+      retval = calltype->tp_nparms (init);
+      /*
+	we -1 to the arguments here for the arguments check to pass
+	since when we call __init__ (self)
+       
+	we are creating the self argument in the call... so it isn't
+	directly passed
+      */
+      retval--;
+    }
+  return retval;
+}
+
 static struct gpy_typedef_t class_obj = {
   "classobj",
   0,
@@ -205,6 +238,7 @@ static struct gpy_typedef_t class_obj = {
   &gpy_object_classobj_dealloc,
   &gpy_object_classobj_print,
   &gpy_object_classobj_call,
+  &gpy_object_classobj_nparms,
   NULL,
   NULL
 };

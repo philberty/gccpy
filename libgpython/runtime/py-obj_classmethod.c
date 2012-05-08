@@ -88,14 +88,25 @@ gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
   gpy_object_t * retval = NULL_OBJECT;
   gpy_assert (self->T == TYPE_OBJECT_DECL);
 
-  struct gpy_object_classmethod_t * state = self->o.object_state->state;
-  if (state->code)
+  unsigned char * code = gpy_object_classmethod_getaddr (self);
+  int nargs = gpy_object_classmethod_nparms (self);
+  printf ("nargs = %i!\n", nargs);
+  if (code)
     {
-      classmethod_fndecl fnptr = (classmethod_fndecl)state->code;
-      gpy_object_t ** ptr = args;
-      gpy_object_t * class = *ptr;
-      ptr++;
-      fnptr (class, ptr);
+      ffi_cif cif;
+      ffi_type *args[nargs];
+      void *values[nargs];
+     
+      int idx;
+      for (idx = 0; idx < nargs; ++idx)
+	{
+	  args[idx] = &ffi_type_pointer;
+	  values[idx] = (void *)(args + idx);
+	}
+      gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
+				&ffi_type_void, args)
+		  == FFI_OK);
+      ffi_call (&cif, (void (*)(void))code, NULL, values);
     }
   return retval;
 }
@@ -105,19 +116,8 @@ gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
 gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
 					    gpy_object_t ** args)
 {
-  gpy_object_t * retval = NULL_OBJECT;
-  gpy_assert (self->T == TYPE_OBJECT_DECL);
-
-  struct gpy_object_classmethod_t * state = self->o.object_state->state;
-  if (state->code)
-    {
-      classmethod_fndecl fnptr = (classmethod_fndecl)state->code;
-      gpy_object_t ** ptr = args;
-      gpy_object_t * class = *ptr;
-      ptr++;
-      fnptr (class, ptr);
-    }
-  return retval;
+  fatal ("no libffi support!\n");
+  return NULL;
 }
 
 #endif /* !defined(USE_LIBFFI) */
@@ -129,6 +129,13 @@ unsigned char * gpy_object_classmethod_getaddr (gpy_object_t * self)
   return s->code;
 }
 
+int gpy_object_classmethod_nparms (gpy_object_t * self)
+{
+  gpy_object_state_t * state = self->o.object_state;
+  struct gpy_object_classmethod_t * s = state->state;
+  return s->nargs;
+}
+
 static struct gpy_typedef_t class_functor_obj = {
   "classmethod",
   sizeof (struct gpy_object_classmethod_t),
@@ -136,6 +143,7 @@ static struct gpy_typedef_t class_functor_obj = {
   &gpy_object_classmethod_dealloc,
   &gpy_object_classmethod_print,
   &gpy_object_classmethod_call,
+  &gpy_object_classmethod_nparms,
   NULL,
   NULL
 };

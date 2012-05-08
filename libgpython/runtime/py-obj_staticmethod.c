@@ -89,27 +89,39 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
   gpy_object_t * retval = NULL_OBJECT;
   gpy_assert (self->T == TYPE_OBJECT_DECL);
 
-  struct gpy_object_staticmethod_t * state = self->o.object_state->state;
-  if (state->code)
+  unsigned char * code = gpy_object_staticmethod_getaddr (self);
+  int nargs = gpy_object_staticmethod_nparms (self);
+  if (code)
     {
-      staticmethod_fndecl fnptr = (staticmethod_fndecl)state->code;
-      
-      ffi_cif cif;
-      ffi_type *args[1];
-      void *values[1];
-      
-      /* Initialize the argument info vectors */
-      args[0] = &ffi_type_pointer;
-      values[0] = (void *) &arguments;
-      
-      /* Initialize the cif */
-      if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 1,
-     		       &ffi_type_void, args) == FFI_OK)
+      if (nargs > 0)
 	{
-	  ffi_call(&cif, fnptr, NULL, values);
+	  ffi_cif cif;
+	  ffi_type *args[nargs];
+	  void *values[nargs];
+
+	  int idx;
+	  for (idx = 0; idx < nargs; ++idx)
+	    {
+	      args[idx] = &ffi_type_pointer;
+	      values[idx] = (void *)(arguments + idx);
+	    }
+	  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
+				    &ffi_type_void, args)
+		      == FFI_OK);
+	  ffi_call (&cif, (void (*)(void))code, NULL, values);
 	}
       else
-	fatal ("error setting up the call!\n");
+	{
+	  ffi_cif cif;
+	  ffi_type *args[1];
+
+	  args[0] = &ffi_type_void;
+
+	  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, 0,
+		       &ffi_type_void, args)
+		      == FFI_OK);
+	  ffi_call (&cif, (void (*)(void))code, NULL, NULL);
+	}
     }
   return retval;
 }
@@ -120,9 +132,17 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
 					     gpy_object_t ** args)
 {
   fatal ("no libffi support!\n");
+  return NULL;
 }
 
 #endif /* !defined(USE_LIBFFI) */
+
+int gpy_object_staticmethod_nparms (gpy_object_t * self)
+{
+  gpy_object_state_t * state = self->o.object_state;
+  struct gpy_object_staticmethod_t * s = state->state;
+  return s->nargs;
+}
 
 unsigned char * gpy_object_staticmethod_getaddr (gpy_object_t * self)
 {
@@ -138,6 +158,7 @@ static struct gpy_typedef_t functor_obj = {
   &gpy_object_staticmethod_dealloc,
   &gpy_object_staticmethod_print,
   &gpy_object_staticmethod_call,
+  &gpy_object_staticmethod_nparms,
   NULL,
   NULL
 };

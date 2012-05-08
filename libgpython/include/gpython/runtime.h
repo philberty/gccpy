@@ -29,8 +29,8 @@ along with GCC; see the file COPYING3.  If not see
 #define __gpy_classmethod_type_node			\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[3]
 
-extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *);
-extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *);
+extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
+extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);
 extern unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t *, const char *);
 
 extern void gpy_rr_eval_print (int, int, ...);

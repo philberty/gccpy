@@ -142,6 +142,7 @@ static struct gpy_typedef_t integer_obj = {
   gpy_obj_integer_destroy,
   gpy_obj_integer_print,
   NULL,
+  NULL,
   &integer_binary_ops,
   NULL
 };

@@ -29,17 +29,18 @@ py-runtime = { code = GPY_RR_extend_globl_stack;
              };
 
 py-runtime = { code = GPY_RR_fold_attrib;
-	       arguments = "tree ident, tree addr, tree offset";
-	       proto = "tree, tree, tree";
+	       arguments = "tree ident, tree addr, tree offset, tree nargs";
+	       proto = "tree, tree, tree, tree";
 	       comment = "/* Fold attribute info into an attribute type */";
                function_identifier = "gpy_rr_fold_attribute";
                fntype = "gpy_attrib_type_ptr,
                          gpy_const_char_ptr,
                          gpy_unsigned_char_ptr,
                          integer_type_node,
+			 integer_type_node,
                          NULL_TREE";
 	       build_call = build_call_expr;
-	       build_call_args = "fndecl, 3, ident, addr, offset";
+	       build_call_args = "fndecl, 4, ident, addr, offset, nargs";
              };
 py-runtime = { code = GPY_RR_fold_attrib_list;
 	       arguments = "VEC(tree,gc) * attribs";
@@ -67,28 +68,30 @@ py-runtime = { code = GPY_RR_fold_class_decl;
 	       build_call_args = "fndecl, 3, attrib_list, size, identifier";
              };
 py-runtime = { code = GPY_RR_fold_func_decl;
-	       arguments = "tree identifier, tree func";
-	       proto = "tree, tree";
-	       comment = "/* Fold func into decl <identifier><fndcel> */";
+	       arguments = "tree identifier, tree func, tree nargs";
+	       proto = "tree, tree, tree";
+	       comment = "/* Fold func into decl <identifier><fndcel><nargs> */";
                function_identifier = "gpy_rr_fold_staticmethod_decl";
                fntype = "gpy_object_type_ptr,
                          gpy_const_char_ptr,
 			 ptr_type_node,
+			 integer_type_node,
                          NULL_TREE";
 	       build_call = build_call_expr;
-	       build_call_args = "fndecl, 2, identifier, build_fold_addr_expr (func)";
+	       build_call_args = "fndecl, 3, identifier, build_fold_addr_expr (func), nargs";
              };
 py-runtime = { code = GPY_RR_fold_classmethod_decl;
-	       arguments = "tree identifier, tree func";
-	       proto = "tree, tree";
-	       comment = "/* Fold func into decl <identifier><fndcel> */";
+	       arguments = "tree identifier, tree func, tree nargs";
+	       proto = "tree, tree, tree";
+	       comment = "/* Fold func into decl <identifier><fndcel><nargs> */";
                function_identifier = "gpy_rr_fold_classmethod_decl";
                fntype = "gpy_object_type_ptr,
                          gpy_const_char_ptr,
 			 ptr_type_node,
+			 integer_type_node,
                          NULL_TREE";
 	       build_call = build_call_expr;
-	       build_call_args = "fndecl, 2, identifier, build_fold_addr_expr (func)";
+	       build_call_args = "fndecl, 3, identifier, build_fold_addr_expr (func), nargs";
              };
 py-runtime = { code = GPY_RR_fold_integer;
 	       arguments = "tree integer";

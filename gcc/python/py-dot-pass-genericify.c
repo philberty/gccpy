@@ -195,42 +195,6 @@ void gpy_dot_pass_genericify_class_type (tree type, tree self,
 }
 
 static
-void gpy_dot_pass_genericify_arguments_to_context (gpy_context_t context,
-						   gpy_dot_tree_t * parameters,
-						   tree argdecl, tree * block)
-{
-  gpy_dot_tree_t *pnode = parameters;
-  if (pnode)
-    {
-      int offset = 0;
-      for (; pnode != NULL_DOT; pnode = DOT_CHAIN (pnode))
-	{
-	  const char * parmid = DOT_IDENTIFIER_POINTER (pnode);
-	  debug ("folding parameter <%s>!\n", parmid);
-
-	  tree vardecl = build_decl (UNKNOWN_LOCATION, VAR_DECL, get_identifier (parmid),
-				     gpy_object_type_ptr);
-
-	  tree element_size = TYPE_SIZE_UNIT (gpy_object_type_ptr_ptr);
-	  tree offs = fold_build2_loc (UNKNOWN_LOCATION, MULT_EXPR, sizetype,
-				       build_int_cst (sizetype, offset),
-				       element_size);
-	  tree addr = fold_build2_loc (UNKNOWN_LOCATION, POINTER_PLUS_EXPR,
-				       gpy_object_type_ptr_ptr,
-				       argdecl, offs);
-	  
-	  append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
-					    vardecl, 
-					    build_fold_indirect_ref (addr)),
-				    block);
-	  gcc_assert (!gpy_dd_hash_insert (gpy_dd_hash_string (parmid), vardecl,
-					   context));
-	  offset++;
-	}
-    }
-}
-
-static
 tree gpy_dot_pass_genericify_find_addr (const char * id,
 					const char * parent_ident,
 					VEC(tree,gc) * decls)
@@ -253,7 +217,7 @@ tree gpy_dot_pass_genericify_find_addr (const char * id,
 	}
     }
   if (found)
-    retval = build_fold_addr_expr (decl);
+    retval = decl;
   return retval;
 }
 
@@ -277,9 +241,22 @@ void gpy_dot_pass_genericify_walk_class (tree * block, tree type,
 				   build_int_cst (sizetype, offset),
 				   element_size);
       tree str = gpy_dot_type_const_string_tree (ident);
+      tree fnaddr = gpy_dot_pass_genericify_find_addr (ident, type_name, ldecls);
+
+      tree arguments = NULL_TREE;
+      int n = 0;
+      if (fnaddr != null_pointer_node)
+	{
+	  gcc_assert (TREE_CODE (fnaddr) == FUNCTION_DECL);
+	  arguments = DECL_ARGUMENTS (fnaddr);
+	  tree args;
+	  for (args = arguments; args != NULL_TREE; args = DECL_CHAIN (args))
+	    n++;
+	}
+      tree nargs = build_int_cst (integer_type_node, n);
       tree a = GPY_RR_fold_attrib (build_fold_addr_expr (str),
-				   gpy_dot_pass_genericify_find_addr (ident, type_name, ldecls),
-				   offs);
+				   build_fold_addr_expr (fnaddr),
+				   offs, nargs);
       VEC_safe_push (tree, gc, attribs, a);
       offset++;
     }
@@ -420,7 +397,6 @@ tree gpy_dot_pass_decl_lookup (VEC(gpy_context_t,gc) * context,
 	{
 	  if (o->data)
 	    {
-	      debug ("found decl <%s>!\n", identifier);
 	      retval = (tree) o->data;
 	      break;
 	    }
@@ -471,7 +447,6 @@ tree gpy_dot_pass_genericify_modify (gpy_dot_tree_t * decl, tree * block,
 	{
 	case VAR_DECL:
 	  {
-	    debug ("var_decl assign!\n");
 	    append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
 					      addr,
 					      addr_rhs_tree),
@@ -486,7 +461,6 @@ tree gpy_dot_pass_genericify_modify (gpy_dot_tree_t * decl, tree * block,
 
 	case COMPONENT_REF:
 	  {
-	    debug ("component_ref assign!\n");
 	    append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
 					      addr,
 					      addr_rhs_tree),
@@ -750,9 +724,16 @@ static
 tree gpy_dot_pass_genericify_toplevl_functor_decl (gpy_dot_tree_t * decl,
 						   VEC(gpy_context_t, gc) * context)
 {
-  tree fntype = build_function_type_list (void_type_node,
-					  gpy_object_type_ptr_ptr,
-					  NULL_TREE);
+  tree params = NULL_TREE;
+  gpy_dot_tree_t * pnode = DOT_lhs_TT (decl);
+  gpy_dot_tree_t * p;
+  for (p = pnode; p != NULL_DOT; p = DOT_CHAIN (p))
+    {
+      chainon (params, tree_cons (NULL_TREE, gpy_object_type_ptr, NULL_TREE));
+    }
+  chainon (params, tree_cons (NULL_TREE, void_type_node, NULL_TREE));
+  tree fntype = build_function_type (void_type_node, params);
+
   tree ident = GPY_dot_pass_genericify_gen_concat_identifier (GPY_current_module_name,
 							      DOT_IDENTIFIER_POINTER (DOT_FIELD (decl))
 							      );
@@ -764,18 +745,29 @@ tree gpy_dot_pass_genericify_toplevl_functor_decl (gpy_dot_tree_t * decl,
   TREE_USED(fndecl) = 1;
   DECL_ARTIFICIAL(fndecl) = 1;
   TREE_PUBLIC(fndecl) = 1;
+
+  gpy_hash_tab_t ctx;
+  gpy_dd_hash_init_table (&ctx);
   
   tree arglist = NULL_TREE;
-  tree self_parm_decl = build_decl (BUILTINS_LOCATION, PARM_DECL,
-                                    get_identifier ("__arguments__"),
-                                    gpy_object_type_ptr_ptr);
+  tree parm_decl;
+  for (p = pnode; p != NULL_DOT; p = DOT_CHAIN (p))
+    {
+      const char * parmid = DOT_IDENTIFIER_POINTER (p);
+      parm_decl = build_decl (BUILTINS_LOCATION, PARM_DECL,
+			      get_identifier (parmid),
+			      gpy_object_type_ptr);
+      
+      DECL_CONTEXT (parm_decl) = fndecl;
+      DECL_ARG_TYPE (parm_decl) = gpy_object_type_ptr;
+      TREE_READONLY (parm_decl) = 1;
+      arglist = chainon (arglist, parm_decl);
+      TREE_USED (parm_decl) = 1;
 
-  DECL_CONTEXT (self_parm_decl) = fndecl;
-  DECL_ARG_TYPE (self_parm_decl) = TREE_VALUE (TYPE_ARG_TYPES (TREE_TYPE (fndecl)));
-  TREE_READONLY (self_parm_decl) = 1;
-  arglist = chainon (arglist, self_parm_decl);
+      gcc_assert (!gpy_dd_hash_insert (gpy_dd_hash_string (parmid), parm_decl, &ctx));
+    }
 
-  TREE_USED (self_parm_decl) = 1;
+  VEC_safe_push (gpy_context_t, gc, context, &ctx);
   DECL_ARGUMENTS (fndecl) = arglist;
 
   /* Define the return type (represented by RESULT_DECL) for the main functin */
@@ -792,13 +784,6 @@ tree gpy_dot_pass_genericify_toplevl_functor_decl (gpy_dot_tree_t * decl,
   DECL_INITIAL (fndecl) = block;
 
   tree stmts = alloc_stmt_list ();
-
-  gpy_hash_tab_t ctx;
-  gpy_dd_hash_init_table (&ctx);
-  gpy_dot_tree_t * pnode = DOT_lhs_TT (decl);
-
-  gpy_dot_pass_genericify_arguments_to_context (&ctx, pnode, self_parm_decl, &stmts);
-  VEC_safe_push (gpy_context_t, gc, context, &ctx);
 
   gpy_dot_tree_t * node = decl->opb.t;
   do {
@@ -853,10 +838,16 @@ tree gpy_dot_pass_genericify_class_method_attrib (gpy_dot_tree_t * decl,
 						  const char * parent_ident,
 						  VEC(gpy_context_t,gc) * context)
 {
-  tree fntype = build_function_type_list (void_type_node,
-					  gpy_object_type_ptr,
-					  gpy_object_type_ptr_ptr,
-					  NULL_TREE);
+  tree params = NULL_TREE;
+  gpy_dot_tree_t * pnode = DOT_lhs_TT (decl);
+  gpy_dot_tree_t * p;
+  for (p = pnode; p != NULL_DOT; p = DOT_CHAIN (p))
+    {
+      chainon (params, tree_cons (NULL_TREE, gpy_object_type_ptr, NULL_TREE));
+    }
+  chainon (params, tree_cons (NULL_TREE, void_type_node, NULL_TREE));
+  tree fntype = build_function_type (void_type_node, params);
+
   tree ident = GPY_dot_pass_genericify_gen_concat_identifier (GPY_current_module_name,
 							      parent_ident);
   ident = GPY_dot_pass_genericify_gen_concat_identifier (IDENTIFIER_POINTER (ident),
@@ -870,30 +861,29 @@ tree gpy_dot_pass_genericify_class_method_attrib (gpy_dot_tree_t * decl,
   DECL_ARTIFICIAL(fndecl) = 1;
   TREE_PUBLIC(fndecl) = 1;
 
-  tree self_parm_decl = NULL_TREE;
+  gpy_hash_tab_t ctx;
+  gpy_dd_hash_init_table (&ctx);
+
   tree arglist = NULL_TREE;
-  tree parm_decl = build_decl (BUILTINS_LOCATION, PARM_DECL,
-			       get_identifier ("self"),
-			       gpy_object_type_ptr);
+  for (p = pnode; p != NULL_DOT; p = DOT_CHAIN (p))
+    {
+      const char * parmid = DOT_IDENTIFIER_POINTER (p);
+      tree parm_decl = build_decl (BUILTINS_LOCATION, PARM_DECL,
+				   get_identifier (parmid),
+				   gpy_object_type_ptr);
+      
+      DECL_CONTEXT (parm_decl) = fndecl;
+      DECL_ARG_TYPE (parm_decl) = gpy_object_type_ptr;
+      TREE_READONLY (parm_decl) = 1;
+      arglist = chainon (arglist, parm_decl);
+      TREE_USED (parm_decl) = 1;
 
-  DECL_CONTEXT (parm_decl) = fndecl;
-  DECL_ARG_TYPE (parm_decl) = TREE_VALUE (TYPE_ARG_TYPES (TREE_TYPE (fndecl)));
-  TREE_READONLY (parm_decl) = 1;
-  arglist = chainon (arglist, parm_decl);
-  TREE_USED (parm_decl) = 1;
-  self_parm_decl = parm_decl;
+      debug ("parmid = <%s>!\n", parmid);
+      gcc_assert (!gpy_dd_hash_insert (gpy_dd_hash_string (parmid), parm_decl, &ctx));
+    }
 
-  parm_decl = build_decl (BUILTINS_LOCATION, PARM_DECL,
-			  get_identifier ("__arguments__"),
-			  gpy_object_type_ptr_ptr);
-
-  DECL_CONTEXT (parm_decl) = fndecl;
-  DECL_ARG_TYPE (parm_decl) = TREE_VALUE (TYPE_ARG_TYPES (TREE_TYPE (fndecl)));
-  TREE_READONLY (parm_decl) = 1;
-  arglist = chainon (arglist, parm_decl);
-  TREE_USED (parm_decl) = 1;
-
-  DECL_ARGUMENTS (fndecl) = arglist;
+  DECL_ARGUMENTS (fndecl) = arglist;  
+  VEC_safe_push (gpy_context_t, gc, context, &ctx);
 
   /* Define the return type (represented by RESULT_DECL) for the main functin */
   tree resdecl = build_decl(BUILTINS_LOCATION, RESULT_DECL,
@@ -910,20 +900,6 @@ tree gpy_dot_pass_genericify_class_method_attrib (gpy_dot_tree_t * decl,
 
   tree stmts = alloc_stmt_list ();
 
-  gpy_hash_tab_t ctx;
-  gpy_dd_hash_init_table (&ctx);
-
-  gpy_dot_tree_t * pnode = DOT_lhs_TT (decl);
-  // we dont care about self...
-  pnode = DOT_CHAIN (pnode);
-
-  gpy_dot_pass_genericify_arguments_to_context (&ctx, pnode, parm_decl, &stmts);
-  if (self_parm_decl)
-    gcc_assert (!gpy_dd_hash_insert (gpy_dd_hash_string ("self"), self_parm_decl,
-				     &ctx));
-  else
-    warning(0, "No self parameter declared!\n");
-  VEC_safe_push (gpy_context_t, gc, context, &ctx);
   /*
     lower the function suite here and append all initilization
   */
@@ -1183,9 +1159,15 @@ VEC(tree,gc) * gpy_dot_pass_genericify_TU (gpy_hash_tab_t * modules,
 	    tree funcdecl = gpy_dot_pass_decl_lookup (context, funcid);
 	    gcc_assert (funcdecl != error_mark_node);
 
+	    gpy_dot_tree_t * pnode = DOT_lhs_TT (idtx);
+	    int n = 0;
+	    for (; pnode != NULL_DOT; pnode = DOT_CHAIN (pnode))
+	      n++;
+
+	    tree nargs = build_int_cst (integer_type_node, n);
 	    tree str = gpy_dot_type_const_string_tree (funcid);
 	    tree fold_functor = GPY_RR_fold_func_decl (build_fold_addr_expr (str),
-						       t);
+						       t, nargs);
 
 	    if (TREE_CODE (funcdecl) == VAR_DECL)
 	      {
