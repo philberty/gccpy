@@ -83,16 +83,17 @@ void gpy_object_classmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 #ifdef USE_LIBFFI
 
 gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
-					    gpy_object_t ** args)
+					    gpy_object_t ** arguments)
 {
   gpy_object_t * retval = NULL_OBJECT;
   gpy_assert (self->T == TYPE_OBJECT_DECL);
 
   unsigned char * code = gpy_object_classmethod_getaddr (self);
   int nargs = gpy_object_classmethod_nparms (self);
-  printf ("nargs = %i!\n", nargs);
   if (code)
     {
+      gpy_assert (nargs > 0);
+
       ffi_cif cif;
       ffi_type *args[nargs];
       void *values[nargs];
@@ -101,7 +102,7 @@ gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
       for (idx = 0; idx < nargs; ++idx)
 	{
 	  args[idx] = &ffi_type_pointer;
-	  values[idx] = (void *)(args + idx);
+	  values[idx] = (void *)(arguments + idx);
 	}
       gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
 				&ffi_type_void, args)
