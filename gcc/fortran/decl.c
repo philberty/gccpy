@@ -1949,30 +1949,6 @@ variable_decl (int elem)
       goto cleanup;
     }
 
-  /* An interface body specifies all of the procedure's
-     characteristics and these shall be consistent with those
-     specified in the procedure definition, except that the interface
-     may specify a procedure that is not pure if the procedure is
-     defined to be pure(12.3.2).  */
-  if ((current_ts.type == BT_DERIVED || current_ts.type == BT_CLASS)
-      && gfc_current_ns->proc_name
-      && gfc_current_ns->proc_name->attr.if_source == IFSRC_IFBODY
-      && current_ts.u.derived->ns != gfc_current_ns)
-    {
-      gfc_symtree *st;
-      st = gfc_find_symtree (gfc_current_ns->sym_root, current_ts.u.derived->name);
-      if (!(current_ts.u.derived->attr.imported
-		&& st != NULL
-		&& gfc_find_dt_in_generic (st->n.sym) == current_ts.u.derived)
-	    && !gfc_current_ns->has_import_set)
-	{
-	    gfc_error ("The type of '%s' at %C has not been declared within the "
-		       "interface", name);
-	    m = MATCH_ERROR;
-	    goto cleanup;
-	}
-    }
-    
   if (check_function_name (name) == FAILURE)
     {
       m = MATCH_ERROR;
@@ -3160,14 +3136,14 @@ gfc_match_import (void)
 	      return MATCH_ERROR;
 	    }
 
-	  if (gfc_find_symtree (gfc_current_ns->sym_root,name))
+	  if (gfc_find_symtree (gfc_current_ns->sym_root, name))
 	    {
 	      gfc_warning ("'%s' is already IMPORTed from host scoping unit "
 			   "at %C.", name);
 	      goto next_item;
 	    }
 
-	  st = gfc_new_symtree (&gfc_current_ns->sym_root, sym->name);
+	  st = gfc_new_symtree (&gfc_current_ns->sym_root, name);
 	  st->n.sym = sym;
 	  sym->refs++;
 	  sym->attr.imported = 1;
@@ -3179,8 +3155,8 @@ gfc_match_import (void)
 		 lower-case name contains the associated generic function. */
 	      st = gfc_new_symtree (&gfc_current_ns->sym_root,
 			gfc_get_string ("%c%s",
-				(char) TOUPPER ((unsigned char) sym->name[0]),
-				&sym->name[1]));
+				(char) TOUPPER ((unsigned char) name[0]),
+				&name[1]));
 	      st->n.sym = sym;
 	      sym->refs++;
 	      sym->attr.imported = 1;
@@ -3786,8 +3762,9 @@ match_attr_spec (void)
 	}
     }
 
-  /* Module variables implicitly have the SAVE attribute.  */
-  if (gfc_current_state () == COMP_MODULE && !current_attr.save)
+  /* Since Fortran 2008 module variables implicitly have the SAVE attribute.  */
+  if (gfc_current_state () == COMP_MODULE && !current_attr.save
+      && (gfc_option.allow_std & GFC_STD_F2008) != 0)
     current_attr.save = SAVE_IMPLICIT;
 
   colon_seen = 1;
@@ -4230,7 +4207,7 @@ gfc_match_data_decl (void)
 	goto ok;
 
       gfc_find_symbol (current_ts.u.derived->name,
-		       current_ts.u.derived->ns->parent, 1, &sym);
+		       current_ts.u.derived->ns, 1, &sym);
 
       /* Any symbol that we find had better be a type definition
 	 which has its components defined.  */
@@ -5895,6 +5872,8 @@ gfc_match_end (gfc_statement *st)
   const char *target;
   int eos_ok;
   match m;
+  gfc_namespace *parent_ns, *ns, *prev_ns;
+  gfc_namespace **nsp;
 
   old_loc = gfc_current_locus;
   if (gfc_match ("end") != MATCH_YES)
@@ -6120,6 +6099,35 @@ syntax:
 
 cleanup:
   gfc_current_locus = old_loc;
+
+  /* If we are missing an END BLOCK, we created a half-ready namespace.
+     Remove it from the parent namespace's sibling list.  */
+
+  if (state == COMP_BLOCK)
+    {
+      parent_ns = gfc_current_ns->parent;
+
+      nsp = &(gfc_state_stack->previous->tail->ext.block.ns);
+
+      prev_ns = NULL;
+      ns = *nsp;
+      while (ns)
+	{
+	  if (ns == gfc_current_ns)
+	    {
+	      if (prev_ns == NULL)
+		*nsp = NULL;
+	      else
+		prev_ns->sibling = ns->sibling;
+	    }
+	  prev_ns = ns;
+	  ns = ns->sibling;
+	}
+  
+      gfc_free_namespace (gfc_current_ns);
+      gfc_current_ns = parent_ns;
+    }
+
   return MATCH_ERROR;
 }
 

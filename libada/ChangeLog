@@ -1,3 +1,28 @@
+2013-02-13  Kai Tietz  <ktietz@redhat.com>
+
+	PR target/52122
+	* Makefile.in (LN_S_RECURSIVE): New.
+	(adainclude, adalib): Use LN_S_RECURSIVE for copy.
+
+2012-09-20  Release Manager
+
+	* GCC 4.7.2 released.
+
+2012-06-14  Release Manager
+
+	* GCC 4.7.1 released.
+
+2012-06-11  Olivier Hainque  <hainque@adacore.com>
+
+	* Makefile.in (GNATLIBCFLAGS_FOR_C): Remove $(PICFLAG).
+
+2012-05-06  Pascal Obry  <obry@adacore.com>
+
+	Revert
+	2012-02-24  Dave Korn  <dave.korn.cygwin@gmail.com>
+
+	* Makefile.in (bindir): Import from autoconf and pass down to submake.
+
 2012-03-22  Release Manager
 
 	* GCC 4.7.0 released.

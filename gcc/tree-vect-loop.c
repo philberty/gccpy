@@ -1326,7 +1326,9 @@ vect_analyze_loop_operations (loop_vec_info loop_vinfo, bool slp)
                     return false;
 
                   op_def_stmt = SSA_NAME_DEF_STMT (phi_op);
-                  if (!op_def_stmt || !vinfo_for_stmt (op_def_stmt))
+		  if (!op_def_stmt
+		      || !flow_bb_inside_loop_p (loop, gimple_bb (op_def_stmt))
+		      || !vinfo_for_stmt (op_def_stmt))
                     return false;
 
                   if (STMT_VINFO_RELEVANT (vinfo_for_stmt (op_def_stmt))
@@ -2255,7 +2257,10 @@ vect_is_simple_reduction_1 (loop_vec_info loop_info, gimple phi,
   if (orig_code == MINUS_EXPR)
     {
       tree rhs = gimple_assign_rhs2 (def_stmt);
-      tree negrhs = make_ssa_name (SSA_NAME_VAR (rhs), NULL);
+      tree var = TREE_CODE (rhs) == SSA_NAME
+		 ? SSA_NAME_VAR (rhs)
+		 : create_tmp_reg (TREE_TYPE (rhs), NULL);
+      tree negrhs = make_ssa_name (var, NULL);
       gimple negate_stmt = gimple_build_assign_with_ops (NEGATE_EXPR, negrhs,
 							 rhs, NULL);
       gimple_stmt_iterator gsi = gsi_for_stmt (def_stmt);
@@ -2381,7 +2386,7 @@ vect_force_simple_reduction (loop_vec_info loop_info, gimple phi,
 
 /* Calculate the cost of one scalar iteration of the loop.  */
 int
-vect_get_single_scalar_iteraion_cost (loop_vec_info loop_vinfo)
+vect_get_single_scalar_iteration_cost (loop_vec_info loop_vinfo)
 {
   struct loop *loop = LOOP_VINFO_LOOP (loop_vinfo);
   basic_block *bbs = LOOP_VINFO_BBS (loop_vinfo);
@@ -2614,7 +2619,7 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo)
 	}
     }
 
-  scalar_single_iter_cost = vect_get_single_scalar_iteraion_cost (loop_vinfo);
+  scalar_single_iter_cost = vect_get_single_scalar_iteration_cost (loop_vinfo);
 
   /* Add additional cost for the peeled instructions in prologue and epilogue
      loop.
@@ -4448,7 +4453,6 @@ vectorizable_reduction (gimple stmt, gimple_stmt_iterator *gsi,
   if (orig_stmt)
     {
       orig_stmt_info = vinfo_for_stmt (orig_stmt);
-      gcc_assert (STMT_VINFO_RELATED_STMT (orig_stmt_info) == stmt);
       gcc_assert (STMT_VINFO_IN_PATTERN_P (orig_stmt_info));
       gcc_assert (!STMT_VINFO_IN_PATTERN_P (stmt_info));
     }
@@ -4518,7 +4522,7 @@ vectorizable_reduction (gimple stmt, gimple_stmt_iterator *gsi,
      The last use is the reduction variable.  In case of nested cycle this
      assumption is not true: we use reduc_index to record the index of the
      reduction variable.  */
-  for (i = 0; i < op_type-1; i++)
+  for (i = 0; i < op_type - 1; i++)
     {
       /* The condition of COND_EXPR is checked in vectorizable_condition().  */
       if (i == 0 && code == COND_EXPR)
@@ -4550,11 +4554,18 @@ vectorizable_reduction (gimple stmt, gimple_stmt_iterator *gsi,
   if (!vectype_in)
     vectype_in = tem;
   gcc_assert (is_simple_use);
-  gcc_assert (dt == vect_reduction_def
-              || dt == vect_nested_cycle
-              || ((dt == vect_internal_def || dt == vect_external_def
-                   || dt == vect_constant_def || dt == vect_induction_def)
-                   && nested_cycle && found_nested_cycle_def));
+  if (!(dt == vect_reduction_def
+	|| dt == vect_nested_cycle
+	|| ((dt == vect_internal_def || dt == vect_external_def
+	     || dt == vect_constant_def || dt == vect_induction_def)
+	    && nested_cycle && found_nested_cycle_def)))
+    {
+      /* For pattern recognized stmts, orig_stmt might be a reduction,
+	 but some helper statements for the pattern might not, or
+	 might be COND_EXPRs with reduction uses in the condition.  */
+      gcc_assert (orig_stmt);
+      return false;
+    }
   if (!found_nested_cycle_def)
     reduc_def_stmt = def_stmt;
 
@@ -5048,12 +5059,46 @@ vectorizable_induction (gimple phi, gimple_stmt_iterator *gsi ATTRIBUTE_UNUSED,
   tree vec_def;
 
   gcc_assert (ncopies >= 1);
-  /* FORNOW. This restriction should be relaxed.  */
-  if (nested_in_vect_loop_p (loop, phi) && ncopies > 1)
+  /* FORNOW. These restrictions should be relaxed.  */
+  if (nested_in_vect_loop_p (loop, phi))
     {
-      if (vect_print_dump_info (REPORT_DETAILS))
-        fprintf (vect_dump, "multiple types in nested loop.");
-      return false;
+      imm_use_iterator imm_iter;
+      use_operand_p use_p;
+      gimple exit_phi;
+      edge latch_e;
+      tree loop_arg;
+
+      if (ncopies > 1)
+	{
+	  if (vect_print_dump_info (REPORT_DETAILS))
+	    fprintf (vect_dump, "multiple types in nested loop.");
+	  return false;
+	}
+
+      exit_phi = NULL;
+      latch_e = loop_latch_edge (loop->inner);
+      loop_arg = PHI_ARG_DEF_FROM_EDGE (phi, latch_e);
+      FOR_EACH_IMM_USE_FAST (use_p, imm_iter, loop_arg)
+	{
+	  if (!flow_bb_inside_loop_p (loop->inner,
+				      gimple_bb (USE_STMT (use_p))))
+	    {
+	      exit_phi = USE_STMT (use_p);
+	      break;
+	    }
+	}
+      if (exit_phi)
+	{
+	  stmt_vec_info exit_phi_vinfo  = vinfo_for_stmt (exit_phi);
+	  if (!(STMT_VINFO_RELEVANT_P (exit_phi_vinfo)
+		&& !STMT_VINFO_LIVE_P (exit_phi_vinfo)))
+	    {
+	      if (vect_print_dump_info (REPORT_DETAILS))
+		fprintf (vect_dump, "inner-loop induction only used outside "
+			 "of the outer vectorized loop.");
+	      return false;
+	    }
+	}
     }
 
   if (!STMT_VINFO_RELEVANT_P (stmt_info))

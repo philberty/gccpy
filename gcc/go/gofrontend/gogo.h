@@ -138,16 +138,14 @@ class Gogo
   is_main_package() const;
 
   // If necessary, adjust the name to use for a hidden symbol.  We add
-  // a prefix of the package name, so that hidden symbols in different
-  // packages do not collide.
+  // the package name, so that hidden symbols in different packages do
+  // not collide.
   std::string
   pack_hidden_name(const std::string& name, bool is_exported) const
   {
     return (is_exported
 	    ? name
-	    : ('.' + this->unique_prefix()
-	       + '.' + this->package_name()
-	       + '.' + name));
+	    : '.' + this->pkgpath() + '.' + name);
   }
 
   // Unpack a name which may have been hidden.  Returns the
@@ -161,9 +159,9 @@ class Gogo
   is_hidden_name(const std::string& name)
   { return name[0] == '.'; }
 
-  // Return the package prefix of a hidden name.
+  // Return the package path of a hidden name.
   static std::string
-  hidden_name_prefix(const std::string& name)
+  hidden_name_pkgpath(const std::string& name)
   {
     go_assert(Gogo::is_hidden_name(name));
     return name.substr(1, name.rfind('.') - 1);
@@ -183,13 +181,41 @@ class Gogo
 	    && name[name.length() - 2] == '.');
   }
 
-  // Return the unique prefix to use for all exported symbols.
-  const std::string&
-  unique_prefix() const;
+  // Convert a pkgpath into a string suitable for a symbol
+  static std::string
+  pkgpath_for_symbol(const std::string& pkgpath);
 
-  // Set the unique prefix.
+  // Return the package path to use for reflect.Type.PkgPath.
+  const std::string&
+  pkgpath() const;
+
+  // Return the package path to use for a symbol name.
+  const std::string&
+  pkgpath_symbol() const;
+
+  // Set the package path from a command line option.
   void
-  set_unique_prefix(const std::string&);
+  set_pkgpath(const std::string&);
+
+  // Set the prefix from a command line option.
+  void
+  set_prefix(const std::string&);
+
+  // Return whether pkgpath was set from a command line option.
+  bool
+  pkgpath_from_option() const
+  { return this->pkgpath_from_option_; }
+
+  // Return the relative import path as set from the command line.
+  // Returns an empty string if it was not set.
+  const std::string&
+  relative_import_path() const
+  { return this->relative_import_path_; }
+
+  // Set the relative import path from a command line option.
+  void
+  set_relative_import_path(const std::string& s)
+  {this->relative_import_path_ = s; }
 
   // Return the priority to use for the package we are compiling.
   // This is two more than the largest priority of any package we
@@ -229,7 +255,7 @@ class Gogo
   Package*
   add_imported_package(const std::string& real_name, const std::string& alias,
 		       bool is_alias_exported,
-		       const std::string& unique_prefix,
+		       const std::string& pkgpath,
 		       Location location,
 		       bool* padd_to_globals);
 
@@ -237,8 +263,7 @@ class Gogo
   // This returns the Package structure for the package, creating if
   // it necessary.
   Package*
-  register_package(const std::string& name, const std::string& unique_prefix,
-		   Location);
+  register_package(const std::string& pkgpath, Location);
 
   // Start compiling a function.  ADD_METHOD_TO_TYPE is true if a
   // method function should be added to the type of its receiver.
@@ -560,7 +585,7 @@ class Gogo
   // Build an interface method table for a type: a list of function
   // pointers, one for each interface method.  This returns a decl.
   tree
-  interface_method_table_for_type(const Interface_type*, Named_type*,
+  interface_method_table_for_type(const Interface_type*, Type*,
 				  bool is_pointer);
 
   // Return a tree which allocate SIZE bytes to hold values of type
@@ -608,11 +633,6 @@ class Gogo
   // Set up the built-in unsafe package.
   void
   import_unsafe(const std::string&, bool is_exported, Location);
-
-  // Add a new imported package.
-  Named_object*
-  add_package(const std::string& real_name, const std::string& alias,
-	      const std::string& unique_prefix, Location location);
 
   // Return the current binding contour.
   Bindings*
@@ -711,10 +731,21 @@ class Gogo
   std::string init_fn_name_;
   // A list of import control variables for packages that we import.
   std::set<Import_init> imported_init_fns_;
-  // The unique prefix used for all global symbols.
-  std::string unique_prefix_;
-  // Whether an explicit unique prefix was set by -fgo-prefix.
-  bool unique_prefix_specified_;
+  // The package path used for reflection data.
+  std::string pkgpath_;
+  // The package path to use for a symbol name.
+  std::string pkgpath_symbol_;
+  // The prefix to use for symbols, from the -fgo-prefix option.
+  std::string prefix_;
+  // Whether pkgpath_ has been set.
+  bool pkgpath_set_;
+  // Whether an explicit package path was set by -fgo-pkgpath.
+  bool pkgpath_from_option_;
+  // Whether an explicit prefix was set by -fgo-prefix.
+  bool prefix_from_option_;
+  // The relative import path, from the -fgo-relative-import-path
+  // option.
+  std::string relative_import_path_;
   // A list of types to verify.
   std::vector<Type*> verify_types_;
   // A list of interface types defined while parsing.
@@ -946,6 +977,11 @@ class Function
   void
   check_labels() const;
 
+  // Note that a new local type has been added.  Return its index.
+  unsigned int
+  new_local_type_index()
+  { return this->local_type_count_++; }
+
   // Whether this function calls the predeclared recover function.
   bool
   calls_recover() const
@@ -1067,6 +1103,8 @@ class Function
   Location location_;
   // Labels defined or referenced in the function.
   Labels labels_;
+  // The number of local types defined in this function.
+  unsigned int local_type_count_;
   // The function decl.
   tree fndecl_;
   // The defer stack variable.  A pointer to this variable is used to
@@ -1621,8 +1659,8 @@ class Type_declaration
 {
  public:
   Type_declaration(Location location)
-    : location_(location), in_function_(NULL), methods_(),
-      issued_warning_(false)
+    : location_(location), in_function_(NULL), in_function_index_(0),
+      methods_(), issued_warning_(false)
   { }
 
   // Return the location.
@@ -1633,13 +1671,19 @@ class Type_declaration
   // Return the function in which this type is declared.  This will
   // return NULL for a type declared in global scope.
   Named_object*
-  in_function()
-  { return this->in_function_; }
+  in_function(unsigned int* pindex)
+  {
+    *pindex = this->in_function_index_;
+    return this->in_function_;
+  }
 
   // Set the function in which this type is declared.
   void
-  set_in_function(Named_object* f)
-  { this->in_function_ = f; }
+  set_in_function(Named_object* f, unsigned int index)
+  {
+    this->in_function_ = f;
+    this->in_function_index_ = index;
+  }
 
   // Add a method to this type.  This is used when methods are defined
   // before the type.
@@ -1672,6 +1716,8 @@ class Type_declaration
   // If this type is declared in a function, a pointer back to the
   // function in which it is defined.
   Named_object* in_function_;
+  // The index of this type in IN_FUNCTION_.
+  unsigned int in_function_index_;
   // Methods defined before the type is defined.
   Methods methods_;
   // True if we have issued a warning about a use of this type
@@ -2409,28 +2455,37 @@ class Unnamed_label
 class Package
 {
  public:
-  Package(const std::string& name, const std::string& unique_prefix,
-	  Location location);
+  Package(const std::string& pkgpath, Location location);
 
-  // The real name of this package.  This may be different from the
-  // name in the associated Named_object if the import statement used
-  // an alias.
+  // Get the package path used for all symbols exported from this
+  // package.
   const std::string&
-  name() const
-  { return this->name_; }
+  pkgpath() const
+  { return this->pkgpath_; }
+
+  // Return the package path to use for a symbol name.
+  const std::string&
+  pkgpath_symbol() const
+  { return this->pkgpath_symbol_; }
 
   // Return the location of the import statement.
   Location
   location() const
   { return this->location_; }
 
-  // Get the unique prefix used for all symbols exported from this
-  // package.
+  // Return whether we know the name of this package yet.
+  bool
+  has_package_name() const
+  { return !this->package_name_.empty(); }
+
+  // The name that this package uses in its package clause.  This may
+  // be different from the name in the associated Named_object if the
+  // import statement used an alias.
   const std::string&
-  unique_prefix() const
+  package_name() const
   {
-    go_assert(!this->unique_prefix_.empty());
-    return this->unique_prefix_;
+    go_assert(!this->package_name_.empty());
+    return this->package_name_;
   }
 
   // The priority of this package.  The init function of packages with
@@ -2500,8 +2555,12 @@ class Package
   lookup(const std::string& name) const
   { return this->bindings_->lookup(name); }
 
-  // Set the location of the package.  This is used if it is seen in a
-  // different import before it is really imported.
+  // Set the name of the package.
+  void
+  set_package_name(const std::string& name, Location);
+
+  // Set the location of the package.  This is used to record the most
+  // recent import location.
   void
   set_location(Location location)
   { this->location_ = location; }
@@ -2537,10 +2596,13 @@ class Package
   determine_types();
 
  private:
-  // The real name of this package.
-  std::string name_;
-  // The unique prefix for all exported global symbols.
-  std::string unique_prefix_;
+  // The package path for type reflection data.
+  std::string pkgpath_;
+  // The package path for symbol names.
+  std::string pkgpath_symbol_;
+  // The name that this package uses in the package clause.  This may
+  // be the empty string if it is not yet known.
+  std::string package_name_;
   // The names in this package.
   Bindings* bindings_;
   // The priority of this package.  A package has a priority higher

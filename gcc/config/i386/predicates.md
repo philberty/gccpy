@@ -817,15 +817,14 @@
   struct ix86_address parts;
   int ok;
 
-  /*  LEA handles zero-extend by itself.  */
-  if (GET_CODE (op) == ZERO_EXTEND
-      || GET_CODE (op) == AND)
-    return false;
-
   ok = ix86_decompose_address (op, &parts);
   gcc_assert (ok);
   return parts.seg == SEG_DEFAULT;
 })
+
+;; Return true for RTX codes that force SImode address.
+(define_predicate "SImode_address_operand"
+  (match_code "subreg,zero_extend,and"))
 
 ;; Return true if op if a valid base register, displacement or
 ;; sum of base register and displacement for VSIB addressing.
@@ -963,6 +962,9 @@
   struct ix86_address parts;
   int ok;
 
+  if (TARGET_64BIT || !flag_pic)
+    return true;
+
   ok = ix86_decompose_address (XEXP (op, 0), &parts);
   gcc_assert (ok);
 
@@ -993,7 +995,7 @@
 ;; by the modRM array.
 (define_predicate "long_memory_operand"
   (and (match_operand 0 "memory_operand")
-       (match_test "memory_address_length (op)")))
+       (match_test "memory_address_length (op, false)")))
 
 ;; Return true if OP is a comparison operator that can be issued by fcmov.
 (define_predicate "fcmov_comparison_operator"

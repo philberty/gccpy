@@ -1,6 +1,6 @@
 /* Conditional constant propagation pass for the GNU compiler.
    Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011, 2012 Free Software Foundation, Inc.
+   2010, 2011, 2012, 2013 Free Software Foundation, Inc.
    Adapted from original RTL SSA-CCP by Daniel Berlin <dberlin@dberlin.org>
    Adapted to GIMPLE trees by Diego Novillo <dnovillo@redhat.com>
 
@@ -409,7 +409,8 @@ valid_lattice_transition (prop_value_t old_val, prop_value_t new_val)
 
   /* Now both lattice values are CONSTANT.  */
 
-  /* Allow transitioning from &x to &x & ~3.  */
+  /* Allow transitioning from PHI <&x, not executable> == &x
+     to PHI <&x, &y> == common alignment.  */
   if (TREE_CODE (old_val.value) != INTEGER_CST
       && TREE_CODE (new_val.value) == INTEGER_CST)
     return true;
@@ -650,6 +651,11 @@ likely_value (gimple stmt)
 	     Not COMPLEX_EXPR as one VARYING operand makes the result partly
 	     not UNDEFINED.  Not *DIV_EXPR, comparisons and shifts because
 	     the undefined operand may be promoted.  */
+	  return UNDEFINED;
+
+	case ADDR_EXPR:
+	  /* If any part of an address is UNDEFINED, like the index
+	     of an ARRAY_EXPR, then treat the result as UNDEFINED.  */
 	  return UNDEFINED;
 
 	default:
@@ -1582,7 +1588,6 @@ evaluate_stmt (gimple stmt)
       && !is_constant)
     {
       enum gimple_code code = gimple_code (stmt);
-      tree fndecl;
       val.lattice_val = VARYING;
       val.value = NULL_TREE;
       val.mask = double_int_minus_one;
@@ -1629,10 +1634,9 @@ evaluate_stmt (gimple stmt)
 	      || POINTER_TYPE_P (TREE_TYPE (rhs1)))
 	    val = bit_value_binop (code, TREE_TYPE (rhs1), rhs1, rhs2);
 	}
-      else if (code == GIMPLE_CALL
-	       && (fndecl = gimple_call_fndecl (stmt))
-	       && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL)
+      else if (gimple_call_builtin_class_p (stmt, BUILT_IN_NORMAL))
 	{
+	  tree fndecl = gimple_call_fndecl (stmt);
 	  switch (DECL_FUNCTION_CODE (fndecl))
 	    {
 	    case BUILT_IN_MALLOC:

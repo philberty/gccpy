@@ -115,6 +115,7 @@ can_refer_decl_in_current_unit_p (tree decl)
 tree
 canonicalize_constructor_val (tree cval)
 {
+  tree orig_cval = cval;
   STRIP_NOPS (cval);
   if (TREE_CODE (cval) == POINTER_PLUS_EXPR
       && TREE_CODE (TREE_OPERAND (cval, 1)) == INTEGER_CST)
@@ -146,8 +147,12 @@ canonicalize_constructor_val (tree cval)
       /* Fixup types in global initializers.  */
       if (TREE_TYPE (TREE_TYPE (cval)) != TREE_TYPE (TREE_OPERAND (cval, 0)))
 	cval = build_fold_addr_expr (TREE_OPERAND (cval, 0));
+
+      if (!useless_type_conversion_p (TREE_TYPE (orig_cval), TREE_TYPE (cval)))
+	cval = fold_convert (TREE_TYPE (orig_cval), cval);
+      return cval;
     }
-  return cval;
+  return orig_cval;
 }
 
 /* If SYM is a constant variable with known value, return the value.
@@ -567,7 +572,7 @@ gimplify_and_update_call_from_tree (gimple_stmt_iterator *si_p, tree expr)
 	      unlink_stmt_vdef (stmt);
 	      release_defs (stmt);
 	    }
-	  gsi_remove (si_p, true);
+	  gsi_replace (si_p, gimple_build_nop (), true);
 	  return;
 	}
     }
@@ -671,13 +676,10 @@ get_maxval_strlen (tree arg, tree *length, bitmap visited, int type)
 
   if (TREE_CODE (arg) != SSA_NAME)
     {
-      if (TREE_CODE (arg) == COND_EXPR)
-        return get_maxval_strlen (COND_EXPR_THEN (arg), length, visited, type)
-               && get_maxval_strlen (COND_EXPR_ELSE (arg), length, visited, type);
       /* We can end up with &(*iftmp_1)[0] here as well, so handle it.  */
-      else if (TREE_CODE (arg) == ADDR_EXPR
-	       && TREE_CODE (TREE_OPERAND (arg, 0)) == ARRAY_REF
-	       && integer_zerop (TREE_OPERAND (TREE_OPERAND (arg, 0), 1)))
+      if (TREE_CODE (arg) == ADDR_EXPR
+	  && TREE_CODE (TREE_OPERAND (arg, 0)) == ARRAY_REF
+	  && integer_zerop (TREE_OPERAND (TREE_OPERAND (arg, 0), 1)))
 	{
 	  tree aop0 = TREE_OPERAND (TREE_OPERAND (arg, 0), 0);
 	  if (TREE_CODE (aop0) == INDIRECT_REF
@@ -736,6 +738,13 @@ get_maxval_strlen (tree arg, tree *length, bitmap visited, int type)
           {
             tree rhs = gimple_assign_rhs1 (def_stmt);
             return get_maxval_strlen (rhs, length, visited, type);
+          }
+	else if (gimple_assign_rhs_code (def_stmt) == COND_EXPR)
+	  {
+	    tree op2 = gimple_assign_rhs2 (def_stmt);
+	    tree op3 = gimple_assign_rhs3 (def_stmt);
+	    return get_maxval_strlen (op2, length, visited, type)
+		   && get_maxval_strlen (op3, length, visited, type);
           }
         return false;
 
@@ -2701,6 +2710,10 @@ get_base_constructor (tree base, HOST_WIDE_INT *bit_offset,
       if (!DECL_INITIAL (base)
 	  && (TREE_STATIC (base) || DECL_EXTERNAL (base)))
         return error_mark_node;
+      /* Do not return an error_mark_node DECL_INITIAL.  LTO uses this
+         as special marker (_not_ zero ...) for its own purposes.  */
+      if (DECL_INITIAL (base) == error_mark_node)
+	return NULL_TREE;
       return DECL_INITIAL (base);
 
     case ARRAY_REF:

@@ -1,3 +1,26 @@
+2012-12-18  Matthew Gretton-Dann  <matthew.gretton-dann@linaro.org>
+
+	Backport from mainline.
+	2012-10-15  Matthias Klose  <doko@ubuntu.com>
+
+	* configure.ac: Match arm*-*-linux-* for ARM Linux/GNU.
+	* configure: Regenerate.
+
+2012-09-20  Release Manager
+
+	* GCC 4.7.2 released.
+
+2012-06-14  Release Manager
+
+	* GCC 4.7.1 released.
+
+2012-05-21  Benjamin Kosnik  <bkoz@redhat.com>
+
+	PR libstdc++/52700
+	* configure.ac: Allow gnu, gnu-versioned-namespace for
+	--enable-symvers arguments.
+	* configure: Regenerate.
+
 2012-04-23  Andrew Haley  <aph@redhat.com>
 
 	* defineclass.cc (MAJOR_1_7,  MINOR_1_7): New.

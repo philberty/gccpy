@@ -1,3 +1,39 @@
+2013-02-19  Jakub Jelinek  <jakub@redhat.com>
+
+	Backported from mainline
+	2013-02-09  Jakub Jelinek  <jakub@redhat.com>
+
+	PR other/56245
+	* regex.c (PTR_INT_TYPE): Define.
+	(EXTEND_BUFFER): Change incr type from int to PTR_INT_TYPE.
+
+2013-01-31  Kai Tietz  <ktietz@redhat.com>
+
+	Merged from trunk
+	PR other/54620
+	* sha1.c (sha1_process_block):  Handle case that size_t is
+	a wider-integer-scalar as a 32-bit unsigned integer.
+
+	Merged from trunk.
+	PR other/53413
+	* md5.c (md5_process_block):  Handle case that size_t is
+	a wider-integer-scalar a 32-bit unsigned integer.
+
+        2012-07-31  Mike Frysinger  <vapier@gentoo.org>
+
+	Merged from trunk.
+	PR other/53285
+	* md5.c (md5_finish_ctx): Declare swap_bytes.  Assign SWAP() output
+	to swap_bytes, and then call memcpy to move it to ctx->buffer.
+
+2012-09-20  Release Manager
+
+	* GCC 4.7.2 released.
+
+2012-06-14  Release Manager
+
+	* GCC 4.7.1 released.
+
 2012-03-24  H.J. Lu  <hongjiu.lu@intel.com>
 
 	* testsuite/demangle-expected: Fix a typo.

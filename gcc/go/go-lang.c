@@ -81,6 +81,12 @@ struct GTY(()) language_function
   int dummy;
 };
 
+/* Option information we need to pass to go_create_gogo.  */
+
+static const char *go_pkgpath = NULL;
+static const char *go_prefix = NULL;
+static const char *go_relative_import_path = NULL;
+
 /* Language hooks.  */
 
 static bool
@@ -96,7 +102,8 @@ go_langhook_init (void)
      to, e.g., unsigned_char_type_node) but before calling
      build_common_builtin_nodes (because it calls, indirectly,
      go_type_for_size).  */
-  go_create_gogo (INT_TYPE_SIZE, POINTER_SIZE);
+  go_create_gogo (INT_TYPE_SIZE, POINTER_SIZE, go_pkgpath, go_prefix,
+		  go_relative_import_path);
 
   build_common_builtin_nodes ();
 
@@ -227,8 +234,16 @@ go_langhook_handle_option (
       ret = go_enable_optimize (arg) ? true : false;
       break;
 
+    case OPT_fgo_pkgpath_:
+      go_pkgpath = arg;
+      break;
+
     case OPT_fgo_prefix_:
-      go_set_prefix (arg);
+      go_prefix = arg;
+      break;
+
+    case OPT_fgo_relative_import_path_:
+      go_relative_import_path = arg;
       break;
 
     default:

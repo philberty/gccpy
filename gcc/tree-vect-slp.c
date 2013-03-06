@@ -95,6 +95,7 @@ vect_free_slp_instance (slp_instance instance)
   vect_free_slp_tree (SLP_INSTANCE_TREE (instance));
   VEC_free (int, heap, SLP_INSTANCE_LOAD_PERMUTATION (instance));
   VEC_free (slp_tree, heap, SLP_INSTANCE_LOADS (instance));
+  free (instance);
 }
 
 
@@ -1197,7 +1198,8 @@ vect_supported_load_permutation_p (slp_instance slp_instn, int group_size,
 
   /* We checked that this case ok, so there is no need to proceed with 
      permutation tests.  */
-  if (complex_numbers == 2)
+  if (complex_numbers == 2
+      && VEC_length (slp_tree, SLP_INSTANCE_LOADS (slp_instn)) == 2)
     {
       VEC_free (slp_tree, heap, SLP_INSTANCE_LOADS (slp_instn));
       VEC_free (int, heap, SLP_INSTANCE_LOAD_PERMUTATION (slp_instn));
@@ -1566,6 +1568,9 @@ vect_analyze_slp_instance (loop_vec_info loop_vinfo, bb_vec_info bb_vinfo,
           if (vect_print_dump_info (REPORT_SLP))
             fprintf (vect_dump, "Build SLP failed: unrolling required in basic"
                                " block SLP");
+	  vect_free_slp_tree (node);
+	  VEC_free (int, heap, load_permutation);
+	  VEC_free (slp_tree, heap, loads);
           return false;
         }
 
@@ -1822,8 +1827,11 @@ new_bb_vec_info (basic_block bb)
 static void
 destroy_bb_vec_info (bb_vec_info bb_vinfo)
 {
+  VEC (slp_instance, heap) *slp_instances;
+  slp_instance instance;
   basic_block bb;
   gimple_stmt_iterator si;
+  unsigned i;
 
   if (!bb_vinfo)
     return;
@@ -1843,6 +1851,9 @@ destroy_bb_vec_info (bb_vec_info bb_vinfo)
   free_data_refs (BB_VINFO_DATAREFS (bb_vinfo));
   free_dependence_relations (BB_VINFO_DDRS (bb_vinfo));
   VEC_free (gimple, heap, BB_VINFO_STRIDED_STORES (bb_vinfo));
+  slp_instances = BB_VINFO_SLP_INSTANCES (bb_vinfo);
+  FOR_EACH_VEC_ELT (slp_instance, slp_instances, i, instance)
+    vect_free_slp_instance (instance);
   VEC_free (slp_instance, heap, BB_VINFO_SLP_INSTANCES (bb_vinfo));
   free (bb_vinfo);
   bb->aux = NULL;

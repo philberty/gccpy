@@ -1,3 +1,320 @@
+2013-02-21  Jakub Jelinek  <jakub@redhat.com>
+
+	PR bootstrap/56258
+	* gnat-style.texi (@title): Remove @hfill.
+	* projects.texi: Avoid line wrapping inside of @pxref or
+	@xref.
+
+2013-02-20  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR ada/56271
+	Backport from mainline
+	2012-05-15  Olivier Hainque  <hainque@adacore.com>
+
+	* gcc-interface/Make-lang.in (COMMON_FLAGS_TO_PASS): Use WARN_CFLAGS
+	instead of trying to mimic it.
+
+2013-02-14  Rainer Emrich  <rainer@emrich-ebersheim.de>
+
+	Back-port from mainline.
+	PR target/52123
+	* adaint.c (__gnat_check_OWNER_ACL): Cast from pointer via
+	SECURITY_DESCRIPTOR *.
+	(__gnat_set_OWNER_ACL): Cast from DWORD to ACCESS_MODE.
+	(__gnat_portable_spawn): Fix cast to char* const*.
+	(add_handle): Cast from pointer via void **.
+	(add_handle): Cast from pointer via int *.
+	(__gnat_locate_exec_on_path): Cast from pointer via TCHAR *.
+	(__gnat_locate_exec_on_path): Cast from pointer via char *.
+	* initialize.c (append_arg): Cast from pointer via LPWSTR.
+	(__gnat_initialize): Cast from pointer via LPWSTR.
+	* seh_init.c (__gnat_SEH_error_handler): Cast from pointer via FARPROC.
+	* tracebak.c: Cast from pointer via FARPROC.
+
+2013-02-07  Simon Wright  <simon@pushface.org>
+
+	PR target/50678
+	* init.c (__darwin_major_version): New function for x86-64/Darwin.
+	(__gnat_adjust_context_for_raise) [Darwin]: Disable the workaround
+	on Darwin 12 and above.
+
+2013-01-06  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <discrete_type>: Do not
+	pack the field of the record type made for a misaligned type.
+
+2013-01-06  Eric Botcazou  <ebotcazou@adacore.com>
+
+	Backport from mainline
+	2013-01-04  Robert Dewar  <dewar@adacore.com>
+
+	* gnat_rm.texi: Document alignment choice for subtypes.
+
+2012-12-21  Ed Schonberg  <schonberg@adacore.com>
+
+	PR ada/53737
+	* sem_ch12.adb (Analyze_Associations): Do not check the legality of
+	actuals for RACW types if this is an internal instantiation for a formal
+	package with defaulted parameters.
+
+2012-12-18  Matthew Gretton-Dann  <matthew.gretton-dann@linaro.org>
+
+	Backport from mainline.
+	2012-10-15  Matthias Klose  <doko@ubuntu.com>
+
+	* gcc-interface/Makefile.in: Match arm*-*-linux-*eabi* for
+	ARM Linux/GNU.
+
+2012-12-16  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR ada/54614
+	Backport from mainline
+
+	2012-10-01  Vincent Pucci  <pucci@adacore.com>
+
+	* s-gearop.adb (Vector_Matrix_Product): Fix dimension check and index
+	of Left in S evaluation.
+
+2012-12-15  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR ada/53766
+	Backport from mainline
+
+	2012-07-17  Hristian Kirtchev  <kirtchev@adacore.com>
+
+	* exp_attr.adb (Expand_N_Attribute_Reference): Add local variables Attr
+	and Conversion_Added.  Add local constant Typ.
+	Retrieve the original attribute after the arithmetic check
+	machinery has modified the node. Add a conversion to the target
+	type when the prefix of attribute Max_Size_In_Storage_Elements
+	is a controlled type.
+
+2012-12-01  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
+
+	PR ada/52110
+	* s-osinte-hpux-dce.ads: Declare pthread_rwlockattr_t and
+	pthread_rwlock_t subtypes.  Delete duplicate declaration of clockid_t.
+	* s-taspri-hpux-dce.ads: Change "pragma Atomic (Thread)" to comment.
+
+2012-11-09  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR other/52438
+	* s-taspri-lynxos.ads: Delete.
+	* s-osinte-kfreebsd-gnu.ads: Change license to GPL V3+.
+	* s-tpopsp-rtems.adb: Likewise.
+	* s-osinte-rtems.adb: Likewise.
+
+2012-10-30  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/Make-lang.in: Fix and clean up rules for C files.
+
+2012-10-22  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <E_Array_Type>: Force
+	BLKmode on the type if it is passed by reference.
+	<E_Array_Subtype>: Likewise.
+	<E_Record_Type>: Guard the call to Is_By_Reference_Type predicate.
+	<E_Record_Subtype>: Likewise.
+
+	* gcc-interface/Makefile.in: Remove outdated comment and reference to
+	non-existing file.
+
+2012-10-22  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/trans.c (Loop_Statement_to_gnu): Use gnat_type_for_size
+	directly to obtain an unsigned version of the base type.
+
+2012-10-22  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <E_Out_Parameter>: Do not
+	generate the special PARM_DECL for an Out parameter in LTO mode.
+
+2012-10-02  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interfaces/decl.c (elaborate_expression_1): Use the variable for
+	bounds of loop iteraration scheme only for locally defined subtypes.
+
+	* gcc-interface/trans.c (build_return_expr): Apply the NRV optimization
+	only for BLKmode.
+
+2012-09-20  Release Manager
+
+	* GCC 4.7.2 released.
+
+2012-09-07  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/trans.c (Loop_Statement_to_gnu): Revert to using
+	size_type_node instead of sizetype.
+
+2012-07-19  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <object>: Try to ensure
+	that an object of CW type initialized to a value is sufficiently
+	aligned for this value.
+
+2012-07-19  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <E_Record_Subtype>: Do not
+	look up the REP part of the base type in advance.  Deal with that of
+	the variant types.
+	(get_rep_part): Be prepared for record types with fields.
+
+2012-07-03  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/trans.c (Call_to_gnu): Robustify test for function case
+	if the CICO mechanism is used.
+
+2012-07-03  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/utils2.c (build_simple_component_ref): Do not look
+	through an extension if the type contains a placeholder.
+
+2012-07-03  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* exp_disp.adb (Expand_Dispatching_Call): Propagate the convention on
+	the designated subprogram type and also set Is_Dispatch_Table_Entity.
+	(Expand_Interface_Thunk): Propagate the convention on the thunk.
+	(Set_CPP_Constructors_Old): Set Is_Constructor and Convention_CPP on
+	the internal view of the constructors.
+	(Set_CPP_Constructors): Likewise.
+	* sem_prag.adb (Analyze_Pragma) <Pragma_CPP_Constructor>: Set the
+	convention on the function.
+	* gcc-interface/gigi.h (is_cplusplus_method): Declare.
+	* gcc-interface/decl.c (Has_Thiscall_Convention): New macro.
+	(gnat_to_gnu_entity) <E_Subprogram_Type>: Test it to set the `thiscall'
+	calling convention
+	(get_minimal_subprog_decl): Likewise.
+	(is_cplusplus_method): New predicate.
+	* gcc-interface/trans.c (Attribute_to_gnu) <Attr_Access>: Issue an
+	error on access to C++ constructor or member function.
+
+2012-07-03  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/utils.c (gnat_pushdecl): Set TYPE_CONTEXT for types
+	attached to a TYPE_DECL.
+
+2012-06-15  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR ada/53592
+	* gcc-interface/gigi.h (maybe_vector_array): Make static inline.
+	* gcc-interface/utils.c (maybe_vector_array): Delete.
+	* gcc-interface/trans.c (gnat_to_gnu) <N_Indexed_Component>: Mark the
+	array object as addressable if it has vector type and is on the LHS.
+
+2012-06-14  Jakub Jelinek  <jakub@redhat.com>
+
+	* gcc-interface/Makefile.in (gnatlib-shared-default): Append
+	$(PICFLAG_FOR_TARGET) to GNATLIBCFLAGS_FOR_C passed to submake.
+
+2012-06-14  Release Manager
+
+	* GCC 4.7.1 released.
+
+2012-06-13  Eric Botcazou  <ebotcazou@adacore.com>
+
+	Revert
+	2012-05-19  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (Has_Thiscall_Convention): New macro.
+	(gnat_to_gnu_entity) <E_Subprogram_Type>: Test it to set the thiscall
+	calling convention
+	(get_minimal_subprog_decl): Likewise.
+	(gnat_first_param_is_class): New predicate.
+
+2012-06-12  Olivier Hainque  <hainque@adacore.com>
+
+	* gcc-interface/Makefile.in (GNATLIBCFLAGS_FOR_C): Remove
+	$(PIC_FLAG_FOR_TARGET).
+	(gnatlib-shared-default): Add $(PIC_FLAG_FOR_TARGET) to
+	GNATLIBCFLAGS_FOR_C passed to gnatlib.
+	(gnatlib-shared-win32): Likewise.
+	(gnatlib-shared-darwin): Likewise.
+	(gnatlib-shared-dual-win32): Pass PIC_FLAG_FOR_TARGET to
+	gnatlib-shared-win32.
+
+2012-05-26  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (variant_desc): Rename 'record' to 'new_type'.
+	(build_variant_list): Adjust to above renaming.
+	(gnat_to_gnu_entity) <E_Record_Subtype>: Likewise.  Give a unique name
+	to the type of the variant containers.
+	(create_variant_part_from): Likewise.  Give a unique name to the type
+	of the variant part.
+
+2012-05-25  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR ada/52362
+	* link.c (__gnat_object_file_option): Set to "-Wl,@" for GNU linker.
+	(__gnat_using_gnu_linker): Delete.
+	* gnatlink.adb (Gnatlink): Declare Object_File_Option_Ptr here...
+	Declare Object_File_Option string constant and Using_GNU_response_file
+	boolean constant.
+	(Process_Binder_File): ...instead of here.  Delete Using_GNU_Linker,
+	Opening and Closing local variables.  Do not handle the GNU linker
+	specially.
+	(Write_RF): New procedure to write into the response file.  Escape some
+	characters if a GNU response file is used.  Keep track of error status.
+	Invoke Write_RF to write into the response file.  Delete the file only
+	if the link was successful.
+	* mlib-utl.adb: Do not `with' package System.
+	(Gcc): Likewise.  Declare Object_File_Option string constant and
+	Using_GNU_response_file boolean constant.
+	(Write_RF): Take a string instead of address and length.  Escape some
+	characters if a GNU response file is used.
+	Invoke Write_RF to write into the response file.  Delete the file only
+	if the link was successful.  Do not warn if it cannot be deleted.
+
+2012-05-20  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/utils.c (gnat_write_global_declarations): Put a name
+	on the dummy global variable.
+
+2012-05-19  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (Has_Thiscall_Convention): New macro.
+	(gnat_to_gnu_entity) <E_Subprogram_Type>: Test it to set the thiscall
+	calling convention
+	(get_minimal_subprog_decl): Likewise.
+	(gnat_first_param_is_class): New predicate.
+
+	Backport from mainline
+	2012-05-15  Javier Miranda  <miranda@adacore.com>
+
+	* exp_ch3.adb (Build_Offset_To_Top): Modify the
+	expansion of the offset_to_top functions to ensure that their
+	profile is conformant with the profile specified in Ada.Tags. No
+	change in functionality.
+
+2012-05-18  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <object>: For an object at
+	global level with unconstrained nominal subtype and a non-fixed size,
+	make a variable for the size.
+
+2012-05-15  Andris Pavenis  <andris.pavenis@iki.fi>
+
+	PR ada/52494
+	* s-taprop-dummy.adb (Specific): New package.
+
+2012-05-15  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* sem_prag.adb (Process_Atomic_Shared_Volatile): Propagate
+	atomicity from an object to its underlying type only if it
+	is composite.
+
+2012-05-06  Pascal Obry  <obry@adacore.com>
+
+	Revert
+	2012-02-24  Dave Korn  <dave.korn.cygwin@gmail.com>
+
+	* gcc-interface/Makefile.in (WIN_SO_PREFIX [windows targets]): New
+	Windows-specific make variable.
+	(WIN_SO_INSTALL_DIR [windows targets]): Likewise.
+	(install-gnatlib): Respect the above during installation when set,
+	and also install any windows import library that has been built.
+	(gnatlib-shared-win32): Use WIN_SO_PREFIX to name output DLL and also
+	build a corresponding import library.
+
 2012-04-30  Eric Botcazou  <ebotcazou@adacore.com>
 
 	* gcc-interface/utils.c (finish_record_type): Force the traditional GCC

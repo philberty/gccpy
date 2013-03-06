@@ -4630,7 +4630,7 @@ build_conditional_expr_1 (tree arg1, tree arg2, tree arg3,
 	  && TREE_CODE (arg3_type) == ENUMERAL_TYPE)
         {
           if (complain & tf_warning)
-            warning (0, 
+            warning (OPT_Wenum_compare, 
                      "enumeral mismatch in conditional expression: %qT vs %qT",
                      arg2_type, arg3_type);
         }
@@ -5772,11 +5772,15 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
 	  (elttype, cp_type_quals (elttype) | TYPE_QUAL_CONST);
 	array = build_array_of_n_type (elttype, len);
 	array = finish_compound_literal (array, new_ctor, complain);
+	/* Take the address explicitly rather than via decay_conversion
+	   to avoid the error about taking the address of a temporary.  */
+	array = cp_build_addr_expr (array, complain);
+	array = cp_convert (build_pointer_type (elttype), array);
 
 	/* Build up the initializer_list object.  */
 	totype = complete_type (totype);
 	field = next_initializable_field (TYPE_FIELDS (totype));
-	CONSTRUCTOR_APPEND_ELT (vec, field, decay_conversion (array));
+	CONSTRUCTOR_APPEND_ELT (vec, field, array);
 	field = next_initializable_field (DECL_CHAIN (field));
 	CONSTRUCTOR_APPEND_ELT (vec, field, size_int (len));
 	new_ctor = build_constructor (totype, vec);
@@ -7214,6 +7218,9 @@ build_new_method_call_1 (tree instance, tree fns, VEC(tree,gc) **args,
 	 build_special_member_call.  */
       if (CONSTRUCTOR_NELTS (init_list) == 0
 	  && TYPE_HAS_DEFAULT_CONSTRUCTOR (basetype)
+	  /* For a user-provided default constructor, use the normal
+	     mechanisms so that protected access works.  */
+	  && !type_has_user_provided_default_constructor (basetype)
 	  && !processing_template_decl)
 	init = build_value_init (basetype, complain);
 
@@ -8011,6 +8018,12 @@ joust (struct z_candidate *cand1, struct z_candidate *cand2, bool warn)
       int static_1 = DECL_STATIC_FUNCTION_P (cand1->fn);
       int static_2 = DECL_STATIC_FUNCTION_P (cand2->fn);
 
+      if (DECL_CONSTRUCTOR_P (cand1->fn)
+	  && is_list_ctor (cand1->fn) != is_list_ctor (cand2->fn))
+	/* We're comparing a near-match list constructor and a near-match
+	   non-list constructor.  Just treat them as unordered.  */
+	return 0;
+
       gcc_assert (static_1 != static_2);
 
       if (static_1)
@@ -8763,6 +8776,12 @@ extend_ref_init_temps_1 (tree decl, tree init, VEC(tree,gc) **cleanups)
   tree sub = init;
   tree *p;
   STRIP_NOPS (sub);
+  if (TREE_CODE (sub) == COMPOUND_EXPR)
+    {
+      TREE_OPERAND (sub, 1)
+        = extend_ref_init_temps_1 (decl, TREE_OPERAND (sub, 1), cleanups);
+      return init;
+    }
   if (TREE_CODE (sub) != ADDR_EXPR)
     return init;
   /* Deal with binding to a subobject.  */
@@ -8814,6 +8833,29 @@ extend_ref_init_temps (tree decl, tree init, VEC(tree,gc) **cleanups)
     }
 
   return init;
+}
+
+/* Returns true iff an initializer for TYPE could contain temporaries that
+   need to be extended because they are bound to references or
+   std::initializer_list.  */
+
+bool
+type_has_extended_temps (tree type)
+{
+  type = strip_array_types (type);
+  if (TREE_CODE (type) == REFERENCE_TYPE)
+    return true;
+  if (CLASS_TYPE_P (type))
+    {
+      tree f;
+      if (is_std_init_list (type))
+	return true;
+      for (f = next_initializable_field (TYPE_FIELDS (type));
+	   f; f = next_initializable_field (DECL_CHAIN (f)))
+	if (type_has_extended_temps (TREE_TYPE (f)))
+	  return true;
+    }
+  return false;
 }
 
 /* Returns true iff TYPE is some variant of std::initializer_list.  */

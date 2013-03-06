@@ -1785,6 +1785,18 @@ array_to_pointer_conversion (location_t loc, tree exp)
   if (TREE_CODE (exp) == INDIRECT_REF)
     return convert (ptrtype, TREE_OPERAND (exp, 0));
 
+  /* In C++ array compound literals are temporary objects unless they are
+     const or appear in namespace scope, so they are destroyed too soon
+     to use them for much of anything  (c++/53220).  */
+  if (warn_cxx_compat && TREE_CODE (exp) == COMPOUND_LITERAL_EXPR)
+    {
+      tree decl = TREE_OPERAND (TREE_OPERAND (exp, 0), 0);
+      if (!TREE_READONLY (decl) && !TREE_STATIC (decl))
+	warning_at (DECL_SOURCE_LOCATION (decl), OPT_Wc___compat,
+		    "converting an array compound literal to a pointer "
+		    "is ill-formed in C++");
+    }
+
   adr = build_unary_op (loc, ADDR_EXPR, exp, 1);
   return convert (ptrtype, adr);
 }
@@ -3630,7 +3642,13 @@ build_unary_op (location_t location,
 		    "wrong type argument to unary exclamation mark");
 	  return error_mark_node;
 	}
-      arg = c_objc_common_truthvalue_conversion (location, arg);
+      if (int_operands)
+	{
+	  arg = c_objc_common_truthvalue_conversion (location, xarg);
+	  arg = remove_c_maybe_const_expr (arg);
+	}
+      else
+	arg = c_objc_common_truthvalue_conversion (location, arg);
       ret = invert_truthvalue_loc (location, arg);
       /* If the TRUTH_NOT_EXPR has been folded, reset the location.  */
       if (EXPR_P (ret) && EXPR_HAS_LOCATION (ret))
@@ -4410,6 +4428,11 @@ build_conditional_expr (location_t colon_loc, tree ifexp, bool ifexp_bcp,
     ret = fold_build3_loc (colon_loc, COND_EXPR, result_type, ifexp, op1, op2);
   else
     {
+      if (int_operands)
+	{
+	  op1 = remove_c_maybe_const_expr (op1);
+	  op2 = remove_c_maybe_const_expr (op2);
+	}
       ret = build3 (COND_EXPR, result_type, ifexp, op1, op2);
       if (int_operands)
 	ret = note_integer_operands (ret);
@@ -4845,8 +4868,11 @@ c_cast_expr (location_t loc, struct c_type_name *type_name, tree expr)
   ret = build_c_cast (loc, type, expr);
   if (type_expr)
     {
+      bool inner_expr_const = true;
+      ret = c_fully_fold (ret, require_constant_value, &inner_expr_const);
       ret = build2 (C_MAYBE_CONST_EXPR, TREE_TYPE (ret), type_expr, ret);
-      C_MAYBE_CONST_EXPR_NON_CONST (ret) = !type_expr_const;
+      C_MAYBE_CONST_EXPR_NON_CONST (ret) = !(type_expr_const
+					     && inner_expr_const);
       SET_EXPR_LOCATION (ret, loc);
     }
 
@@ -8754,12 +8780,18 @@ c_finish_return (location_t loc, tree retval, tree origtype)
 				       npc, NULL_TREE, NULL_TREE, 0);
       tree res = DECL_RESULT (current_function_decl);
       tree inner;
+      bool save;
 
       current_function_returns_value = 1;
       if (t == error_mark_node)
 	return NULL_TREE;
 
+      save = in_late_binary_op;
+      if (TREE_CODE (TREE_TYPE (res)) == BOOLEAN_TYPE
+          || TREE_CODE (TREE_TYPE (res)) == COMPLEX_TYPE)
+        in_late_binary_op = true;
       inner = t = convert (TREE_TYPE (res), t);
+      in_late_binary_op = save;
 
       /* Strip any conversions, additions, and subtractions, and see if
 	 we are returning the address of a local variable.  Warn if so.  */
@@ -9873,8 +9905,20 @@ build_binary_op (location_t location, enum tree_code code,
 	     but that does not mean the operands should be
 	     converted to ints!  */
 	  result_type = integer_type_node;
-	  op0 = c_common_truthvalue_conversion (location, op0);
-	  op1 = c_common_truthvalue_conversion (location, op1);
+	  if (op0_int_operands)
+	    {
+	      op0 = c_objc_common_truthvalue_conversion (location, orig_op0);
+	      op0 = remove_c_maybe_const_expr (op0);
+	    }
+	  else
+	    op0 = c_objc_common_truthvalue_conversion (location, op0);
+	  if (op1_int_operands)
+	    {
+	      op1 = c_objc_common_truthvalue_conversion (location, orig_op1);
+	      op1 = remove_c_maybe_const_expr (op1);
+	    }
+	  else
+	    op1 = c_objc_common_truthvalue_conversion (location, op1);
 	  converted = 1;
 	  boolean_op = true;
 	}
@@ -10586,12 +10630,17 @@ c_objc_common_truthvalue_conversion (location_t location, tree expr)
 
   int_const = (TREE_CODE (expr) == INTEGER_CST && !TREE_OVERFLOW (expr));
   int_operands = EXPR_INT_CONST_OPERANDS (expr);
-  if (int_operands)
-    expr = remove_c_maybe_const_expr (expr);
-
-  /* ??? Should we also give an error for vectors rather than leaving
-     those to give errors later?  */
-  expr = c_common_truthvalue_conversion (location, expr);
+  if (int_operands && TREE_CODE (expr) != INTEGER_CST)
+    {
+      expr = remove_c_maybe_const_expr (expr);
+      expr = build2 (NE_EXPR, integer_type_node, expr,
+		     convert (TREE_TYPE (expr), integer_zero_node));
+      expr = note_integer_operands (expr);
+    }
+  else
+    /* ??? Should we also give an error for vectors rather than leaving
+       those to give errors later?  */
+    expr = c_common_truthvalue_conversion (location, expr);
 
   if (TREE_CODE (expr) == INTEGER_CST && int_operands && !int_const)
     {

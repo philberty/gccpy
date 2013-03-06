@@ -26,7 +26,6 @@ extern int function_arg_regno_p (int r);
 extern void avr_cpu_cpp_builtins (struct cpp_reader * pfile);
 extern enum reg_class avr_regno_reg_class (int r);
 extern void asm_globalize_label (FILE *file, const char *name);
-extern void avr_asm_declare_function_name (FILE *, const char *, tree);
 extern void order_regs_for_local_alloc (void);
 extern int avr_initial_elimination_offset (int from, int to);
 extern int avr_simple_epilogue (void);
@@ -48,6 +47,7 @@ extern void init_cumulative_args (CUMULATIVE_ARGS *cum, tree fntype,
 #endif /* TREE_CODE */
 
 #ifdef RTX_CODE
+extern int avr_hard_regno_call_part_clobbered (unsigned, enum machine_mode);
 extern const char *output_movqi (rtx insn, rtx operands[], int *l);
 extern const char *output_movhi (rtx insn, rtx operands[], int *l);
 extern const char *output_movsisf (rtx insn, rtx operands[], int *l);

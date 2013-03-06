@@ -540,6 +540,21 @@ extra_modes_file=@extra_modes_file@
 extra_opt_files=@extra_opt_files@
 host_hook_obj=@out_host_hook_obj@
 
+# Multiarch support
+enable_multiarch = @enable_multiarch@
+with_cpu = @with_cpu@
+with_float = @with_float@
+ifeq ($(enable_multiarch),yes)
+  if_multiarch = $(1)
+else
+  ifeq ($(enable_multiarch),auto)
+    # SYSTEM_HEADER_DIR is makefile syntax, cannot be evaluated in configure.ac
+    if_multiarch = $(if $(wildcard $(shell echo $(SYSTEM_HEADER_DIR))/../../usr/lib/*/crti.o),$(1))
+  else
+    if_multiarch =
+  endif
+endif
+
 # ------------------------
 # Installation directories
 # ------------------------
@@ -1104,7 +1119,7 @@ FLAGS_TO_PASS = \
 	"build_tooldir=$(build_tooldir)" \
 	"gcc_tooldir=$(gcc_tooldir)" \
 	"bindir=$(bindir)" \
-	"libexecsubdir=$(libsubdir)" \
+	"libexecsubdir=$(libexecsubdir)" \
 	"datarootdir=$(datarootdir)" \
 	"datadir=$(datadir)" \
 	"localedir=$(localedir)"
@@ -1833,10 +1848,11 @@ s-mlib: $(srcdir)/genmultilib Makefile
 	    "$(MULTILIB_EXTRA_OPTS)" \
 	    "$(MULTILIB_EXCLUSIONS)" \
 	    "$(MULTILIB_OSDIRNAMES)" \
+	    "$(MULTIARCH_DIRNAME)" \
 	    "@enable_multilib@" \
 	    > tmp-mlib.h; \
 	else \
-	  $(SHELL) $(srcdir)/genmultilib '' '' '' '' '' '' '' no \
+	  $(SHELL) $(srcdir)/genmultilib '' '' '' '' '' '' '' "$(MULTIARCH_DIRNAME)" no \
 	    > tmp-mlib.h; \
 	fi
 	$(SHELL) $(srcdir)/../move-if-change tmp-mlib.h multilib.h
@@ -2580,7 +2596,7 @@ gimple-low.o : gimple-low.c $(CONFIG_H) $(SYSTEM_H) $(TREE_H) \
    $(DIAGNOSTIC_H) $(GIMPLE_H) $(TREE_INLINE_H) langhooks.h \
    $(LANGHOOKS_DEF_H) $(TREE_FLOW_H) $(TIMEVAR_H) $(TM_H) coretypes.h \
    $(EXCEPT_H) $(FLAGS_H) $(RTL_H) $(FUNCTION_H) $(EXPR_H) $(TREE_PASS_H) \
-   $(HASHTAB_H) $(DIAGNOSTIC_CORE_H) tree-iterator.h
+   $(HASHTAB_H) $(DIAGNOSTIC_CORE_H) tree-iterator.h langhooks.h
 omp-low.o : omp-low.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(TREE_H) \
    $(RTL_H) $(GIMPLE_H) $(TREE_INLINE_H) langhooks.h $(DIAGNOSTIC_CORE_H) \
    $(TREE_FLOW_H) $(TIMEVAR_H) $(FLAGS_H) $(EXPR_H) $(DIAGNOSTIC_CORE_H) \
@@ -3417,7 +3433,7 @@ regrename.o : regrename.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
 ifcvt.o : ifcvt.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(RTL_H) \
    $(REGS_H) $(DIAGNOSTIC_CORE_H) $(FLAGS_H) insn-config.h $(FUNCTION_H) $(RECOG_H) \
    $(TARGET_H) $(BASIC_BLOCK_H) $(EXPR_H) output.h $(EXCEPT_H) $(TM_P_H) \
-   $(OPTABS_H) $(CFGLOOP_H) hard-reg-set.h $(TIMEVAR_H) \
+   $(OPTABS_H) $(CFGLOOP_H) hard-reg-set.h pointer-set.h $(TIMEVAR_H) \
    $(TREE_PASS_H) $(DF_H) $(DBGCNT_H)
 params.o : params.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(COMMON_TARGET_H) \
    $(PARAMS_H) $(DIAGNOSTIC_CORE_H)
@@ -4038,10 +4054,16 @@ gcov-dump$(exeext): $(GCOV_DUMP_OBJS) $(LIBDEPS)
 # Build the include directories.
 stmp-int-hdrs: $(STMP_FIXINC) $(USER_H) fixinc_list
 # Copy in the headers provided with gcc.
+#
 # The sed command gets just the last file name component;
 # this is necessary because VPATH could add a dirname.
 # Using basename would be simpler, but some systems don't have it.
+#
 # The touch command is here to workaround an AIX/Linux NFS bug.
+#
+# The move-if-change + cp -p twists for limits.h are intended to preserve
+# the time stamp when we regenerate, to prevent pointless rebuilds during
+# e.g. install-no-fixedincludes.
 	-if [ -d include ] ; then true; else mkdir include; chmod a+rx include; fi
 	-if [ -d include-fixed ] ; then true; else mkdir include-fixed; chmod a+rx include-fixed; fi
 	for file in .. $(USER_H); do \
@@ -4090,8 +4112,10 @@ stmp-int-hdrs: $(STMP_FIXINC) $(USER_H) fixinc_list
 	  fi; \
 	  $(mkinstalldirs) $${fix_dir}; \
 	  chmod a+rx $${fix_dir} || true; \
+	  $(SHELL) $(srcdir)/../move-if-change \
+	    tmp-xlimits.h  tmp-limits.h; \
 	  rm -f $${fix_dir}/limits.h; \
-	  mv tmp-xlimits.h $${fix_dir}/limits.h; \
+	  cp -p tmp-limits.h $${fix_dir}/limits.h; \
 	  chmod a+r $${fix_dir}/limits.h; \
 	done
 # Install the README
@@ -4193,6 +4217,42 @@ stmp-fixinc: gsyslimits.h macro_list fixinc_list \
 	fi
 	$(STAMP) stmp-fixinc
 #
+
+# Install with the gcc headers files, not the fixed include files, which we
+# are typically not allowed to distribute.  The general idea is to:
+#  - Get to "install" with a bare set of internal headers, not the
+#    fixed system ones,
+#  - Prevent rebuilds of what normally depends on the headers, which is
+#    useless for installation purposes and would rely on improper headers.
+#  - Restore as much of the original state as possible.
+
+.PHONY: install-no-fixedincludes
+
+install-no-fixedincludes:
+	# Stash the current set of headers away, save stamps we're going to
+	# alter explicitly, and arrange for fixincludes not to run next time
+	# we trigger a headers rebuild.
+	-rm -rf tmp-include
+	-mv include tmp-include 2>/dev/null
+	-mv include-fixed tmp-include-fixed 2>/dev/null
+	-mv stmp-int-hdrs tmp-stmp-int-hdrs 2>/dev/null
+	-mv stmp-fixinc tmp-stmp-fixinc 2>/dev/null
+	-mkdir include
+	-cp -p $(srcdir)/gsyslimits.h include/syslimits.h
+	-touch stmp-fixinc
+
+	# Rebuild our internal headers, restore the original stamps so that
+	# "install" doesn't trigger pointless rebuilds because of that update,
+	# then do install
+	$(MAKE) $(FLAGS_TO_PASS) stmp-int-hdrs
+	-mv tmp-stmp-int-hdrs stmp-int-hdrs 2>/dev/null
+	-mv tmp-stmp-fixinc stmp-fixinc 2>/dev/null
+	$(MAKE) $(FLAGS_TO_PASS) install
+
+	# Restore the original set of maybe-fixed headers
+	-rm -rf include; mv tmp-include include 2>/dev/null
+	-rm -rf include-fixed; mv tmp-include-fixed include-fixed 2>/dev/null
+
 # Remake the info files.
 
 doc: $(BUILD_INFO) $(GENERATED_MANPAGES)

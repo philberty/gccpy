@@ -2515,7 +2515,7 @@ check_template_template_default_arg (tree argument)
 /* Begin a class definition, as indicated by T.  */
 
 tree
-begin_class_definition (tree t, tree attributes)
+begin_class_definition (tree t)
 {
   if (error_operand_p (t) || error_operand_p (TYPE_MAIN_DECL (t)))
     return error_mark_node;
@@ -2571,9 +2571,6 @@ begin_class_definition (tree t, tree attributes)
   maybe_process_partial_specialization (t);
   pushclass (t);
   TYPE_BEING_DEFINED (t) = 1;
-
-  cplus_decl_attributes (&t, attributes, (int) ATTR_FLAG_TYPE_IN_PLACE);
-  fixup_attribute_variants (t);
 
   if (flag_pack_struct)
     {
@@ -2825,16 +2822,24 @@ baselink_for_fns (tree fns)
   return build_baselink (cl, cl, fns, /*optype=*/NULL_TREE);
 }
 
-/* Returns true iff DECL is an automatic variable from a function outside
+/* Returns true iff DECL is a variable from a function outside
    the current one.  */
+
+static bool
+outer_var_p (tree decl)
+{
+  return ((TREE_CODE (decl) == VAR_DECL || TREE_CODE (decl) == PARM_DECL)
+	  && DECL_FUNCTION_SCOPE_P (decl)
+	  && DECL_CONTEXT (decl) != current_function_decl);
+}
+
+/* As above, but also checks that DECL is automatic.  */
 
 static bool
 outer_automatic_var_p (tree decl)
 {
-  return ((TREE_CODE (decl) == VAR_DECL || TREE_CODE (decl) == PARM_DECL)
-	  && DECL_FUNCTION_SCOPE_P (decl)
-	  && !TREE_STATIC (decl)
-	  && DECL_CONTEXT (decl) != current_function_decl);
+  return (outer_var_p (decl)
+	  && !TREE_STATIC (decl));
 }
 
 /* ID_EXPRESSION is a representation of parsed, but unprocessed,
@@ -2943,9 +2948,18 @@ finish_id_expression (tree id_expression,
 
       /* Disallow uses of local variables from containing functions, except
 	 within lambda-expressions.  */
-      if (outer_automatic_var_p (decl)
+      if (!outer_var_p (decl)
 	  /* It's not a use (3.2) if we're in an unevaluated context.  */
-	  && !cp_unevaluated_operand)
+	  || cp_unevaluated_operand)
+	/* OK.  */;
+      else if (TREE_STATIC (decl))
+	{
+	  if (processing_template_decl)
+	    /* For a use of an outer static var, return the identifier so
+	       that we'll look it up again in the instantiation.  */
+	    return id_expression;
+	}
+      else
 	{
 	  tree context = DECL_CONTEXT (decl);
 	  tree containing_function = current_function_decl;
@@ -2964,7 +2978,14 @@ finish_id_expression (tree id_expression,
 
 	     FIXME update for final resolution of core issue 696.  */
 	  if (decl_constant_var_p (decl))
-	    return integral_constant_value (decl);
+	    {
+	      if (processing_template_decl)
+		/* In a template, the constant value may not be in a usable
+		   form, so look it up again at instantiation time.  */
+		return id_expression;
+	      else
+		return integral_constant_value (decl);
+	    }
 
 	  /* If we are in a lambda function, we can move out until we hit
 	     1. the context,
@@ -5354,6 +5375,7 @@ classtype_has_nothrow_assign_or_copy_p (tree type, bool assign_p)
       else if (copy_fn_p (fn) <= 0)
 	continue;
 
+      maybe_instantiate_noexcept (fn);
       if (!TYPE_NOTHROW_P (TREE_TYPE (fn)))
 	return false;
     }
@@ -5395,7 +5417,8 @@ trait_expr_value (cp_trait_kind kind, tree type1, tree type2)
       return (trait_expr_value (CPTK_HAS_TRIVIAL_CONSTRUCTOR, type1, type2) 
 	      || (CLASS_TYPE_P (type1)
 		  && (t = locate_ctor (type1))
-		  && TYPE_NOTHROW_P (TREE_TYPE (t))));
+		  && (maybe_instantiate_noexcept (t),
+		      TYPE_NOTHROW_P (TREE_TYPE (t)))));
 
     case CPTK_HAS_TRIVIAL_CONSTRUCTOR:
       type1 = strip_array_types (type1);
@@ -5788,15 +5811,19 @@ build_data_member_initialization (tree t, VEC(constructor_elt,gc) **vec)
       member = TREE_OPERAND (t, 0);
       init = unshare_expr (TREE_OPERAND (t, 1));
     }
-  else
+  else if (TREE_CODE (t) == CALL_EXPR)
     {
-      gcc_assert (TREE_CODE (t) == CALL_EXPR);
       member = CALL_EXPR_ARG (t, 0);
       /* We don't use build_cplus_new here because it complains about
 	 abstract bases.  Leaving the call unwrapped means that it has the
 	 wrong type, but cxx_eval_constant_expression doesn't care.  */
       init = unshare_expr (t);
     }
+  else if (TREE_CODE (t) == DECL_EXPR)
+    /* Declaring a temporary, don't add it to the CONSTRUCTOR.  */
+    return true;
+  else
+    gcc_unreachable ();
   if (TREE_CODE (member) == INDIRECT_REF)
     member = TREE_OPERAND (member, 0);
   if (TREE_CODE (member) == NOP_EXPR)
@@ -5820,12 +5847,9 @@ build_data_member_initialization (tree t, VEC(constructor_elt,gc) **vec)
 	member = op;
       else
 	{
-	  /* We don't put out anything for an empty base.  */
+	  /* This is an initializer for an empty base; keep it for now so
+	     we can check it in cxx_eval_bare_aggregate.  */
 	  gcc_assert (is_empty_class (TREE_TYPE (TREE_TYPE (member))));
-	  /* But if the initializer isn't constexpr, leave it in so we
-	     complain later.  */
-	  if (potential_constant_expression (init))
-	    return true;
 	}
     }
   if (TREE_CODE (member) == ADDR_EXPR)
@@ -5880,6 +5904,44 @@ check_constexpr_ctor_body (tree last, tree list)
       DECL_DECLARED_CONSTEXPR_P (current_function_decl) = false;
     }
   return ok;
+}
+
+/* VEC is a vector of constructor elements built up for the base and member
+   initializers of a constructor for TYPE.  They need to be in increasing
+   offset order, which they might not be yet if TYPE has a primary base
+   which is not first in the base-clause or a vptr and at least one base
+   all of which are non-primary.  */
+
+static VEC(constructor_elt,gc) *
+sort_constexpr_mem_initializers (tree type, VEC(constructor_elt,gc) *vec)
+{
+  tree pri = CLASSTYPE_PRIMARY_BINFO (type);
+  tree field_type;
+  constructor_elt elt;
+  int i;
+
+  if (pri)
+    field_type = BINFO_TYPE (pri);
+  else if (TYPE_CONTAINS_VPTR_P (type))
+    field_type = vtbl_ptr_type_node;
+  else
+    return vec;
+
+  /* Find the element for the primary base or vptr and move it to the
+     beginning of the vec.  */
+  for (i = 0; ; ++i)
+    if (TREE_TYPE (VEC_index (constructor_elt, vec, i)->index) == field_type)
+      break;
+
+  if (i > 0)
+    {
+      elt = *VEC_index (constructor_elt, vec, i);
+      for (; i > 0; --i)
+	VEC_replace (constructor_elt, vec, i,
+		     VEC_index (constructor_elt, vec, i-1));
+      VEC_replace (constructor_elt, vec, 0, &elt);
+    }
+  return vec;
 }
 
 /* Build compile-time evalable representations of member-initializer list
@@ -5938,6 +6000,7 @@ build_constexpr_constructor_member_initializers (tree type, tree body)
 	      return body;
 	    }
 	}
+      vec = sort_constexpr_mem_initializers (type, vec);
       return build_constructor (type, vec);
     }
   else
@@ -6056,14 +6119,16 @@ cx_check_missing_mem_inits (tree fun, tree body, bool complain)
 	{
 	  index = CONSTRUCTOR_ELT (body, i)->index;
 	  /* Skip base and vtable inits.  */
-	  if (TREE_CODE (index) != FIELD_DECL)
+	  if (TREE_CODE (index) != FIELD_DECL
+	      || DECL_ARTIFICIAL (index))
 	    continue;
 	}
       for (; field != index; field = DECL_CHAIN (field))
 	{
 	  tree ftype;
 	  if (TREE_CODE (field) != FIELD_DECL
-	      || (DECL_C_BIT_FIELD (field) && !DECL_NAME (field)))
+	      || (DECL_C_BIT_FIELD (field) && !DECL_NAME (field))
+	      || DECL_ARTIFICIAL (field))
 	    continue;
 	  ftype = strip_array_types (TREE_TYPE (field));
 	  if (type_has_constexpr_default_constructor (ftype))
@@ -7040,6 +7105,12 @@ cxx_eval_bare_aggregate (const constexpr_call *call, tree t,
 	  constructor_elt *inner = base_field_constructor_elt (n, ce->index);
 	  inner->value = elt;
 	}
+      else if (TREE_CODE (ce->index) == NOP_EXPR)
+	{
+	  /* This is an initializer for an empty base; now that we've
+	     checked that it's constant, we can ignore it.  */
+	  gcc_assert (is_empty_class (TREE_TYPE (TREE_TYPE (ce->index))));
+	}
       else
 	CONSTRUCTOR_APPEND_ELT (n, ce->index, elt);
     }
@@ -7420,7 +7491,11 @@ cxx_eval_indirect_ref (const constexpr_call *call, tree t,
     }
 
   if (r == NULL_TREE)
-    return t;
+    {
+      if (!addr)
+	VERIFY_CONSTANT (t);
+      return t;
+    }
   return r;
 }
 
@@ -7644,6 +7719,7 @@ cxx_eval_constant_expression (const constexpr_call *call, tree t,
 	    /* Check that the LHS is constant and then discard it.  */
 	    cxx_eval_constant_expression (call, op0, allow_non_constant,
 					  false, non_constant_p);
+	    op1 = TREE_OPERAND (t, 1);
 	    r = cxx_eval_constant_expression (call, op1, allow_non_constant,
 					      addr, non_constant_p);
 	  }
@@ -8467,6 +8543,7 @@ potential_constant_expression_1 (tree t, bool want_rval, tsubst_flags_t flags)
     case UNGT_EXPR:
     case UNGE_EXPR:
     case UNEQ_EXPR:
+    case LTGT_EXPR:
     case RANGE_EXPR:
     case COMPLEX_EXPR:
       want_rval = true;
@@ -8675,7 +8752,7 @@ begin_lambda_type (tree lambda)
   xref_basetypes (type, /*bases=*/NULL_TREE);
 
   /* Start the class.  */
-  type = begin_class_definition (type, /*attributes=*/NULL_TREE);
+  type = begin_class_definition (type);
   if (type == error_mark_node)
     return error_mark_node;
 
@@ -9357,6 +9434,8 @@ maybe_add_lambda_conv_op (tree type)
   body = begin_function_body ();
   compound_stmt = begin_compound_stmt (0);
 
+  /* decl_needed_p needs to see that it's used.  */
+  TREE_USED (statfn) = 1;
   finish_return_stmt (decay_conversion (statfn));
 
   finish_compound_stmt (compound_stmt);

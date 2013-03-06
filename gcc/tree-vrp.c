@@ -695,17 +695,22 @@ get_value_range (const_tree var)
   /* If VAR is a default definition of a parameter, the variable can
      take any value in VAR's type.  */
   sym = SSA_NAME_VAR (var);
-  if (SSA_NAME_IS_DEFAULT_DEF (var)
-      && TREE_CODE (sym) == PARM_DECL)
+  if (SSA_NAME_IS_DEFAULT_DEF (var))
     {
-      /* Try to use the "nonnull" attribute to create ~[0, 0]
-	 anti-ranges for pointers.  Note that this is only valid with
-	 default definitions of PARM_DECLs.  */
-      if (POINTER_TYPE_P (TREE_TYPE (sym))
-	  && nonnull_arg_p (sym))
+      if (TREE_CODE (sym) == PARM_DECL)
+	{
+	  /* Try to use the "nonnull" attribute to create ~[0, 0]
+	     anti-ranges for pointers.  Note that this is only valid with
+	     default definitions of PARM_DECLs.  */
+	  if (POINTER_TYPE_P (TREE_TYPE (sym))
+	      && nonnull_arg_p (sym))
+	    set_value_range_to_nonnull (vr, TREE_TYPE (sym));
+	  else
+	    set_value_range_to_varying (vr);
+	}
+      else if (TREE_CODE (sym) == RESULT_DECL
+	       && DECL_BY_REFERENCE (sym))
 	set_value_range_to_nonnull (vr, TREE_TYPE (sym));
-      else
-	set_value_range_to_varying (vr);
     }
 
   return vr;
@@ -1311,41 +1316,25 @@ compare_values (tree val1, tree val2)
 }
 
 
-/* Return 1 if VAL is inside value range VR (VR->MIN <= VAL <= VR->MAX),
-          0 if VAL is not inside VR,
+/* Return 1 if VAL is inside value range MIN <= VAL <= MAX,
+          0 if VAL is not inside [MIN, MAX],
 	 -2 if we cannot tell either way.
-
-   FIXME, the current semantics of this functions are a bit quirky
-	  when taken in the context of VRP.  In here we do not care
-	  about VR's type.  If VR is the anti-range ~[3, 5] the call
-	  value_inside_range (4, VR) will return 1.
-
-	  This is counter-intuitive in a strict sense, but the callers
-	  currently expect this.  They are calling the function
-	  merely to determine whether VR->MIN <= VAL <= VR->MAX.  The
-	  callers are applying the VR_RANGE/VR_ANTI_RANGE semantics
-	  themselves.
-
-	  This also applies to value_ranges_intersect_p and
-	  range_includes_zero_p.  The semantics of VR_RANGE and
-	  VR_ANTI_RANGE should be encoded here, but that also means
-	  adapting the users of these functions to the new semantics.
 
    Benchmark compile/20001226-1.c compilation time after changing this
    function.  */
 
 static inline int
-value_inside_range (tree val, value_range_t * vr)
+value_inside_range (tree val, tree min, tree max)
 {
   int cmp1, cmp2;
 
-  cmp1 = operand_less_p (val, vr->min);
+  cmp1 = operand_less_p (val, min);
   if (cmp1 == -2)
     return -2;
   if (cmp1 == 1)
     return 0;
 
-  cmp2 = operand_less_p (vr->max, val);
+  cmp2 = operand_less_p (max, val);
   if (cmp2 == -2)
     return -2;
 
@@ -1374,23 +1363,14 @@ value_ranges_intersect_p (value_range_t *vr0, value_range_t *vr1)
 }
 
 
-/* Return true if VR includes the value zero, false otherwise.  FIXME,
-   currently this will return false for an anti-range like ~[-4, 3].
-   This will be wrong when the semantics of value_inside_range are
-   modified (currently the users of this function expect these
-   semantics).  */
+/* Return 1 if [MIN, MAX] includes the value zero, 0 if it does not
+   include the value zero, -2 if we cannot tell.  */
 
-static inline bool
-range_includes_zero_p (value_range_t *vr)
+static inline int
+range_includes_zero_p (tree min, tree max)
 {
-  tree zero;
-
-  gcc_assert (vr->type != VR_UNDEFINED
-              && vr->type != VR_VARYING
-	      && !symbolic_range_p (vr));
-
-  zero = build_int_cst (TREE_TYPE (vr->min), 0);
-  return (value_inside_range (zero, vr) == 1);
+  tree zero = build_int_cst (TREE_TYPE (min), 0);
+  return value_inside_range (zero, min, max);
 }
 
 /* Return true if *VR is know to only contain nonnegative values.  */
@@ -2604,7 +2584,7 @@ extract_range_from_binary_expr_1 (value_range_t *vr,
 	     gives [min / 4, max / 4] range.  */
 	  if (vr1.type == VR_RANGE
 	      && !symbolic_range_p (&vr1)
-	      && !range_includes_zero_p (&vr1))
+	      && range_includes_zero_p (vr1.min, vr1.max) == 0)
 	    {
 	      vr0.type = type = VR_RANGE;
 	      vr0.min = vrp_val_min (expr_type);
@@ -2621,8 +2601,7 @@ extract_range_from_binary_expr_1 (value_range_t *vr,
 	 not eliminate a division by zero.  */
       if (cfun->can_throw_non_call_exceptions
 	  && (vr1.type != VR_RANGE
-	      || symbolic_range_p (&vr1)
-	      || range_includes_zero_p (&vr1)))
+	      || range_includes_zero_p (vr1.min, vr1.max) != 0))
 	{
 	  set_value_range_to_varying (vr);
 	  return;
@@ -2633,8 +2612,7 @@ extract_range_from_binary_expr_1 (value_range_t *vr,
 	 include 0.  */
       if (vr0.type == VR_RANGE
 	  && (vr1.type != VR_RANGE
-	      || symbolic_range_p (&vr1)
-	      || range_includes_zero_p (&vr1)))
+	      || range_includes_zero_p (vr1.min, vr1.max) != 0))
 	{
 	  tree zero = build_int_cst (TREE_TYPE (vr0.min), 0);
 	  int cmp;
@@ -2686,8 +2664,7 @@ extract_range_from_binary_expr_1 (value_range_t *vr,
   else if (code == TRUNC_MOD_EXPR)
     {
       if (vr1.type != VR_RANGE
-	  || symbolic_range_p (&vr1)
-	  || range_includes_zero_p (&vr1)
+	  || range_includes_zero_p (vr1.min, vr1.max) != 0
 	  || vrp_val_is_min (vr1.min))
 	{
 	  set_value_range_to_varying (vr);
@@ -3088,7 +3065,7 @@ extract_range_from_unary_expr_1 (value_range_t *vr,
 	 ~[-INF, min(MIN, MAX)].  */
       if (vr0.type == VR_ANTI_RANGE)
 	{
-	  if (range_includes_zero_p (&vr0))
+	  if (range_includes_zero_p (vr0.min, vr0.max) == 1)
 	    {
 	      /* Take the lower of the two values.  */
 	      if (cmp != 1)
@@ -3139,7 +3116,7 @@ extract_range_from_unary_expr_1 (value_range_t *vr,
 
       /* If the range contains zero then we know that the minimum value in the
          range will be zero.  */
-      else if (range_includes_zero_p (&vr0))
+      else if (range_includes_zero_p (vr0.min, vr0.max) == 1)
 	{
 	  if (cmp == 1)
 	    max = min;
@@ -3242,8 +3219,8 @@ extract_range_from_cond_expr (value_range_t *vr, gimple stmt)
     set_value_range_to_varying (&vr1);
 
   /* The resulting value range is the union of the operand ranges */
-  vrp_meet (&vr0, &vr1);
   copy_value_range (vr, &vr0);
+  vrp_meet (vr, &vr1);
 }
 
 
@@ -3291,8 +3268,20 @@ extract_range_basic (value_range_t *vr, gimple stmt)
   bool sop = false;
   tree type = gimple_expr_type (stmt);
 
-  if (INTEGRAL_TYPE_P (type)
-      && gimple_stmt_nonnegative_warnv_p (stmt, &sop))
+  /* If the call is __builtin_constant_p and the argument is a
+     function parameter resolve it to false.  This avoids bogus
+     array bound warnings.
+     ???  We could do this as early as inlining is finished.  */
+  if (gimple_call_builtin_p (stmt, BUILT_IN_CONSTANT_P))
+    {
+      tree arg = gimple_call_arg (stmt, 0);
+      if (TREE_CODE (arg) == SSA_NAME
+	  && SSA_NAME_IS_DEFAULT_DEF (arg)
+	  && TREE_CODE (SSA_NAME_VAR (arg)) == PARM_DECL)
+	set_value_range_to_null (vr, type);
+    }
+  else if (INTEGRAL_TYPE_P (type)
+	   && gimple_stmt_nonnegative_warnv_p (stmt, &sop))
     set_value_range_to_nonnegative (vr, type,
 				    sop || stmt_overflow_infinity (stmt));
   else if (vrp_stmt_computes_nonzero (stmt, &sop)
@@ -3754,7 +3743,7 @@ compare_range_with_value (enum tree_code comp, value_range_t *vr, tree val,
 	return NULL_TREE;
 
       /* ~[VAL_1, VAL_2] OP VAL is known if VAL_1 <= VAL <= VAL_2.  */
-      if (value_inside_range (val, vr) == 1)
+      if (value_inside_range (val, vr->min, vr->max) == 1)
 	return (comp == NE_EXPR) ? boolean_true_node : boolean_false_node;
 
       return NULL_TREE;
@@ -6442,13 +6431,17 @@ vrp_meet (value_range_t *vr0, value_range_t *vr1)
 {
   if (vr0->type == VR_UNDEFINED)
     {
-      copy_value_range (vr0, vr1);
+      /* Drop equivalences.  See PR53465.  */
+      set_value_range (vr0, vr1->type, vr1->min, vr1->max, NULL);
       return;
     }
 
   if (vr1->type == VR_UNDEFINED)
     {
-      /* Nothing to do.  VR0 already has the resulting range.  */
+      /* VR0 already has the resulting range, just drop equivalences.
+	 See PR53465.  */
+      if (vr0->equiv)
+	bitmap_clear (vr0->equiv);
       return;
     }
 
@@ -6561,11 +6554,15 @@ give_up:
      anti-ranges from ranges is necessary because of the odd
      semantics of range_includes_zero_p and friends.  */
   if (!symbolic_range_p (vr0)
-      && ((vr0->type == VR_RANGE && !range_includes_zero_p (vr0))
-	  || (vr0->type == VR_ANTI_RANGE && range_includes_zero_p (vr0)))
+      && ((vr0->type == VR_RANGE
+	   && range_includes_zero_p (vr0->min, vr0->max) == 0)
+	  || (vr0->type == VR_ANTI_RANGE
+	      && range_includes_zero_p (vr0->min, vr0->max) == 1))
       && !symbolic_range_p (vr1)
-      && ((vr1->type == VR_RANGE && !range_includes_zero_p (vr1))
-	  || (vr1->type == VR_ANTI_RANGE && range_includes_zero_p (vr1))))
+      && ((vr1->type == VR_RANGE
+	   && range_includes_zero_p (vr1->min, vr1->max) == 0)
+	  || (vr1->type == VR_ANTI_RANGE
+	      && range_includes_zero_p (vr1->min, vr1->max) == 1)))
     {
       set_value_range_to_nonnull (vr0, TREE_TYPE (vr0->min));
 
@@ -6590,6 +6587,7 @@ vrp_visit_phi_node (gimple phi)
   tree lhs = PHI_RESULT (phi);
   value_range_t *lhs_vr = get_value_range (lhs);
   value_range_t vr_result = { VR_UNDEFINED, NULL_TREE, NULL_TREE, NULL };
+  bool first = true;
   int edges, old_edges;
   struct loop *l;
 
@@ -6622,6 +6620,20 @@ vrp_visit_phi_node (gimple phi)
 	  if (TREE_CODE (arg) == SSA_NAME)
 	    {
 	      vr_arg = *(get_value_range (arg));
+	      /* Do not allow equivalences or symbolic ranges to leak in from
+		 backedges.  That creates invalid equivalencies.  */
+	      if (e->flags & EDGE_DFS_BACK
+		  && (vr_arg.type == VR_RANGE
+		      || vr_arg.type == VR_ANTI_RANGE))
+		{
+		  vr_arg.equiv = NULL;
+		  if (symbolic_range_p (&vr_arg))
+		    {
+		      vr_arg.type = VR_VARYING;
+		      vr_arg.min = NULL_TREE;
+		      vr_arg.max = NULL_TREE;
+		    }
+		}
 	    }
 	  else
 	    {
@@ -6646,7 +6658,11 @@ vrp_visit_phi_node (gimple phi)
 	      fprintf (dump_file, "\n");
 	    }
 
-	  vrp_meet (&vr_result, &vr_arg);
+	  if (first)
+	    copy_value_range (&vr_result, &vr_arg);
+	  else
+	    vrp_meet (&vr_result, &vr_arg);
+	  first = false;
 
 	  if (vr_result.type == VR_VARYING)
 	    break;
@@ -7869,6 +7885,9 @@ execute_vrp (void)
   rewrite_into_loop_closed_ssa (NULL, TODO_update_ssa);
   scev_initialize ();
 
+  /* ???  This ends up using stale EDGE_DFS_BACK for liveness computation.
+     Inserting assertions may split edges which will invalidate
+     EDGE_DFS_BACK.  */
   insert_range_assertions ();
 
   /* Estimate number of iterations - but do not use undefined behavior
@@ -7880,6 +7899,9 @@ execute_vrp (void)
   to_remove_edges = VEC_alloc (edge, heap, 10);
   to_update_switch_stmts = VEC_alloc (switch_update, heap, 5);
   threadedge_initialize_values ();
+
+  /* For visiting PHI nodes we need EDGE_DFS_BACK computed.  */
+  mark_dfs_back_edges ();
 
   vrp_initialize ();
   ssa_propagate (vrp_visit_stmt, vrp_visit_phi_node);

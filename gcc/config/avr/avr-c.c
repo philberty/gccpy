@@ -43,7 +43,7 @@ avr_register_target_pragmas (void)
   /* Register address spaces.  The order must be the same as in the respective
      enum from avr.h (or designated initialized must be used in avr.c).  */
 
-  for (i = 0; avr_addrspace[i].name; i++)
+  for (i = 0; i < ADDR_SPACE_COUNT; i++)
     {
       gcc_assert (i == avr_addrspace[i].id);
 
@@ -148,6 +148,10 @@ avr_cpu_cpp_builtins (struct cpp_reader *pfile)
   cpp_define_formatted (pfile, "__AVR_SFR_OFFSET__=0x%x",
                         avr_current_arch->sfr_offset);
     
+#ifdef WITH_AVRLIBC
+  cpp_define (pfile, "__WITH_AVRLIBC__");
+#endif /* WITH_AVRLIBC */
+      
   /* Define builtin macros so that the user can easily query if or if not
      non-generic address spaces (and which) are supported.
      This is only supported for C.  For C++, a language extension is needed
@@ -156,7 +160,7 @@ avr_cpu_cpp_builtins (struct cpp_reader *pfile)
   
   if (!strcmp (lang_hooks.name, "GNU C"))
     {
-      for (i = 0; avr_addrspace[i].name; i++)
+      for (i = 0; i < ADDR_SPACE_COUNT; i++)
         if (!ADDR_SPACE_GENERIC_P (i)
             /* Only supply __FLASH<n> macro if the address space is reasonable
                for this target.  The address space qualifier itself is still
@@ -166,8 +170,7 @@ avr_cpu_cpp_builtins (struct cpp_reader *pfile)
             const char *name = avr_addrspace[i].name;
             char *Name = (char*) alloca (1 + strlen (name));
 
-            cpp_define_formatted (pfile, "%s=%s",
-                                  avr_toupper (Name, name), name);
+            cpp_define (pfile, avr_toupper (Name, name));
           }
     }
 
@@ -184,7 +187,9 @@ avr_cpu_cpp_builtins (struct cpp_reader *pfile)
 
   /* Builtin macros for the __int24 and __uint24 type.  */
 
-  cpp_define (pfile, "__INT24_MAX__=8388607L");
+  cpp_define_formatted (pfile, "__INT24_MAX__=8388607%s",
+                        INT_TYPE_SIZE == 8 ? "LL" : "L");
   cpp_define (pfile, "__INT24_MIN__=(-__INT24_MAX__-1)");
-  cpp_define (pfile, "__UINT24_MAX__=16777215UL");
+  cpp_define_formatted (pfile, "__UINT24_MAX__=16777215%s",
+                        INT_TYPE_SIZE == 8 ? "ULL" : "UL");
 }

@@ -931,7 +931,7 @@ case "${host}" in
     # on Darwin -single_module speeds up loading of the dynamic libraries.
     extra_ldflags_libjava=-Wl,-single_module
     ;;
-arm*linux*eabi)
+arm*-*-linux*eabi*)
     # Some of the ARM unwinder code is actually in libstdc++.  We
     # could in principle replicate it in libgcj, but it's better to
     # have a dependency on libstdc++.
@@ -1825,7 +1825,7 @@ AC_CACHE_CHECK([whether ld supports anonymous version scripts],
      AS_HELP_STRING([--disable-symvers],
 		    [disable symbol versioning for libjava]),
        [case "$enableval" in
-         yes) libjava_cv_anon_version_script=yes ;;
+         yes|gnu*) libjava_cv_anon_version_script=yes ;;
          no)  libjava_cv_anon_version_script=no ;;
          *)   AC_MSG_ERROR([Unknown argument to enable/disable symvers]);;
         esac],

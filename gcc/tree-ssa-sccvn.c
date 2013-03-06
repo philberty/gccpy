@@ -1484,7 +1484,8 @@ vn_reference_lookup_3 (ao_ref *ref, tree vuse, void *vr_)
 
   /* 3) Assignment from a constant.  We can use folds native encode/interpret
      routines to extract the assigned bits.  */
-  else if (CHAR_BIT == 8 && BITS_PER_UNIT == 8
+  else if (vn_walk_kind == VN_WALKREWRITE
+	   && CHAR_BIT == 8 && BITS_PER_UNIT == 8
 	   && ref->size == maxsize
 	   && maxsize % BITS_PER_UNIT == 0
 	   && offset % BITS_PER_UNIT == 0
@@ -3590,6 +3591,8 @@ extract_and_process_scc_for_name (tree name)
 	fprintf (dump_file, "WARNING: Giving up with SCCVN due to "
 		 "SCC size %u exceeding %u\n", VEC_length (tree, scc),
 		 (unsigned)PARAM_VALUE (PARAM_SCCVN_MAX_SCC_SIZE));
+
+      VEC_free (tree, heap, scc);
       return false;
     }
 

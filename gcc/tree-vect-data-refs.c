@@ -1023,7 +1023,7 @@ vect_update_misalignment_for_peel (struct data_reference *dr,
       int misal = DR_MISALIGNMENT (dr);
       tree vectype = STMT_VINFO_VECTYPE (stmt_info);
       misal += negative ? -npeel * dr_size : npeel * dr_size;
-      misal &= GET_MODE_SIZE (TYPE_MODE (vectype)) - 1;
+      misal &= (TYPE_ALIGN (vectype) / BITS_PER_UNIT) - 1;
       SET_DR_MISALIGNMENT (dr, misal);
       return;
     }
@@ -1296,7 +1296,7 @@ vect_peeling_hash_get_lowest_cost (void **slot, void *data)
     }
 
   outside_cost += vect_get_known_peeling_cost (loop_vinfo, elem->npeel, &dummy,
-                         vect_get_single_scalar_iteraion_cost (loop_vinfo));
+                         vect_get_single_scalar_iteration_cost (loop_vinfo));
 
   if (inside_cost < min->inside_cost
       || (inside_cost == min->inside_cost && outside_cost < min->outside_cost))
@@ -2868,10 +2868,6 @@ vect_analyze_data_refs (loop_vec_info loop_vinfo,
           return false;
         }
 
-      base = unshare_expr (DR_BASE_ADDRESS (dr));
-      offset = unshare_expr (DR_OFFSET (dr));
-      init = unshare_expr (DR_INIT (dr));
-
       if (stmt_can_throw_internal (stmt))
         {
           if (vect_print_dump_info (REPORT_UNVECTORIZED_LOCATIONS))
@@ -2892,6 +2888,32 @@ vect_analyze_data_refs (loop_vec_info loop_vinfo,
 	    free_data_ref (dr);
           return false;
         }
+
+      if (TREE_CODE (DR_REF (dr)) == COMPONENT_REF
+	  && DECL_BIT_FIELD (TREE_OPERAND (DR_REF (dr), 1)))
+	{
+          if (vect_print_dump_info (REPORT_UNVECTORIZED_LOCATIONS))
+            {
+              fprintf (vect_dump, "not vectorized: statement is bitfield "
+                       "access ");
+              print_gimple_stmt (vect_dump, stmt, 0, TDF_SLIM);
+            }
+
+          if (bb_vinfo)
+            {
+              STMT_VINFO_VECTORIZABLE (stmt_info) = false;
+              stop_bb_analysis = true;
+              continue;
+            }
+
+	  if (gather)
+	    free_data_ref (dr);
+          return false;
+	}
+
+      base = unshare_expr (DR_BASE_ADDRESS (dr));
+      offset = unshare_expr (DR_OFFSET (dr));
+      init = unshare_expr (DR_INIT (dr));
 
       if (is_gimple_call (stmt))
 	{
@@ -4550,6 +4572,13 @@ vect_can_force_dr_alignment_p (const_tree decl, unsigned int alignment)
     return false;
 
   if (TREE_ASM_WRITTEN (decl))
+    return false;
+
+  /* Do not override explicit alignment set by the user when an explicit
+     section name is also used.  This is a common idiom used by many
+     software projects.  */
+  if (DECL_SECTION_NAME (decl) != NULL_TREE
+      && !DECL_HAS_IMPLICIT_SECTION_NAME_P (decl))
     return false;
 
   if (TREE_STATIC (decl))

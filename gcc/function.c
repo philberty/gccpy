@@ -2975,11 +2975,26 @@ assign_parm_setup_reg (struct assign_parm_data_all *all, tree parm,
 	  && insn_operand_matches (icode, 1, op1))
 	{
 	  enum rtx_code code = unsignedp ? ZERO_EXTEND : SIGN_EXTEND;
-	  rtx insn, insns;
+	  rtx insn, insns, t = op1;
 	  HARD_REG_SET hardregs;
 
 	  start_sequence ();
-	  insn = gen_extend_insn (op0, op1, promoted_nominal_mode,
+	  /* If op1 is a hard register that is likely spilled, first
+	     force it into a pseudo, otherwise combiner might extend
+	     its lifetime too much.  */
+	  if (GET_CODE (t) == SUBREG)
+	    t = SUBREG_REG (t);
+	  if (REG_P (t)
+	      && HARD_REGISTER_P (t)
+	      && ! TEST_HARD_REG_BIT (fixed_reg_set, REGNO (t))
+	      && targetm.class_likely_spilled_p (REGNO_REG_CLASS (REGNO (t))))
+	    {
+	      t = gen_reg_rtx (GET_MODE (op1));
+	      emit_move_insn (t, op1);
+	    }
+	  else
+	    t = op1;
+	  insn = gen_extend_insn (op0, t, promoted_nominal_mode,
 				  data->passed_mode, unsignedp);
 	  emit_insn (insn);
 	  insns = get_insns ();
@@ -5287,6 +5302,10 @@ requires_stack_frame_p (rtx insn, HARD_REG_SET prologue_used,
   if (CALL_P (insn))
     return !SIBLING_CALL_P (insn);
 
+  /* We need a frame to get the unique CFA expected by the unwinder.  */
+  if (cfun->can_throw_non_call_exceptions && can_throw_internal (insn))
+    return true;
+
   CLEAR_HARD_REG_SET (hardregs);
   for (df_rec = DF_INSN_DEFS (insn); *df_rec; df_rec++)
     {
@@ -5942,7 +5961,7 @@ thread_prologue_and_epilogue_insns (void)
       if (pic_offset_table_rtx)
 	add_to_hard_reg_set (&set_up_by_prologue.set, Pmode,
 			     PIC_OFFSET_TABLE_REGNUM);
-      if (stack_realign_drap && crtl->drap_reg)
+      if (crtl->drap_reg)
 	add_to_hard_reg_set (&set_up_by_prologue.set,
 			     GET_MODE (crtl->drap_reg),
 			     REGNO (crtl->drap_reg));

@@ -279,6 +279,8 @@ pack_ts_type_common_value_fields (struct bitpack_d *bp, tree expr)
   bp_pack_value (bp, TYPE_NEEDS_CONSTRUCTING (expr), 1);
   if (RECORD_OR_UNION_TYPE_P (expr))
     bp_pack_value (bp, TYPE_TRANSPARENT_AGGR (expr), 1);
+  else if (TREE_CODE (expr) == ARRAY_TYPE)
+    bp_pack_value (bp, TYPE_NONALIASED_COMPONENT (expr), 1);
   bp_pack_value (bp, TYPE_PACKED (expr), 1);
   bp_pack_value (bp, TYPE_RESTRICT (expr), 1);
   bp_pack_value (bp, TYPE_CONTAINS_PLACEHOLDER_INTERNAL (expr), 2);
@@ -552,7 +554,7 @@ write_ts_field_decl_tree_pointers (struct output_block *ob, tree expr,
 {
   stream_write_tree (ob, DECL_FIELD_OFFSET (expr), ref_p);
   stream_write_tree (ob, DECL_BIT_FIELD_TYPE (expr), ref_p);
-  /* Do not stream DECL_QUALIFIER, it is useless after gimplification.  */
+  stream_write_tree (ob, DECL_BIT_FIELD_REPRESENTATIVE (expr), ref_p);
   stream_write_tree (ob, DECL_FIELD_BIT_OFFSET (expr), ref_p);
   stream_write_tree (ob, DECL_FCONTEXT (expr), ref_p);
 }

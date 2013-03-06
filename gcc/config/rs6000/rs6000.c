@@ -1,7 +1,7 @@
 /* Subroutines used for code generation on IBM RS/6000.
    Copyright (C) 1991, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
    2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,
-   2012
+   2012, 2013
    Free Software Foundation, Inc.
    Contributed by Richard Kenner (kenner@vlsi1.ultra.nyu.edu)
 
@@ -1010,9 +1010,8 @@ static bool is_microcoded_insn (rtx);
 static bool is_nonpipeline_insn (rtx);
 static bool is_cracked_insn (rtx);
 static bool is_branch_slot_insn (rtx);
-static bool is_load_insn (rtx);
-static rtx get_store_dest (rtx pat);
-static bool is_store_insn (rtx);
+static bool is_load_insn (rtx, rtx *);
+static bool is_store_insn (rtx, rtx *);
 static bool set_to_load_agen (rtx,rtx);
 static bool adjacent_mem_locations (rtx,rtx);
 static int rs6000_adjust_priority (rtx, int);
@@ -2647,7 +2646,7 @@ rs6000_option_override_internal (bool global_init_p)
 #endif
 #ifdef OS_MISSING_ALTIVEC
   if (OS_MISSING_ALTIVEC)
-    set_masks &= ~MASK_ALTIVEC;
+    set_masks &= ~(MASK_ALTIVEC | MASK_VSX);
 #endif
 
   /* Don't override by the processor default if given explicitly.  */
@@ -3005,7 +3004,7 @@ rs6000_option_override_internal (bool global_init_p)
 
   /* Handle -msched-costly-dep option.  */
   rs6000_sched_costly_dep
-    = (rs6000_sched_groups ? store_to_load_dep_costly : no_dep_costly);
+    = (rs6000_sched_groups ? true_store_to_load_dep_costly : no_dep_costly);
 
   if (rs6000_sched_costly_dep_str)
     {
@@ -3754,7 +3753,8 @@ rs6000_builtin_vectorized_libmass (tree fndecl, tree type_out, tree type_in)
 	  bdecl = builtin_decl_implicit (fn);
 	  suffix = "d2";				/* pow -> powd2 */
 	  if (el_mode != DFmode
-	      || n != 2)
+	      || n != 2
+	      || !bdecl)
 	    return NULL_TREE;
 	  break;
 
@@ -3791,7 +3791,8 @@ rs6000_builtin_vectorized_libmass (tree fndecl, tree type_out, tree type_in)
 	  bdecl = builtin_decl_implicit (fn);
 	  suffix = "4";					/* powf -> powf4 */
 	  if (el_mode != SFmode
-	      || n != 4)
+	      || n != 4
+	      || !bdecl)
 	    return NULL_TREE;
 	  break;
 
@@ -3804,6 +3805,9 @@ rs6000_builtin_vectorized_libmass (tree fndecl, tree type_out, tree type_in)
 
   gcc_assert (suffix != NULL);
   bname = IDENTIFIER_POINTER (DECL_NAME (bdecl));
+  if (!bname)
+    return NULL_TREE;
+
   strcpy (name, bname + sizeof ("__builtin_") - 1);
   strcat (name, suffix);
 
@@ -14718,7 +14722,6 @@ void
 print_operand (FILE *file, rtx x, int code)
 {
   int i;
-  HOST_WIDE_INT val;
   unsigned HOST_WIDE_INT uval;
 
   switch (code)
@@ -15159,34 +15162,17 @@ print_operand (FILE *file, rtx x, int code)
 
     case 'W':
       /* MB value for a PowerPC64 rldic operand.  */
-      val = (GET_CODE (x) == CONST_INT
-	     ? INTVAL (x) : CONST_DOUBLE_HIGH (x));
-
-      if (val < 0)
-	i = -1;
-      else
-	for (i = 0; i < HOST_BITS_PER_WIDE_INT; i++)
-	  if ((val <<= 1) < 0)
-	    break;
+      i = clz_hwi (GET_CODE (x) == CONST_INT
+		   ? INTVAL (x) : CONST_DOUBLE_HIGH (x));
 
 #if HOST_BITS_PER_WIDE_INT == 32
-      if (GET_CODE (x) == CONST_INT && i >= 0)
+      if (GET_CODE (x) == CONST_INT && i > 0)
 	i += 32;  /* zero-extend high-part was all 0's */
       else if (GET_CODE (x) == CONST_DOUBLE && i == 32)
-	{
-	  val = CONST_DOUBLE_LOW (x);
-
-	  gcc_assert (val);
-	  if (val < 0)
-	    --i;
-	  else
-	    for ( ; i < 64; i++)
-	      if ((val <<= 1) < 0)
-		break;
-	}
+	i = clz_hwi (CONST_DOUBLE_LOW (x)) + 32;
 #endif
 
-      fprintf (file, "%d", i + 1);
+      fprintf (file, "%d", i);
       return;
 
     case 'x':
@@ -17522,8 +17508,9 @@ rs6000_savres_strategy (rs6000_stack_t *info,
      static chain is rarely used anyway.  FPRs are saved w.r.t the stack
      pointer on Darwin.  */
   if (using_static_chain_p)
-    strategy |= (DEFAULT_ABI == ABI_DARWIN ? 0 : SAVE_INLINE_FPRS)
-		| SAVE_INLINE_GPRS;
+    strategy |= ((DEFAULT_ABI == ABI_DARWIN
+		  ? 0 : SAVE_INLINE_FPRS | REST_INLINE_FPRS)
+		 | SAVE_INLINE_GPRS);
 
   /* If we are going to use store multiple, then don't even bother
      with the out-of-line routines, since the store-multiple
@@ -22664,49 +22651,78 @@ set_to_load_agen (rtx out_insn, rtx in_insn)
   return false;
 }
 
+/* Try to determine base/offset/size parts of the given MEM.
+   Return true if successful, false if all the values couldn't
+   be determined.
+
+   This function only looks for REG or REG+CONST address forms.
+   REG+REG address form will return false. */
+
+static bool
+get_memref_parts (rtx mem, rtx *base, HOST_WIDE_INT *offset,
+		  HOST_WIDE_INT *size)
+{
+  rtx addr_rtx;
+  if (MEM_SIZE_KNOWN_P (mem))
+    *size = MEM_SIZE (mem);
+  else
+    return false;
+
+  if (GET_CODE (XEXP (mem, 0)) == PRE_MODIFY)
+    addr_rtx = XEXP (XEXP (mem, 0), 1);
+  else
+    addr_rtx = (XEXP (mem, 0));
+
+  if (GET_CODE (addr_rtx) == REG)
+    {
+      *base = addr_rtx;
+      *offset = 0;
+    }
+  else if (GET_CODE (addr_rtx) == PLUS
+	   && CONST_INT_P (XEXP (addr_rtx, 1)))
+    {
+      *base = XEXP (addr_rtx, 0);
+      *offset = INTVAL (XEXP (addr_rtx, 1));
+    }
+  else
+    return false;
+
+  return true;
+}
+
 /* The function returns true if the target storage location of
-   out_insn is adjacent to the target storage location of in_insn */
+   mem1 is adjacent to the target storage location of mem2 */
 /* Return 1 if memory locations are adjacent.  */
 
 static bool
-adjacent_mem_locations (rtx insn1, rtx insn2)
+adjacent_mem_locations (rtx mem1, rtx mem2)
 {
+  rtx reg1, reg2;
+  HOST_WIDE_INT off1, size1, off2, size2;
 
-  rtx a = get_store_dest (PATTERN (insn1));
-  rtx b = get_store_dest (PATTERN (insn2));
+  if (get_memref_parts (mem1, &reg1, &off1, &size1)
+      && get_memref_parts (mem2, &reg2, &off2, &size2))
+    return ((REGNO (reg1) == REGNO (reg2))
+	    && ((off1 + size1 == off2)
+		|| (off2 + size2 == off1)));
 
-  if ((GET_CODE (XEXP (a, 0)) == REG
-       || (GET_CODE (XEXP (a, 0)) == PLUS
-	   && GET_CODE (XEXP (XEXP (a, 0), 1)) == CONST_INT))
-      && (GET_CODE (XEXP (b, 0)) == REG
-	  || (GET_CODE (XEXP (b, 0)) == PLUS
-	      && GET_CODE (XEXP (XEXP (b, 0), 1)) == CONST_INT)))
-    {
-      HOST_WIDE_INT val0 = 0, val1 = 0, val_diff;
-      rtx reg0, reg1;
+  return false;
+}
 
-      if (GET_CODE (XEXP (a, 0)) == PLUS)
-        {
-	  reg0 = XEXP (XEXP (a, 0), 0);
-	  val0 = INTVAL (XEXP (XEXP (a, 0), 1));
-        }
-      else
-	reg0 = XEXP (a, 0);
+/* This function returns true if it can be determined that the two MEM
+   locations overlap by at least 1 byte based on base reg/offset/size. */
 
-      if (GET_CODE (XEXP (b, 0)) == PLUS)
-        {
-	  reg1 = XEXP (XEXP (b, 0), 0);
-	  val1 = INTVAL (XEXP (XEXP (b, 0), 1));
-        }
-      else
-	reg1 = XEXP (b, 0);
+static bool
+mem_locations_overlap (rtx mem1, rtx mem2)
+{
+  rtx reg1, reg2;
+  HOST_WIDE_INT off1, size1, off2, size2;
 
-      val_diff = val1 - val0;
-
-      return ((REGNO (reg0) == REGNO (reg1))
-	      && ((MEM_SIZE_KNOWN_P (a) && val_diff == MEM_SIZE (a))
-		  || (MEM_SIZE_KNOWN_P (b) && val_diff == -MEM_SIZE (b))));
-    }
+  if (get_memref_parts (mem1, &reg1, &off1, &size1)
+      && get_memref_parts (mem2, &reg2, &off2, &size2))
+    return ((REGNO (reg1) == REGNO (reg2))
+	    && (((off1 <= off2) && (off1 + size1 > off2))
+		|| ((off2 <= off1) && (off2 + size2 > off1))));
 
   return false;
 }
@@ -22720,6 +22736,7 @@ adjacent_mem_locations (rtx insn1, rtx insn2)
 static int
 rs6000_adjust_priority (rtx insn ATTRIBUTE_UNUSED, int priority)
 {
+  rtx load_mem, str_mem;
   /* On machines (like the 750) which have asymmetric integer units,
      where one integer unit can do multiply and divides and the other
      can't, reduce the priority of multiply/divide so it is scheduled
@@ -22771,8 +22788,8 @@ rs6000_adjust_priority (rtx insn ATTRIBUTE_UNUSED, int priority)
     }
 
   if (rs6000_cpu == PROCESSOR_POWER6
-      && ((load_store_pendulum == -2 && is_load_insn (insn))
-          || (load_store_pendulum == 2 && is_store_insn (insn))))
+      && ((load_store_pendulum == -2 && is_load_insn (insn, &load_mem))
+          || (load_store_pendulum == 2 && is_store_insn (insn, &str_mem))))
     /* Attach highest priority to insn if the scheduler has just issued two
        stores and this instruction is a load, or two loads and this instruction
        is a store. Power6 wants loads and stores scheduled alternately
@@ -22889,14 +22906,14 @@ rs6000_use_sched_lookahead_guard (rtx insn)
   return 1;
 }
 
-/* Determine is PAT refers to memory.  */
+/* Determine if PAT refers to memory. If so, set MEM_REF to the MEM rtx
+   and return true.  */
 
 static bool
-is_mem_ref (rtx pat)
+find_mem_ref (rtx pat, rtx *mem_ref)
 {
   const char * fmt;
   int i, j;
-  bool ret = false;
 
   /* stack_tie does not produce any real memory traffic.  */
   if (GET_CODE (pat) == UNSPEC
@@ -22904,40 +22921,49 @@ is_mem_ref (rtx pat)
     return false;
 
   if (GET_CODE (pat) == MEM)
-    return true;
+    {
+      *mem_ref = pat;
+      return true;
+    }
 
   /* Recursively process the pattern.  */
   fmt = GET_RTX_FORMAT (GET_CODE (pat));
 
-  for (i = GET_RTX_LENGTH (GET_CODE (pat)) - 1; i >= 0 && !ret; i--)
+  for (i = GET_RTX_LENGTH (GET_CODE (pat)) - 1; i >= 0; i--)
     {
       if (fmt[i] == 'e')
-	ret |= is_mem_ref (XEXP (pat, i));
+	{
+	  if (find_mem_ref (XEXP (pat, i), mem_ref))
+	    return true;
+	}
       else if (fmt[i] == 'E')
 	for (j = XVECLEN (pat, i) - 1; j >= 0; j--)
-	  ret |= is_mem_ref (XVECEXP (pat, i, j));
+	  {
+	    if (find_mem_ref (XVECEXP (pat, i, j), mem_ref))
+	      return true;
+	  }
     }
 
-  return ret;
+  return false;
 }
 
 /* Determine if PAT is a PATTERN of a load insn.  */
 
 static bool
-is_load_insn1 (rtx pat)
+is_load_insn1 (rtx pat, rtx *load_mem)
 {
   if (!pat || pat == NULL_RTX)
     return false;
 
   if (GET_CODE (pat) == SET)
-    return is_mem_ref (SET_SRC (pat));
+    return find_mem_ref (SET_SRC (pat), load_mem);
 
   if (GET_CODE (pat) == PARALLEL)
     {
       int i;
 
       for (i = 0; i < XVECLEN (pat, 0); i++)
-	if (is_load_insn1 (XVECEXP (pat, 0, i)))
+	if (is_load_insn1 (XVECEXP (pat, 0, i), load_mem))
 	  return true;
     }
 
@@ -22947,7 +22973,7 @@ is_load_insn1 (rtx pat)
 /* Determine if INSN loads from memory.  */
 
 static bool
-is_load_insn (rtx insn)
+is_load_insn (rtx insn, rtx *load_mem)
 {
   if (!insn || !INSN_P (insn))
     return false;
@@ -22955,26 +22981,26 @@ is_load_insn (rtx insn)
   if (GET_CODE (insn) == CALL_INSN)
     return false;
 
-  return is_load_insn1 (PATTERN (insn));
+  return is_load_insn1 (PATTERN (insn), load_mem);
 }
 
 /* Determine if PAT is a PATTERN of a store insn.  */
 
 static bool
-is_store_insn1 (rtx pat)
+is_store_insn1 (rtx pat, rtx *str_mem)
 {
   if (!pat || pat == NULL_RTX)
     return false;
 
   if (GET_CODE (pat) == SET)
-    return is_mem_ref (SET_DEST (pat));
+    return find_mem_ref (SET_DEST (pat), str_mem);
 
   if (GET_CODE (pat) == PARALLEL)
     {
       int i;
 
       for (i = 0; i < XVECLEN (pat, 0); i++)
-	if (is_store_insn1 (XVECEXP (pat, 0, i)))
+	if (is_store_insn1 (XVECEXP (pat, 0, i), str_mem))
 	  return true;
     }
 
@@ -22984,38 +23010,12 @@ is_store_insn1 (rtx pat)
 /* Determine if INSN stores to memory.  */
 
 static bool
-is_store_insn (rtx insn)
+is_store_insn (rtx insn, rtx *str_mem)
 {
   if (!insn || !INSN_P (insn))
     return false;
 
-  return is_store_insn1 (PATTERN (insn));
-}
-
-/* Return the dest of a store insn.  */
-
-static rtx
-get_store_dest (rtx pat)
-{
-  gcc_assert (is_store_insn1 (pat));
-
-  if (GET_CODE (pat) == SET)
-    return SET_DEST (pat);
-  else if (GET_CODE (pat) == PARALLEL)
-    {
-      int i;
-
-      for (i = 0; i < XVECLEN (pat, 0); i++)
-	{
-	  rtx inner_pat = XVECEXP (pat, 0, i);
-	  if (GET_CODE (inner_pat) == SET
-	      && is_mem_ref (SET_DEST (inner_pat)))
-	    return inner_pat;
-	}
-    }
-  /* We shouldn't get here, because we should have either a simple
-     store insn or a store with update which are covered above.  */
-  gcc_unreachable();
+  return is_store_insn1 (PATTERN (insn), str_mem);
 }
 
 /* Returns whether the dependence between INSN and NEXT is considered
@@ -23026,6 +23026,7 @@ rs6000_is_costly_dependence (dep_t dep, int cost, int distance)
 {
   rtx insn;
   rtx next;
+  rtx load_mem, str_mem;
 
   /* If the flag is not enabled - no dependence is considered costly;
      allow all dependent insns in the same group.
@@ -23043,15 +23044,16 @@ rs6000_is_costly_dependence (dep_t dep, int cost, int distance)
   next = DEP_CON (dep);
 
   if (rs6000_sched_costly_dep == store_to_load_dep_costly
-      && is_load_insn (next)
-      && is_store_insn (insn))
+      && is_load_insn (next, &load_mem)
+      && is_store_insn (insn, &str_mem))
     /* Prevent load after store in the same group.  */
     return true;
 
   if (rs6000_sched_costly_dep == true_store_to_load_dep_costly
-      && is_load_insn (next)
-      && is_store_insn (insn)
-      && DEP_TYPE (dep) == REG_DEP_TRUE)
+      && is_load_insn (next, &load_mem)
+      && is_store_insn (insn, &str_mem)
+      && DEP_TYPE (dep) == REG_DEP_TRUE
+      && mem_locations_overlap(str_mem, load_mem))
      /* Prevent load after store in the same group if it is a true
 	dependence.  */
      return true;
@@ -23178,12 +23180,12 @@ rs6000_sched_reorder2 (FILE *dump, int sched_verbose, rtx *ready,
     {
       int pos;
       int i;
-      rtx tmp;
+      rtx tmp, load_mem, str_mem;
 
-      if (is_store_insn (last_scheduled_insn))
+      if (is_store_insn (last_scheduled_insn, &str_mem))
         /* Issuing a store, swing the load_store_pendulum to the left */
         load_store_pendulum--;
-      else if (is_load_insn (last_scheduled_insn))
+      else if (is_load_insn (last_scheduled_insn, &load_mem))
         /* Issuing a load, swing the load_store_pendulum to the right */
         load_store_pendulum++;
       else
@@ -23202,7 +23204,7 @@ rs6000_sched_reorder2 (FILE *dump, int sched_verbose, rtx *ready,
 
           while (pos >= 0)
             {
-              if (is_load_insn (ready[pos]))
+              if (is_load_insn (ready[pos], &load_mem))
                 {
                   /* Found a load.  Move it to the head of the ready list,
                      and adjust it's priority so that it is more likely to
@@ -23228,7 +23230,7 @@ rs6000_sched_reorder2 (FILE *dump, int sched_verbose, rtx *ready,
 
           while (pos >= 0)
             {
-              if (is_load_insn (ready[pos])
+              if (is_load_insn (ready[pos], &load_mem)
                   && !sel_sched_p ()
 		  && INSN_PRIORITY_KNOWN (ready[pos]))
                 {
@@ -23255,15 +23257,16 @@ rs6000_sched_reorder2 (FILE *dump, int sched_verbose, rtx *ready,
 
           while (pos >= 0)
             {
-              if (is_store_insn (ready[pos]))
+              if (is_store_insn (ready[pos], &str_mem))
                 {
+		  rtx str_mem2;
                   /* Maintain the index of the first store found on the
                      list */
                   if (first_store_pos == -1)
                     first_store_pos = pos;
 
-                  if (is_store_insn (last_scheduled_insn)
-                      && adjacent_mem_locations (last_scheduled_insn,ready[pos]))
+                  if (is_store_insn (last_scheduled_insn, &str_mem2)
+                      && adjacent_mem_locations (str_mem, str_mem2))
                     {
                       /* Found an adjacent store.  Move it to the head of the
                          ready list, and adjust it's priority so that it is
@@ -23307,7 +23310,7 @@ rs6000_sched_reorder2 (FILE *dump, int sched_verbose, rtx *ready,
 
           while (pos >= 0)
             {
-              if (is_store_insn (ready[pos])
+              if (is_store_insn (ready[pos], &str_mem)
                   && !sel_sched_p ()
 		  && INSN_PRIORITY_KNOWN (ready[pos]))
                 {
@@ -23591,7 +23594,7 @@ is_costly_group (rtx *group_insns, rtx next_insn)
       if (!insn)
 	continue;
 
-      FOR_EACH_DEP (insn, SD_LIST_FORW, sd_it, dep)
+      FOR_EACH_DEP (insn, SD_LIST_RES_FORW, sd_it, dep)
 	{
 	  rtx next = DEP_CON (dep);
 
@@ -23655,12 +23658,20 @@ force_new_group (int sched_verbose, FILE *dump, rtx *group_insns,
       if (can_issue_more && !is_branch_slot_insn (next_insn))
 	can_issue_more--;
 
-      while (can_issue_more > 0)
+      /* Power6 and Power7 have special group ending nop. */
+      if (rs6000_cpu_attr == CPU_POWER6 || rs6000_cpu_attr == CPU_POWER7)
 	{
-	  nop = gen_nop ();
+	  nop = gen_group_ending_nop ();
 	  emit_insn_before (nop, next_insn);
-	  can_issue_more--;
+	  can_issue_more = 0;
 	}
+      else
+	while (can_issue_more > 0)
+	  {
+	    nop = gen_nop ();
+	    emit_insn_before (nop, next_insn);
+	    can_issue_more--;
+	  }
 
       *group_end = true;
       return 0;

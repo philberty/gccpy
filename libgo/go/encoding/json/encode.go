@@ -55,7 +55,7 @@ import (
 // nil pointer or interface value, and any array, slice, map, or string of
 // length zero. The object's default key string is the struct field name
 // but can be specified in the struct field's tag value. The "json" key in
-// struct field's tag value is the key name, followed by an optional comma
+// the struct field's tag value is the key name, followed by an optional comma
 // and options. Examples:
 //
 //   // Field is ignored by this package.
@@ -96,7 +96,7 @@ import (
 //
 // Channel, complex, and function values cannot be encoded in JSON.
 // Attempting to encode such a value causes Marshal to return
-// an InvalidTypeError.
+// an UnsupportedTypeError.
 //
 // JSON cannot represent cyclic data structures and Marshal does not
 // handle them.  Passing cyclic structures to Marshal will result in
@@ -157,6 +157,8 @@ type Marshaler interface {
 	MarshalJSON() ([]byte, error)
 }
 
+// An UnsupportedTypeError is returned by Marshal when attempting
+// to encode an unsupported value type.
 type UnsupportedTypeError struct {
 	Type reflect.Type
 }

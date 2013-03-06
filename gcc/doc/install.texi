@@ -1032,6 +1032,15 @@ For ARM targets, possible values for @var{dialect} are @code{gnu} or
 @code{gnu2}, which select between the original GNU dialect and the GNU TLS
 descriptor-based dialect.
 
+@item --enable-multiarch
+Specify whether to enable or disable multiarch support.  The default is
+to check for glibc start files in a multiarch location, and enable it
+if the files are found.  The auto detection is enabled for native builds,
+and for cross builds configured with @option{--with-sysroot}, and without
+@option{--with-native-system-header-dir}.
+More documentation about multiarch can be found at
+@uref{http://wiki.debian.org/Multiarch}.
+
 @item --disable-multilib
 Specify that multiple target
 libraries to support different target variants, calling
@@ -1803,6 +1812,16 @@ Specifies that @samp{newlib} is
 being used as the target C library.  This causes @code{__eprintf} to be
 omitted from @file{libgcc.a} on the assumption that it will be provided by
 @samp{newlib}.
+
+@item --with-avrlibc
+Specifies that @samp{AVR-Libc} is
+being used as the target C library.  This causes float support
+functions like @code{__addsf3} to be omitted from @file{libgcc.a} on
+the assumption that it will be provided by @file{libm.a}.  For more
+technical details, cf. @uref{http://gcc.gnu.org/PR54461,,PR54461}.
+This option is only supported for the AVR target.  It is not supported for
+RTEMS configurations, which currently use newlib.  The option is
+supported since version 4.7.2 and is the default in 4.8.0 and newer.
 
 @item --with-build-time-tools=@var{dir}
 Specifies where to find the set of target tools (assembler, linker, etc.)
@@ -3222,7 +3241,7 @@ This is a synonym for @samp{x86_64-*-solaris2.1[0-9]*}.
 @heading @anchor{arm-x-eabi}arm-*-eabi
 ARM-family processors.  Subtargets that use the ELF object format
 require GNU binutils 2.13 or newer.  Such subtargets include:
-@code{arm-*-netbsdelf}, @code{arm-*-*linux-gnueabi}
+@code{arm-*-netbsdelf}, @code{arm-*-*linux-gnueabi*}
 and @code{arm-*-rtemseabi}.
 
 @html
@@ -4436,9 +4455,9 @@ releases mishandled unaligned relocations on @code{sparc-*-*} targets.
 @end html
 @heading @anchor{sparc64-x-solaris2}sparc64-*-solaris2*
 
-When configuring the GNU Multiple Precision Library (GMP) or the
-MPFR library, the canonical target triplet must be specified as
-the @command{build} parameter on the configure line.  For example
+When configuring the GNU Multiple Precision Library (GMP), the MPFR
+library or the MPC library, the canonical target triplet must be specified
+as the @command{build} parameter on the configure line.  For example
 on a Solaris 9 system:
 
 @smallexample

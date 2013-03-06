@@ -188,6 +188,7 @@ static enum machine_mode pa_c_mode_for_suffix (char);
 static section *pa_function_section (tree, enum node_frequency, bool, bool);
 static bool pa_cannot_force_const_mem (enum machine_mode, rtx);
 static bool pa_legitimate_constant_p (enum machine_mode, rtx);
+static unsigned int pa_section_type_flags (tree, const char *, int);
 
 /* The following extra sections are only used for SOM.  */
 static GTY(()) section *som_readonly_data_section;
@@ -383,6 +384,8 @@ static size_t n_deferred_plabels = 0;
 
 #undef TARGET_LEGITIMATE_CONSTANT_P
 #define TARGET_LEGITIMATE_CONSTANT_P pa_legitimate_constant_p
+#undef TARGET_SECTION_TYPE_FLAGS
+#define TARGET_SECTION_TYPE_FLAGS pa_section_type_flags
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 
@@ -4848,12 +4851,9 @@ pa_issue_rate (void)
 
 
 
-/* Return any length adjustment needed by INSN which already has its length
-   computed as LENGTH.   Return zero if no adjustment is necessary.
-
-   For the PA: function calls, millicode calls, and backwards short
-   conditional branches with unfilled delay slots need an adjustment by +1
-   (to account for the NOP which will be inserted into the instruction stream).
+/* Return any length plus adjustment needed by INSN which already has
+   its length computed as LENGTH.   Return LENGTH if no adjustment is
+   necessary.
 
    Also compute the length of an inline block move here as it is too
    complicated to express as a length attribute in pa.md.  */
@@ -4862,19 +4862,40 @@ pa_adjust_insn_length (rtx insn, int length)
 {
   rtx pat = PATTERN (insn);
 
+  /* If length is negative or undefined, provide initial length.  */
+  if ((unsigned int) length >= INT_MAX)
+    {
+      if (GET_CODE (pat) == SEQUENCE)
+	insn = XVECEXP (pat, 0, 0);
+
+      switch (get_attr_type (insn))
+	{
+	case TYPE_MILLI:
+	  length = pa_attr_length_millicode_call (insn);
+	  break;
+	case TYPE_CALL:
+	  length = pa_attr_length_call (insn, 0);
+	  break;
+	case TYPE_SIBCALL:
+	  length = pa_attr_length_call (insn, 1);
+	  break;
+	case TYPE_DYNCALL:
+	  length = pa_attr_length_indirect_call (insn);
+	  break;
+	case TYPE_SH_FUNC_ADRS:
+	  length = pa_attr_length_millicode_call (insn) + 20;
+	  break;
+	default:
+	  gcc_unreachable ();
+	}
+    }
+
   /* Jumps inside switch tables which have unfilled delay slots need
      adjustment.  */
   if (GET_CODE (insn) == JUMP_INSN
       && GET_CODE (pat) == PARALLEL
       && get_attr_type (insn) == TYPE_BTABLE_BRANCH)
-    return 4;
-  /* Millicode insn with an unfilled delay slot.  */
-  else if (GET_CODE (insn) == INSN
-	   && GET_CODE (pat) != SEQUENCE
-	   && GET_CODE (pat) != USE
-	   && GET_CODE (pat) != CLOBBER
-	   && get_attr_type (insn) == TYPE_MILLI)
-    return 4;
+    length += 4;
   /* Block move pattern.  */
   else if (GET_CODE (insn) == INSN
 	   && GET_CODE (pat) == PARALLEL
@@ -4883,7 +4904,7 @@ pa_adjust_insn_length (rtx insn, int length)
 	   && GET_CODE (XEXP (XVECEXP (pat, 0, 0), 1)) == MEM
 	   && GET_MODE (XEXP (XVECEXP (pat, 0, 0), 0)) == BLKmode
 	   && GET_MODE (XEXP (XVECEXP (pat, 0, 0), 1)) == BLKmode)
-    return compute_movmem_length (insn) - 4;
+    length += compute_movmem_length (insn) - 4;
   /* Block clear pattern.  */
   else if (GET_CODE (insn) == INSN
 	   && GET_CODE (pat) == PARALLEL
@@ -4891,7 +4912,7 @@ pa_adjust_insn_length (rtx insn, int length)
 	   && GET_CODE (XEXP (XVECEXP (pat, 0, 0), 0)) == MEM
 	   && XEXP (XVECEXP (pat, 0, 0), 1) == const0_rtx
 	   && GET_MODE (XEXP (XVECEXP (pat, 0, 0), 0)) == BLKmode)
-    return compute_clrmem_length (insn) - 4;
+    length += compute_clrmem_length (insn) - 4;
   /* Conditional branch with an unfilled delay slot.  */
   else if (GET_CODE (insn) == JUMP_INSN && ! simplejump_p (insn))
     {
@@ -4900,11 +4921,11 @@ pa_adjust_insn_length (rtx insn, int length)
 	  && length == 4
 	  && JUMP_LABEL (insn) != NULL_RTX
 	  && ! forward_branch_p (insn))
-	return 4;
+	length += 4;
       else if (GET_CODE (pat) == PARALLEL
 	       && get_attr_type (insn) == TYPE_PARALLEL_BRANCH
 	       && length == 4)
-	return 4;
+	length += 4;
       /* Adjust dbra insn with short backwards conditional branch with
 	 unfilled delay slot -- only for case where counter is in a
 	 general register register.  */
@@ -4914,11 +4935,9 @@ pa_adjust_insn_length (rtx insn, int length)
  	       && ! FP_REG_P (XEXP (XVECEXP (pat, 0, 1), 0))
 	       && length == 4
 	       && ! forward_branch_p (insn))
-	return 4;
-      else
-	return 0;
+	length += 4;
     }
-  return 0;
+  return length;
 }
 
 /* Implement the TARGET_PRINT_OPERAND_PUNCT_VALID_P hook.  */
@@ -7449,7 +7468,7 @@ pa_attr_length_millicode_call (rtx insn)
     return 24;
   else
     {
-      if (!TARGET_LONG_CALLS && distance < 240000)
+      if (!TARGET_LONG_CALLS && distance < MAX_PCREL17F_OFFSET)
 	return 8;
 
       if (TARGET_LONG_ABS_CALL && !flag_pic)
@@ -7478,15 +7497,13 @@ pa_output_millicode_call (rtx insn, rtx call_dest)
 
   /* Handle the common case where we are sure that the branch will
      reach the beginning of the $CODE$ subspace.  The within reach
-     form of the $$sh_func_adrs call has a length of 28.  Because
-     it has an attribute type of multi, it never has a nonzero
-     sequence length.  The length of the $$sh_func_adrs is the same
-     as certain out of reach PIC calls to other routines.  */
+     form of the $$sh_func_adrs call has a length of 28.  Because it
+     has an attribute type of sh_func_adrs, it never has a nonzero
+     sequence length (i.e., the delay slot is never filled).  */
   if (!TARGET_LONG_CALLS
-      && ((seq_length == 0
-	   && (attr_length == 12
-	       || (attr_length == 28 && get_attr_type (insn) == TYPE_MULTI)))
-	  || (seq_length != 0 && attr_length == 8)))
+      && (attr_length == 8
+	  || (attr_length == 28
+	      && get_attr_type (insn) == TYPE_SH_FUNC_ADRS)))
     {
       output_asm_insn ("{bl|b,l} %0,%2", xoperands);
     }
@@ -7662,7 +7679,7 @@ pa_attr_length_call (rtx insn, int sibcall)
   /* pc-relative branch.  */
   if (!TARGET_LONG_CALLS
       && ((TARGET_PA_20 && !sibcall && distance < 7600000)
-	  || distance < 240000))
+	  || distance < MAX_PCREL17F_OFFSET))
     length += 8;
 
   /* 64-bit plabel sequence.  */
@@ -8021,7 +8038,7 @@ pa_attr_length_indirect_call (rtx insn)
   if (TARGET_FAST_INDIRECT_CALLS
       || (!TARGET_PORTABLE_RUNTIME
 	  && ((TARGET_PA_20 && !TARGET_SOM && distance < 7600000)
-	      || distance < 240000)))
+	      || distance < MAX_PCREL17F_OFFSET)))
     return 8;
 
   if (flag_pic)
@@ -10311,14 +10328,10 @@ pa_legitimate_constant_p (enum machine_mode mode, rtx x)
     return false;
 
   /* TLS_MODEL_GLOBAL_DYNAMIC and TLS_MODEL_LOCAL_DYNAMIC are not
-     legitimate constants.  */
+     legitimate constants.  The other variants can't be handled by
+     the move patterns after reload starts.  */
   if (PA_SYMBOL_REF_TLS_P (x))
-   {
-     enum tls_model model = SYMBOL_REF_TLS_MODEL (x);
-
-     if (model == TLS_MODEL_GLOBAL_DYNAMIC || model == TLS_MODEL_LOCAL_DYNAMIC)
-       return false;
-   }
+    return false;
 
   if (TARGET_64BIT && GET_CODE (x) == CONST_DOUBLE)
     return false;
@@ -10336,6 +10349,25 @@ pa_legitimate_constant_p (enum machine_mode mode, rtx x)
     return false;
 
   return true;
+}
+
+/* Implement TARGET_SECTION_TYPE_FLAGS.  */
+
+static unsigned int
+pa_section_type_flags (tree decl, const char *name, int reloc)
+{
+  unsigned int flags;
+
+  flags = default_section_type_flags (decl, name, reloc);
+
+  /* Function labels are placed in the constant pool.  This can
+     cause a section conflict if decls are put in ".data.rel.ro"
+     or ".data.rel.ro.local" using the __attribute__ construct.  */
+  if (strcmp (name, ".data.rel.ro") == 0
+      || strcmp (name, ".data.rel.ro.local") == 0)
+    flags |= SECTION_WRITE | SECTION_RELRO;
+
+  return flags;
 }
 
 #include "gt-pa.h"

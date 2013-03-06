@@ -260,9 +260,7 @@ Gogo::get_init_fn_name()
 	}
       else
 	{
-	  std::string s = this->unique_prefix();
-	  s.append(1, '.');
-	  s.append(this->package_name());
+	  std::string s = this->pkgpath_symbol();
 	  s.append("..import");
 	  this->init_fn_name_ = s;
 	}
@@ -403,7 +401,7 @@ Gogo::register_gc_vars(const std::vector<Named_object*>& var_gc,
 
   // Build a constructor for the struct.
 
-  VEC(constructor_elt,gc*) root_list_init = VEC_alloc(constructor_elt, gc, 2);
+  VEC(constructor_elt,gc)* root_list_init = VEC_alloc(constructor_elt, gc, 2);
 
   elt = VEC_quick_push(constructor_elt, root_list_init, NULL);
   field = TYPE_FIELDS(root_list_type);
@@ -985,7 +983,7 @@ Named_object::get_id(Gogo* gogo)
       if (this->package_ == NULL)
 	package_name = gogo->package_name();
       else
-	package_name = this->package_->name();
+	package_name = this->package_->package_name();
 
       decl_name = package_name + '.' + Gogo::unpack_hidden_name(this->name_);
 
@@ -1004,9 +1002,19 @@ Named_object::get_id(Gogo* gogo)
     }
   if (this->is_type())
     {
-      const Named_object* in_function = this->type_value()->in_function();
+      unsigned int index;
+      const Named_object* in_function = this->type_value()->in_function(&index);
       if (in_function != NULL)
-	decl_name += '$' + in_function->name();
+	{
+	  decl_name += '$' + Gogo::unpack_hidden_name(in_function->name());
+	  if (index > 0)
+	    {
+	      char buf[30];
+	      snprintf(buf, sizeof buf, "%u", index);
+	      decl_name += '$';
+	      decl_name += buf;
+	    }
+	}
     }
   return get_identifier_from_string(decl_name);
 }
@@ -1278,9 +1286,15 @@ Function::get_or_make_decl(Gogo* gogo, Named_object* no, tree id)
 		   || this->type_->is_method())
 	    {
 	      TREE_PUBLIC(decl) = 1;
-	      std::string asm_name = gogo->unique_prefix();
+	      std::string asm_name = gogo->pkgpath_symbol();
 	      asm_name.append(1, '.');
-	      asm_name.append(IDENTIFIER_POINTER(id), IDENTIFIER_LENGTH(id));
+	      asm_name.append(Gogo::unpack_hidden_name(no->name()));
+	      if (this->type_->is_method())
+		{
+		  asm_name.append(1, '.');
+		  Type* rtype = this->type_->receiver()->type();
+		  asm_name.append(rtype->mangled_name(gogo));
+		}
 	      SET_DECL_ASSEMBLER_NAME(decl,
 				      get_identifier_from_string(asm_name));
 	    }
@@ -1383,10 +1397,16 @@ Function_declaration::get_or_make_decl(Gogo* gogo, Named_object* no, tree id)
 	  if (this->asm_name_.empty())
 	    {
 	      std::string asm_name = (no->package() == NULL
-				      ? gogo->unique_prefix()
-				      : no->package()->unique_prefix());
+				      ? gogo->pkgpath_symbol()
+				      : no->package()->pkgpath_symbol());
 	      asm_name.append(1, '.');
-	      asm_name.append(IDENTIFIER_POINTER(id), IDENTIFIER_LENGTH(id));
+	      asm_name.append(Gogo::unpack_hidden_name(no->name()));
+	      if (this->fntype_->is_method())
+		{
+		  asm_name.append(1, '.');
+		  Type* rtype = this->fntype_->receiver()->type();
+		  asm_name.append(rtype->mangled_name(gogo));
+		}
 	      SET_DECL_ASSEMBLER_NAME(decl,
 				      get_identifier_from_string(asm_name));
 	    }
@@ -2123,8 +2143,7 @@ Gogo::slice_constructor(tree slice_type_tree, tree values, tree count,
 
 tree
 Gogo::interface_method_table_for_type(const Interface_type* interface,
-				      Named_type* type,
-				      bool is_pointer)
+				      Type* type, bool is_pointer)
 {
   const Typed_identifier_list* interface_methods = interface->methods();
   go_assert(!interface_methods->empty());
@@ -2153,7 +2172,9 @@ Gogo::interface_method_table_for_type(const Interface_type* interface,
   // interface.  If the interface has hidden methods, and the named
   // type is defined in a different package, then the interface
   // conversion table will be defined by that other package.
-  if (has_hidden_methods && type->named_object()->package() != NULL)
+  if (has_hidden_methods
+      && type->named_type() != NULL
+      && type->named_type()->named_object()->package() != NULL)
     {
       tree array_type = build_array_type(const_ptr_type_node, NULL);
       tree decl = build_decl(BUILTINS_LOCATION, VAR_DECL, id, array_type);
@@ -2181,13 +2202,20 @@ Gogo::interface_method_table_for_type(const Interface_type* interface,
                                               Linemap::predeclared_location());
   elt->value = fold_convert(const_ptr_type_node, tdp);
 
+  Named_type* nt = type->named_type();
+  Struct_type* st = type->struct_type();
+  go_assert(nt != NULL || st != NULL);
   size_t i = 1;
   for (Typed_identifier_list::const_iterator p = interface_methods->begin();
        p != interface_methods->end();
        ++p, ++i)
     {
       bool is_ambiguous;
-      Method* m = type->method_function(p->name(), &is_ambiguous);
+      Method* m;
+      if (nt != NULL)
+	m = nt->method_function(p->name(), &is_ambiguous);
+      else
+	m = st->method_function(p->name(), &is_ambiguous);
       go_assert(m != NULL);
 
       Named_object* no = m->named_object();

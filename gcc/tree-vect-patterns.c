@@ -101,10 +101,10 @@ vect_single_imm_use (gimple def_stmt)
     return NULL;
 
   if (!gimple_bb (use_stmt))
-    return false;
+    return NULL;
 
   if (!flow_bb_inside_loop_p (loop, gimple_bb (use_stmt)))
-    return false;
+    return NULL;
 
   gcc_assert (vinfo_for_stmt (use_stmt));
   return use_stmt;
@@ -935,6 +935,11 @@ vect_operation_fits_smaller_type (gimple stmt, tree def, tree *new_type,
 
   if (TREE_CODE (oprnd) != SSA_NAME
       || TREE_CODE (const_oprnd) != INTEGER_CST)
+    return false;
+
+  /* If oprnd has other uses besides that in stmt we cannot mark it
+     as being part of a pattern only.  */
+  if (!has_single_use (oprnd))
     return false;
 
   /* If we are in the middle of a sequence, we use DEF from a previous

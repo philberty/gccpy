@@ -1,6 +1,6 @@
 // Debugging unordered_map/unordered_multimap implementation -*- C++ -*-
 
-// Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+// Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2013
 // Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
@@ -97,14 +97,12 @@ namespace __debug
 		__gnu_debug::__base(__last), __n,
 		__hf, __eql, __a) { }
 
-      unordered_map(const unordered_map& __x) 
-      : _Base(__x) { }
+      unordered_map(const unordered_map& __x) = default;
 
       unordered_map(const _Base& __x)
       : _Base(__x) { }
 
-      unordered_map(unordered_map&& __x)
-      : _Base(std::move(__x)) { }
+      unordered_map(unordered_map&& __x) = default;
 
       unordered_map(initializer_list<value_type> __l,
 		    size_type __n = 0,
@@ -247,8 +245,8 @@ namespace __debug
       }
 
       template<typename _Pair, typename = typename
-	       std::enable_if<std::is_convertible<_Pair,
-						  value_type>::value>::type>
+	       std::enable_if<std::is_constructible<value_type,
+						    _Pair&&>::value>::type>
 	std::pair<iterator, bool>
 	insert(_Pair&& __obj)
 	{
@@ -260,8 +258,8 @@ namespace __debug
 	}
 
       template<typename _Pair, typename = typename
-	       std::enable_if<std::is_convertible<_Pair,
-						  value_type>::value>::type>
+	       std::enable_if<std::is_constructible<value_type,
+						    _Pair&&>::value>::type>
 	iterator
 	insert(const_iterator __hint, _Pair&& __obj)
 	{
@@ -511,14 +509,12 @@ namespace __debug
 		__gnu_debug::__base(__last), __n,
 		__hf, __eql, __a) { }
 
-      unordered_multimap(const unordered_multimap& __x) 
-      : _Base(__x) { }
+      unordered_multimap(const unordered_multimap& __x) = default;
 
       unordered_multimap(const _Base& __x) 
       : _Base(__x) { }
 
-      unordered_multimap(unordered_multimap&& __x)
-      : _Base(std::move(__x)) { }
+      unordered_multimap(unordered_multimap&& __x) = default;
 
       unordered_multimap(initializer_list<value_type> __l,
 			 size_type __n = 0,
@@ -661,8 +657,8 @@ namespace __debug
       }
 
       template<typename _Pair, typename = typename
-	       std::enable_if<std::is_convertible<_Pair,
-						  value_type>::value>::type>
+	       std::enable_if<std::is_constructible<value_type,
+						    _Pair&&>::value>::type>
 	iterator
 	insert(_Pair&& __obj)
 	{
@@ -673,8 +669,8 @@ namespace __debug
 	}
 
       template<typename _Pair, typename = typename
-	       std::enable_if<std::is_convertible<_Pair,
-						  value_type>::value>::type>
+	       std::enable_if<std::is_constructible<value_type,
+						    _Pair&&>::value>::type>
 	iterator
 	insert(const_iterator __hint, _Pair&& __obj)
 	{

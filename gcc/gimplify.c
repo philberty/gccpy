@@ -119,6 +119,19 @@ mark_addressable (tree x)
       && TREE_CODE (x) != RESULT_DECL)
     return;
   TREE_ADDRESSABLE (x) = 1;
+
+  /* Also mark the artificial SSA_NAME that points to the partition of X.  */
+  if (TREE_CODE (x) == VAR_DECL
+      && !DECL_EXTERNAL (x)
+      && !TREE_STATIC (x)
+      && cfun->gimple_df != NULL
+      && cfun->gimple_df->decls_to_pointers != NULL)
+    {
+      void *namep
+	= pointer_map_contains (cfun->gimple_df->decls_to_pointers, x); 
+      if (namep)
+	TREE_ADDRESSABLE (*(tree *)namep) = 1;
+    }
 }
 
 /* Return a hash value for a formal temporary table entry.  */
@@ -1424,6 +1437,13 @@ gimplify_decl_expr (tree *stmt_p, gimple_seq *seq_p)
        || TREE_CODE (decl) == VAR_DECL)
       && !TYPE_SIZES_GIMPLIFIED (TREE_TYPE (decl)))
     gimplify_type_sizes (TREE_TYPE (decl), seq_p);
+
+  /* ??? DECL_ORIGINAL_TYPE is streamed for LTO so it needs to be gimplified
+     in case its size expressions contain problematic nodes like CALL_EXPR.  */
+  if (TREE_CODE (decl) == TYPE_DECL
+      && DECL_ORIGINAL_TYPE (decl)
+      && !TYPE_SIZES_GIMPLIFIED (DECL_ORIGINAL_TYPE (decl)))
+    gimplify_type_sizes (DECL_ORIGINAL_TYPE (decl), seq_p);
 
   if (TREE_CODE (decl) == VAR_DECL && !DECL_EXTERNAL (decl))
     {
@@ -3723,7 +3743,8 @@ optimize_compound_literals_in_ctor (tree orig_ctor)
 
 	  if (!TREE_ADDRESSABLE (value)
 	      && !TREE_ADDRESSABLE (decl)
-	      && init)
+	      && init
+	      && TREE_CODE (init) == CONSTRUCTOR)
 	    newval = optimize_compound_literals_in_ctor (init);
 	}
       if (newval == value)
@@ -7927,9 +7948,7 @@ gimplify_one_sizepos (tree *expr_p, gimple_seq *stmt_p)
      a VAR_DECL.  If it's a VAR_DECL from another function, the gimplifier
      will want to replace it with a new variable, but that will cause problems
      if this type is from outside the function.  It's OK to have that here.  */
-  if (expr == NULL_TREE || TREE_CONSTANT (expr)
-      || TREE_CODE (expr) == VAR_DECL
-      || CONTAINS_PLACEHOLDER_P (expr))
+  if (is_gimple_sizepos (expr))
     return;
 
   type = TREE_TYPE (expr);

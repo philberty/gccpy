@@ -3,6 +3,8 @@
 // license that can be found in the LICENSE file.
 
 #include "runtime.h"
+#include "arch.h"
+#include "malloc.h"
 #include "go-type.h"
 
 #define	NOSELGEN	1
@@ -85,10 +87,10 @@ runtime_makechan_c(ChanType *t, int64 hint)
 	Hchan *c;
 	int32 n;
 	const Type *elem;
-	
+
 	elem = t->__element_type;
 
-	if(hint < 0 || (int32)hint != hint || (elem->__size > 0 && (uintptr)hint > ((uintptr)-1) / elem->__size))
+	if(hint < 0 || (int32)hint != hint || (elem->__size > 0 && (uintptr)hint > MaxMem / elem->__size))
 		runtime_panicstring("makechan: size out of range");
 
 	n = sizeof(*c);
@@ -100,8 +102,8 @@ runtime_makechan_c(ChanType *t, int64 hint)
 	c->dataqsiz = hint;
 
 	if(debug)
-		runtime_printf("makechan: chan=%p; elemsize=%lld; elemalign=%d; dataqsiz=%d\n",
-			c, (long long)elem->__size, elem->__align, c->dataqsiz);
+		runtime_printf("makechan: chan=%p; elemsize=%D; elemalign=%d; dataqsiz=%d\n",
+			c, (int64)elem->__size, elem->__align, c->dataqsiz);
 
 	return c;
 }
@@ -109,7 +111,7 @@ runtime_makechan_c(ChanType *t, int64 hint)
 // For reflect
 //	func makechan(typ *ChanType, size uint32) (chan)
 uintptr reflect_makechan(ChanType *, uint32)
-  asm ("libgo_reflect.reflect.makechan");
+  asm ("reflect.makechan");
 
 uintptr
 reflect_makechan(ChanType *t, uint32 size)
@@ -189,7 +191,7 @@ runtime_chansend(ChanType *t, Hchan *c, byte *ep, bool *pres)
 	sg = dequeue(&c->recvq);
 	if(sg != nil) {
 		runtime_unlock(c);
-		
+
 		gp = sg->g;
 		gp->param = sg;
 		if(sg->elem != nil)
@@ -528,7 +530,7 @@ runtime_selectnbrecv(ChanType *t, byte *v, Hchan *c)
 
 	runtime_chanrecv(t, c, v, &selected, nil);
 	return selected;
-}	
+}
 
 // func selectnbrecv2(elem *any, ok *bool, c chan any) bool
 //
@@ -560,7 +562,7 @@ runtime_selectnbrecv2(ChanType *t, byte *v, _Bool *received, Hchan *c)
 	if(received != nil)
 		*received = r;
 	return selected;
-}	
+}
 
 // For reflect:
 //	func chansend(c chan, val iword, nb bool) (selected bool)
@@ -568,7 +570,7 @@ runtime_selectnbrecv2(ChanType *t, byte *v, _Bool *received, Hchan *c)
 // the actual data if it fits, or else a pointer to the data.
 
 _Bool reflect_chansend(ChanType *, Hchan *, uintptr, _Bool)
-  __asm__("libgo_reflect.reflect.chansend");
+  __asm__("reflect.chansend");
 
 _Bool
 reflect_chansend(ChanType *t, Hchan *c, uintptr val, _Bool nb)
@@ -576,7 +578,7 @@ reflect_chansend(ChanType *t, Hchan *c, uintptr val, _Bool nb)
 	bool selected;
 	bool *sp;
 	byte *vp;
-	
+
 	if(nb) {
 		selected = false;
 		sp = (bool*)&selected;
@@ -605,7 +607,7 @@ struct chanrecv_ret
 };
 
 struct chanrecv_ret reflect_chanrecv(ChanType *, Hchan *, _Bool)
-  __asm__("libgo_reflect.reflect.chanrecv");
+  __asm__("reflect.chanrecv");
 
 struct chanrecv_ret
 reflect_chanrecv(ChanType *t, Hchan *c, _Bool nb)
@@ -695,7 +697,7 @@ runtime_selectsend(Select *sel, Hchan *c, void *elem, int index)
 	// nil cases do not compete
 	if(c == nil)
 		return;
-	
+
 	selectsend(sel, c, index, elem);
 }
 
@@ -704,7 +706,7 @@ selectsend(Select *sel, Hchan *c, int index, void *elem)
 {
 	int32 i;
 	Scase *cas;
-	
+
 	i = sel->ncase;
 	if(i >= sel->tcase)
 		runtime_throw("selectsend: too many cases");
@@ -975,7 +977,7 @@ loop:
 		case CaseRecv:
 			enqueue(&c->recvq, sg);
 			break;
-		
+
 		case CaseSend:
 			enqueue(&c->sendq, sg);
 			break;
@@ -1161,7 +1163,7 @@ __go_builtin_close(Hchan *c)
 // For reflect
 //	func chanclose(c chan)
 
-void reflect_chanclose(uintptr) __asm__("libgo_reflect.reflect.chanclose");
+void reflect_chanclose(uintptr) __asm__("reflect.chanclose");
 
 void
 reflect_chanclose(uintptr c)
@@ -1172,7 +1174,7 @@ reflect_chanclose(uintptr c)
 // For reflect
 //	func chanlen(c chan) (len int32)
 
-int32 reflect_chanlen(uintptr) __asm__("libgo_reflect.reflect.chanlen");
+int32 reflect_chanlen(uintptr) __asm__("reflect.chanlen");
 
 int32
 reflect_chanlen(uintptr ca)
@@ -1197,7 +1199,7 @@ __go_chan_len(Hchan *c)
 // For reflect
 //	func chancap(c chan) (cap int32)
 
-int32 reflect_chancap(uintptr) __asm__("libgo_reflect.reflect.chancap");
+int32 reflect_chancap(uintptr) __asm__("reflect.chancap");
 
 int32
 reflect_chancap(uintptr ca)

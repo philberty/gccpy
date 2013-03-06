@@ -3507,22 +3507,6 @@ vectorizable_operation (gimple stmt, gimple_stmt_iterator *gsi,
   /* Handle def.  */
   vec_dest = vect_create_destination_var (scalar_dest, vectype);
 
-  /* Allocate VECs for vector operands.  In case of SLP, vector operands are
-     created in the previous stages of the recursion, so no allocation is
-     needed, except for the case of shift with scalar shift argument.  In that
-     case we store the scalar operand in VEC_OPRNDS1 for every vector stmt to
-     be created to vectorize the SLP group, i.e., SLP_NODE->VEC_STMTS_SIZE.
-     In case of loop-based vectorization we allocate VECs of size 1.  We
-     allocate VEC_OPRNDS1 only in case of binary operation.  */
-  if (!slp_node)
-    {
-      vec_oprnds0 = VEC_alloc (tree, heap, 1);
-      if (op_type == binary_op || op_type == ternary_op)
-        vec_oprnds1 = VEC_alloc (tree, heap, 1);
-      if (op_type == ternary_op)
-        vec_oprnds2 = VEC_alloc (tree, heap, 1);
-    }
-
   /* In case the vectorization factor (VF) is bigger than the number
      of elements that we can fit in a vectype (nunits), we have to generate
      more than one vector stmt - i.e - we need to "unroll" the
@@ -5695,7 +5679,7 @@ new_stmt_vec_info (gimple stmt, loop_vec_info loop_vinfo,
   else
     STMT_VINFO_DEF_TYPE (res) = vect_internal_def;
 
-  STMT_VINFO_SAME_ALIGN_REFS (res) = VEC_alloc (dr_p, heap, 5);
+  STMT_VINFO_SAME_ALIGN_REFS (res) = NULL;
   STMT_VINFO_INSIDE_OF_LOOP_COST (res) = 0;
   STMT_VINFO_OUTSIDE_OF_LOOP_COST (res) = 0;
   STMT_SLP_TYPE (res) = loop_vect;
@@ -5789,11 +5773,6 @@ get_vectype_for_scalar_type_and_size (tree scalar_type, unsigned size)
       && GET_MODE_CLASS (inner_mode) != MODE_FLOAT)
     return NULL_TREE;
 
-  /* We can't build a vector type of elements with alignment bigger than
-     their size.  */
-  if (nbytes < TYPE_ALIGN_UNIT (scalar_type))
-    return NULL_TREE;
-
   /* For vector types of elements whose mode precision doesn't
      match their types precision we use a element type of mode
      precision.  The vectorization routines will have to make sure
@@ -5810,10 +5789,21 @@ get_vectype_for_scalar_type_and_size (tree scalar_type, unsigned size)
      When the component mode passes the above test simply use a type
      corresponding to that mode.  The theory is that any use that
      would cause problems with this will disable vectorization anyway.  */
-  if (!SCALAR_FLOAT_TYPE_P (scalar_type)
-      && !INTEGRAL_TYPE_P (scalar_type)
-      && !POINTER_TYPE_P (scalar_type))
+  else if (!SCALAR_FLOAT_TYPE_P (scalar_type)
+	   && !INTEGRAL_TYPE_P (scalar_type)
+	   && !POINTER_TYPE_P (scalar_type))
     scalar_type = lang_hooks.types.type_for_mode (inner_mode, 1);
+
+  /* We can't build a vector type of elements with alignment bigger than
+     their size.  */
+  else if (nbytes < TYPE_ALIGN_UNIT (scalar_type))
+    scalar_type = lang_hooks.types.type_for_mode (inner_mode, 
+						  TYPE_UNSIGNED (scalar_type));
+
+  /* If we felt back to using the mode fail if there was
+     no scalar type for it.  */
+  if (scalar_type == NULL_TREE)
+    return NULL_TREE;
 
   /* If no size was supplied use the mode the target prefers.   Otherwise
      lookup a vector mode of the specified size.  */

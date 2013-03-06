@@ -1091,7 +1091,7 @@
 #endif
 
 
-/* Define if using GNU as. */
+/* Define to 1 if using GNU as. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_GNU_AS
 #endif
@@ -1103,7 +1103,7 @@
 #endif
 
 
-/* Define if using GNU ld. */
+/* Define to 1 if using GNU ld. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_GNU_LD
 #endif
@@ -1585,6 +1585,12 @@
 /* Define if cloog is in use. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_cloog
+#endif
+
+
+/* Define if F_SETLKW supported by fcntl. */
+#ifndef USED_FOR_TARGET
+#undef HOST_HAS_F_SETLKW
 #endif
 
 

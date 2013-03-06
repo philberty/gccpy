@@ -701,7 +701,12 @@ type_internals_preclude_sra_p (tree type, const char **msg)
 	      {
 	        *msg = "structure field size not fixed";
 		return true;
-	      }	      
+	      }
+	    if (!host_integerp (bit_position (fld), 0))
+	      {
+	        *msg = "structure field size too big";
+		return true;
+	      }
 	    if (AGGREGATE_TYPE_P (ft)
 		    && int_bit_position (fld) % BITS_PER_UNIT != 0)
 	      {
@@ -971,7 +976,8 @@ static void
 disqualify_base_of_expr (tree t, const char *reason)
 {
   t = get_base_address (t);
-  if (sra_mode == SRA_MODE_EARLY_IPA
+  if (t
+      && sra_mode == SRA_MODE_EARLY_IPA
       && TREE_CODE (t) == MEM_REF)
     t = get_ssa_base_param (TREE_OPERAND (t, 0));
 
@@ -2181,9 +2187,12 @@ analyze_access_subtree (struct access *root, struct access *parent,
 	  && (TREE_CODE (root->type) != INTEGER_TYPE
 	      || TYPE_PRECISION (root->type) != root->size)
 	  /* But leave bitfield accesses alone.  */
-	  && (root->offset % BITS_PER_UNIT) == 0)
+	  && (TREE_CODE (root->expr) != COMPONENT_REF
+	      || !DECL_BIT_FIELD (TREE_OPERAND (root->expr, 1))))
 	{
 	  tree rt = root->type;
+	  gcc_assert ((root->offset % BITS_PER_UNIT) == 0
+		      && (root->size % BITS_PER_UNIT) == 0);
 	  root->type = build_nonstandard_integer_type (root->size,
 						       TYPE_UNSIGNED (rt));
 	  root->expr = build_ref_for_offset (UNKNOWN_LOCATION,
@@ -3035,15 +3044,13 @@ sra_modify_assign (gimple *stmt, gimple_stmt_iterator *gsi)
 	     ???  This should move to fold_stmt which we simply should
 	     call after building a VIEW_CONVERT_EXPR here.  */
 	  if (AGGREGATE_TYPE_P (TREE_TYPE (lhs))
-	      && !contains_bitfld_comp_ref_p (lhs)
-	      && !access_has_children_p (lacc))
+	      && !contains_bitfld_comp_ref_p (lhs))
 	    {
 	      lhs = build_ref_for_model (loc, lhs, 0, racc, gsi, false);
 	      gimple_assign_set_lhs (*stmt, lhs);
 	    }
 	  else if (AGGREGATE_TYPE_P (TREE_TYPE (rhs))
-		   && !contains_vce_or_bfcref_p (rhs)
-		   && !access_has_children_p (racc))
+		   && !contains_vce_or_bfcref_p (rhs))
 	    rhs = build_ref_for_model (loc, rhs, 0, lacc, gsi, false);
 
 	  if (!useless_type_conversion_p (TREE_TYPE (lhs), TREE_TYPE (rhs)))
@@ -4774,6 +4781,8 @@ modify_function (struct cgraph_node *node, ipa_parm_adjustment_vec adjustments)
 
   new_node = cgraph_function_versioning (node, redirect_callers, NULL, NULL,
 					 false, NULL, NULL, "isra");
+  VEC_free (cgraph_edge_p, heap, redirect_callers);
+
   current_function_decl = new_node->decl;
   push_cfun (DECL_STRUCT_FUNCTION (new_node->decl));
 

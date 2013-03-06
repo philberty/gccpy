@@ -2398,8 +2398,12 @@ gfc_add_loop_ss_code (gfc_loopinfo * loop, gfc_ss * ss, bool subscript,
   gfc_ss_info *ss_info;
   gfc_array_info *info;
   gfc_expr *expr;
-  bool skip_nested = false;
   int n;
+
+  /* Don't evaluate the arguments for realloc_lhs_loop_for_fcn_call; otherwise,
+     arguments could get evaluated multiple times.  */
+  if (ss->is_alloc_lhs)
+    return;
 
   outer_loop = outermost_loop (loop);
 
@@ -2482,12 +2486,7 @@ gfc_add_loop_ss_code (gfc_loopinfo * loop, gfc_ss * ss, bool subscript,
 	  /* Add the expressions for scalar and vector subscripts.  */
 	  for (n = 0; n < GFC_MAX_DIMENSIONS; n++)
 	    if (info->subscript[n])
-	      {
-		gfc_add_loop_ss_code (loop, info->subscript[n], true, where);
-		/* The recursive call will have taken care of the nested loops.
-		   No need to do it twice.  */
-		skip_nested = true;
-	      }
+	      gfc_add_loop_ss_code (loop, info->subscript[n], true, where);
 
 	  set_vector_loop_bounds (ss);
 	  break;
@@ -2543,7 +2542,7 @@ gfc_add_loop_ss_code (gfc_loopinfo * loop, gfc_ss * ss, bool subscript,
 	}
     }
 
-  if (!skip_nested)
+  if (!subscript)
     for (nested_loop = loop->nested; nested_loop;
 	 nested_loop = nested_loop->next)
       gfc_add_loop_ss_code (nested_loop, nested_loop->ss, subscript, where);
@@ -6848,19 +6847,13 @@ gfc_conv_array_parameter (gfc_se * se, gfc_expr * expr, gfc_ss * ss, bool g77,
     this_array_result = false;
 
   /* Passing address of the array if it is not pointer or assumed-shape.  */
-  if (full_array_var && g77 && !this_array_result)
+  if (full_array_var && g77 && !this_array_result
+      && sym->ts.type != BT_DERIVED && sym->ts.type != BT_CLASS)
     {
       tmp = gfc_get_symbol_decl (sym);
 
       if (sym->ts.type == BT_CHARACTER)
 	se->string_length = sym->ts.u.cl->backend_decl;
-
-      if (sym->ts.type == BT_DERIVED || sym->ts.type == BT_CLASS)
-	{
-	  gfc_conv_expr_descriptor (se, expr, ss);
-	  se->expr = gfc_conv_array_data (se->expr);
-	  return;
-	}
 
       if (!sym->attr.pointer
 	    && sym->as
@@ -7399,8 +7392,8 @@ structure_alloc_comps (gfc_symbol * der_type, tree decl,
 	  called_dealloc_with_status = false;
 	  gfc_init_block (&tmpblock);
 
-	  if (c->attr.allocatable
-	      && (c->attr.dimension || c->attr.codimension))
+	  if (c->attr.allocatable && (c->attr.dimension || c->attr.codimension)
+	      && !c->attr.proc_pointer)
 	    {
 	      comp = fold_build3_loc (input_location, COMPONENT_REF, ctype,
 				      decl, cdecl, NULL_TREE);
@@ -7582,7 +7575,8 @@ structure_alloc_comps (gfc_symbol * der_type, tree decl,
 	      continue;
 	    }
 
-	  if (c->attr.allocatable && !cmp_has_alloc_comps)
+	  if (c->attr.allocatable && !c->attr.proc_pointer
+	      && !cmp_has_alloc_comps)
 	    {
 	      rank = c->as ? c->as->rank : 0;
 	      tmp = gfc_duplicate_allocatable (dcmp, comp, ctype, rank);

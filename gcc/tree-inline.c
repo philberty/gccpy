@@ -818,6 +818,15 @@ remap_gimple_op_r (tree *tp, int *walk_subtrees, void *data)
 	       || decl_function_context (*tp) == id->src_fn))
     /* These may need to be remapped for EH handling.  */
     *tp = remap_decl (*tp, id);
+  else if (TREE_CODE (*tp) == FIELD_DECL)
+    {
+      /* If the enclosing record type is variably_modified_type_p, the field
+	 has already been remapped.  Otherwise, it need not be.  */
+      tree *n = (tree *) pointer_map_contains (id->decl_map, *tp);
+      if (n)
+	*tp = *n;
+      *walk_subtrees = 0;
+    }
   else if (TYPE_P (*tp))
     /* Types may need remapping as well.  */
     *tp = remap_type (*tp, id);
@@ -862,6 +871,7 @@ remap_gimple_op_r (tree *tp, int *walk_subtrees, void *data)
 			     ptr, TREE_OPERAND (*tp, 1));
 	  TREE_THIS_NOTRAP (*tp) = TREE_THIS_NOTRAP (old);
 	  TREE_THIS_VOLATILE (*tp) = TREE_THIS_VOLATILE (old);
+	  TREE_SIDE_EFFECTS (*tp) = TREE_SIDE_EFFECTS (old);
 	  TREE_NO_WARNING (*tp) = TREE_NO_WARNING (old);
 	  *walk_subtrees = 0;
 	  return NULL;
@@ -2607,6 +2617,17 @@ setup_one_parameter (copy_body_data *id, tree p, tree value, tree fn,
   /* Make gimplifier happy about this variable.  */
   DECL_SEEN_IN_BIND_EXPR_P (var) = 1;
 
+  /* We are eventually using the value - make sure all variables
+     referenced therein are properly recorded.  */
+  if (value
+      && gimple_in_ssa_p (cfun)
+      && TREE_CODE (value) == ADDR_EXPR)
+    {
+      tree base = get_base_address (TREE_OPERAND (value, 0));
+      if (base && TREE_CODE (base) == VAR_DECL)
+	add_referenced_var (base);
+    }
+
   /* If the parameter is never assigned to, has no SSA_NAMEs created,
      we would not need to create a new variable here at all, if it
      weren't for debug info.  Still, we can just use the argument
@@ -3815,6 +3836,12 @@ expand_call_inline (basic_block bb, gimple stmt, copy_body_data *id)
 	goto egress;
 
       if (lookup_attribute ("always_inline", DECL_ATTRIBUTES (fn))
+          /* For extern inline functions that get redefined we always
+	     silently ignored always_inline flag. Better behaviour would
+	     be to be able to keep both bodies and use extern inline body
+	     for inlining, but we can't do that because frontends overwrite
+	     the body.  */
+	  && !cg_edge->callee->local.redefined_extern_inline
 	  /* Avoid warnings during early inline pass. */
 	  && cgraph_global_info_ready
 	  /* PR 20090218-1_0.c. Body can be provided by another module. */

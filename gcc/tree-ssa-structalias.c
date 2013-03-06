@@ -1916,10 +1916,10 @@ equiv_class_label_eq (const void *p1, const void *p2)
 }
 
 /* Lookup a equivalence class in TABLE by the bitmap of LABELS it
-   contains.  */
+   contains.  Sets *REF_LABELS to the bitmap LABELS is equivalent to.  */
 
 static unsigned int
-equiv_class_lookup (htab_t table, bitmap labels)
+equiv_class_lookup (htab_t table, bitmap labels, bitmap *ref_labels)
 {
   void **slot;
   struct equiv_class_label ecl;
@@ -1930,9 +1930,18 @@ equiv_class_lookup (htab_t table, bitmap labels)
   slot = htab_find_slot_with_hash (table, &ecl,
 				   ecl.hashcode, NO_INSERT);
   if (!slot)
-    return 0;
+    {
+      if (ref_labels)
+	*ref_labels = NULL;
+      return 0;
+    }
   else
-    return ((equiv_class_label_t) *slot)->equivalence_class;
+    {
+      equiv_class_label_t ec = (equiv_class_label_t) *slot;
+      if (ref_labels)
+	*ref_labels = ec->labels;
+      return ec->equivalence_class;
+    }
 }
 
 
@@ -2132,13 +2141,20 @@ label_visit (constraint_graph_t graph, struct scc_info *si, unsigned int n)
 
   if (!bitmap_empty_p (graph->points_to[n]))
     {
+      bitmap ref_points_to;
       unsigned int label = equiv_class_lookup (pointer_equiv_class_table,
-					       graph->points_to[n]);
+					       graph->points_to[n],
+					       &ref_points_to);
       if (!label)
 	{
 	  label = pointer_equiv_class++;
 	  equiv_class_add (pointer_equiv_class_table,
 			   label, graph->points_to[n]);
+	}
+      else
+	{
+	  BITMAP_FREE (graph->points_to[n]);
+	  graph->points_to[n] = ref_points_to;
 	}
       graph->pointer_label[n] = label;
     }
@@ -2199,7 +2215,7 @@ perform_var_substitution (constraint_graph_t graph)
       /* Look up the location equivalence label if one exists, or make
 	 one otherwise.  */
       label = equiv_class_lookup (location_equiv_class_table,
-				  pointed_by);
+				  pointed_by, NULL);
       if (label == 0)
 	{
 	  label = location_equiv_class++;
@@ -3735,29 +3751,43 @@ handle_rhs_call (gimple stmt, VEC(ce_s, heap) **results)
       /* As we compute ESCAPED context-insensitive we do not gain
          any precision with just EAF_NOCLOBBER but not EAF_NOESCAPE
 	 set.  The argument would still get clobbered through the
-	 escape solution.
-	 ???  We might get away with less (and more precise) constraints
-	 if using a temporary for transitively closing things.  */
+	 escape solution.  */
       if ((flags & EAF_NOCLOBBER)
 	   && (flags & EAF_NOESCAPE))
 	{
 	  varinfo_t uses = get_call_use_vi (stmt);
 	  if (!(flags & EAF_DIRECT))
-	    make_transitive_closure_constraints (uses);
-	  make_constraint_to (uses->id, arg);
+	    {
+	      varinfo_t tem = new_var_info (NULL_TREE, "callarg");
+	      make_constraint_to (tem->id, arg);
+	      make_transitive_closure_constraints (tem);
+	      make_copy_constraint (uses, tem->id);
+	    }
+	  else
+	    make_constraint_to (uses->id, arg);
 	  returns_uses = true;
 	}
       else if (flags & EAF_NOESCAPE)
 	{
+	  struct constraint_expr lhs, rhs;
 	  varinfo_t uses = get_call_use_vi (stmt);
 	  varinfo_t clobbers = get_call_clobber_vi (stmt);
+	  varinfo_t tem = new_var_info (NULL_TREE, "callarg");
+	  make_constraint_to (tem->id, arg);
 	  if (!(flags & EAF_DIRECT))
-	    {
-	      make_transitive_closure_constraints (uses);
-	      make_transitive_closure_constraints (clobbers);
-	    }
-	  make_constraint_to (uses->id, arg);
-	  make_constraint_to (clobbers->id, arg);
+	    make_transitive_closure_constraints (tem);
+	  make_copy_constraint (uses, tem->id);
+	  make_copy_constraint (clobbers, tem->id);
+	  /* Add *tem = nonlocal, do not add *tem = callused as
+	     EAF_NOESCAPE parameters do not escape to other parameters
+	     and all other uses appear in NONLOCAL as well.  */
+	  lhs.type = DEREF;
+	  lhs.var = tem->id;
+	  lhs.offset = 0;
+	  rhs.type = SCALAR;
+	  rhs.var = nonlocal_id;
+	  rhs.offset = 0;
+	  process_constraint (new_constraint (lhs, rhs));
 	  returns_uses = true;
 	}
       else
@@ -3859,9 +3889,11 @@ handle_lhs_call (gimple stmt, tree lhs, int flags, VEC(ce_s, heap) *rhsc,
       tmpc.offset = 0;
       tmpc.type = ADDRESSOF;
       VEC_safe_push (ce_s, heap, rhsc, &tmpc);
+      process_all_all_constraints (lhsc, rhsc);
+      VEC_free (ce_s, heap, rhsc);
     }
-
-  process_all_all_constraints (lhsc, rhsc);
+  else
+    process_all_all_constraints (lhsc, rhsc);
 
   VEC_free (ce_s, heap, lhsc);
 }
@@ -3997,8 +4029,7 @@ find_func_aliases_for_builtin_call (gimple t)
   VEC(ce_s, heap) *rhsc = NULL;
   varinfo_t fi;
 
-  if (fndecl != NULL_TREE
-      && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL)
+  if (gimple_call_builtin_class_p (t, BUILT_IN_NORMAL))
     /* ???  All builtins that are handled here need to be handled
        in the alias-oracle query functions explicitly!  */
     switch (DECL_FUNCTION_CODE (fndecl))
@@ -4739,8 +4770,7 @@ find_func_clobbers (gimple origt)
 
       /* For builtins we do not have separate function info.  For those
 	 we do not generate escapes for we have to generate clobbers/uses.  */
-      if (decl
-	  && DECL_BUILT_IN_CLASS (decl) == BUILT_IN_NORMAL)
+      if (gimple_call_builtin_class_p (t, BUILT_IN_NORMAL))
 	switch (DECL_FUNCTION_CODE (decl))
 	  {
 	  /* The following functions use and clobber memory pointed to

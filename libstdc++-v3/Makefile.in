@@ -39,7 +39,8 @@ DIST_COMMON = $(top_srcdir)/fragment.am README ChangeLog \
 	$(top_srcdir)/configure $(am__configure_deps) \
 	$(srcdir)/config.h.in $(srcdir)/../mkinstalldirs \
 	$(top_srcdir)/scripts/testsuite_flags.in \
-	$(top_srcdir)/scripts/extract_symvers.in
+	$(top_srcdir)/scripts/extract_symvers.in \
+	$(top_srcdir)/doc/xsl/customization.xsl.in
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/../config/acx.m4 \
@@ -67,7 +68,8 @@ am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
  configure.lineno config.status.lineno
 CONFIG_HEADER = config.h
-CONFIG_CLEAN_FILES = scripts/testsuite_flags scripts/extract_symvers
+CONFIG_CLEAN_FILES = scripts/testsuite_flags scripts/extract_symvers \
+	doc/xsl/customization.xsl
 CONFIG_CLEAN_VPATH_FILES =
 depcomp =
 am__depfiles_maybe =
@@ -186,7 +188,6 @@ PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 PDFLATEX = @PDFLATEX@
-PIC_CXXFLAGS = @PIC_CXXFLAGS@
 RANLIB = @RANLIB@
 SECTION_FLAGS = @SECTION_FLAGS@
 SECTION_LDFLAGS = @SECTION_LDFLAGS@
@@ -234,7 +235,10 @@ glibcxx_MOFILES = @glibcxx_MOFILES@
 glibcxx_PCHFLAGS = @glibcxx_PCHFLAGS@
 glibcxx_POFILES = @glibcxx_POFILES@
 glibcxx_builddir = @glibcxx_builddir@
+glibcxx_compiler_pic_flag = @glibcxx_compiler_pic_flag@
+glibcxx_compiler_shared_flag = @glibcxx_compiler_shared_flag@
 glibcxx_localedir = @glibcxx_localedir@
+glibcxx_lt_pic_flag = @glibcxx_lt_pic_flag@
 glibcxx_prefixdir = @glibcxx_prefixdir@
 glibcxx_srcdir = @glibcxx_srcdir@
 glibcxx_toolexecdir = @glibcxx_toolexecdir@
@@ -351,8 +355,6 @@ AM_MAKEFLAGS = \
 	"LIBCFLAGS_FOR_TARGET=$(LIBCFLAGS_FOR_TARGET)" \
 	"MAKE=$(MAKE)" \
 	"MAKEINFO=$(MAKEINFO) $(MAKEINFOFLAGS)" \
-	"PICFLAG=$(PICFLAG)" \
-	"PICFLAG_FOR_TARGET=$(PICFLAG_FOR_TARGET)" \
 	"SHELL=$(SHELL)" \
 	"RUNTESTFLAGS=$(RUNTESTFLAGS)" \
 	"exec_prefix=$(exec_prefix)" \
@@ -433,6 +435,8 @@ distclean-hdr:
 scripts/testsuite_flags: $(top_builddir)/config.status $(top_srcdir)/scripts/testsuite_flags.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 scripts/extract_symvers: $(top_builddir)/config.status $(top_srcdir)/scripts/extract_symvers.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+doc/xsl/customization.xsl: $(top_builddir)/config.status $(top_srcdir)/doc/xsl/customization.xsl.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 
 mostlyclean-libtool:

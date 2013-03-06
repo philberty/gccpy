@@ -251,9 +251,13 @@ binding_table_find (binding_table table, tree name)
 void
 binding_table_foreach (binding_table table, bt_foreach_proc proc, void *data)
 {
-  const size_t chain_count = table->chain_count;
+  size_t chain_count;
   size_t i;
 
+  if (!table)
+    return;
+
+  chain_count = table->chain_count;
   for (i = 0; i < chain_count; ++i)
     {
       binding_entry entry = table->chain[i];
@@ -1964,6 +1968,11 @@ constructor_name_p (tree name, tree type)
     return false;
 
   if (TREE_CODE (name) != IDENTIFIER_NODE)
+    return false;
+
+  /* These don't have names.  */
+  if (TREE_CODE (type) == DECLTYPE_TYPE
+      || TREE_CODE (type) == TYPEOF_TYPE)
     return false;
 
   ctor_name = constructor_name_full (type);

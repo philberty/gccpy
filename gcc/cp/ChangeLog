@@ -1,3 +1,577 @@
+2013-03-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/56543
+	* tree.c (strip_typedefs): Don't copy args if they are NULL.
+
+2013-02-22  Jason Merrill  <jason@redhat.com>
+
+	PR c++/40405
+	* pt.c (push_template_decl_real): Set DECL_INTERFACE_KNOWN
+	if we got the wrong number of template parms.
+
+	PR c++/56395
+	* tree.c (strip_typedefs): Strip typedefs from TYPENAME_TYPE template
+	args.
+
+2013-02-19  Jakub Jelinek  <jakub@redhat.com>
+
+	Backported from mainline
+	2013-02-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/56241
+	* init.c (build_vec_init): Don't append NULL values into new_vec.
+	(build_zero_init_1): Don't push anything into v if recursive call
+	returned NULL_TREE.
+	(build_value_init_noctor): Don't push anything into v if
+	build_value_init call returned NULL_TREE.
+
+	PR c++/56239
+	* parser.c (cp_parser_token_starts_cast_expression): Renamed to...
+	(cp_parser_tokens_start_cast_expression): ... this.  Change parameter
+	to cp_parser *, call cp_lexer_peek_token first.  For CPP_OPEN_PAREN,
+	return true only if 2nd token isn't CPP_CLOSE_PAREN.
+	(cp_parser_cast_expression): Adjust caller.
+
+	PR c++/56237
+	* decl.c (push_local_name): Look at DECL_DISCRIMINATOR (t)
+	only if DECL_DISCRIMINATOR_SET_P (t) rather than just
+	DECL_LANG_SPECIFIC (t).
+
+2013-02-15  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54276
+	* semantics.c (finish_id_expression): Also return the identifier
+	for an outer local static.
+
+	PR c++/52026
+	* semantics.c (finish_id_expression): In a template, return
+	the identifier for a constant variable.
+
+	PR c++/55710
+	* semantics.c (maybe_add_lambda_conv_op): Mark static thunk
+	TREE_USED.
+
+	PR c++/56135
+	* pt.c (tsubst_copy_and_build): Don't forget any new
+	captures that arose from use of dependent names.
+
+2013-02-12  Jason Merrill  <jason@redhat.com>
+
+	PR c++/56291
+	* semantics.c (sort_constexpr_mem_initializers): Handle
+	vptr out of order.
+
+2013-02-11  Jason Merrill  <jason@redhat.com>
+
+	PR c++/56268
+	* semantics.c (classtype_has_nothrow_assign_or_copy_p): Call
+	maybe_instantiate_noexcept.
+
+2013-02-09  Jason Merrill  <jason@redhat.com>
+
+	PR c++/56247
+	* pt.c (eq_specializations): Set comparing_specializations.
+	* tree.c (cp_tree_equal): Check it.
+	* cp-tree.h: Declare it.
+
+2013-02-05  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54122
+	* tree.c (lvalue_kind) [INDIRECT_REF]: Don't check for
+	METHOD_TYPE.
+
+2013-02-01  Jakub Jelinek  <jakub@redhat.com>
+
+	Backported from mainline
+	2012-12-13  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/55652
+	* typeck2.c (merge_exception_specifiers): Don't call operand_equal_p
+	if noex is NULL.
+
+	2012-12-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/54207
+	* except.c (build_noexcept_spec): Avoid direct comparison
+	with boolean_true_node or boolean_false_node, instead use
+	operand_equal_p and/or INTEGER_CST check.
+	* pt.c (tsubst_exception_specification): Likewise.
+	* typeck2.c (merge_exception_specifiers): Likewise.
+
+	2012-12-01  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/55542
+	* pt.c (make_ith_pack_parameter_name): Return NULL if
+	name is NULL.
+	(tsubst_decl): Call make_ith_pack_parameter_name even if
+	DECL_NAME is NULL.
+
+	2012-11-23  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/54046
+	* cp-objcp-common.h (LANG_HOOKS_BLOCK_MAY_FALLTHRU): Redefine.
+	* cp-objcp-common.c (cxx_block_may_fallthru): New function.
+	* cp-tree.h (cxx_block_may_fallthru): New prototype.
+
+2013-01-25  Jason Merrill  <jason@redhat.com>
+
+	PR c++/56104
+	* typeck.c (get_member_function_from_ptrfunc): Don't fold
+	POINTER_PLUS_EXPR.
+
+2013-01-22  Jason Merrill  <jason@redhat.com>
+
+	* call.c (type_has_extended_temps): Fix C++ism.
+
+	PR c++/53650
+	* call.c (type_has_extended_temps): New.
+	* cp-tree.h: Declare it.
+	* decl.c (check_initializer): Use build_aggr_init for arrays
+	if it is false.
+	* init.c (build_vec_init): Avoid mixed signed/unsigned arithmetic.
+
+	PR c++/56071
+	* pt.c (maybe_instantiate_noexcept): Don't defer access checks.
+
+2013-01-21  Jason Merrill  <jason@redhat.com>
+
+	PR c++/56059
+	* tree.c (strip_typedefs_expr) [TREE_VEC]: Preserve non-default
+	template args count.
+
+2013-01-09  Jason Merrill  <jason@redhat.com>
+
+	PR c++/55893
+	* decl.c (cp_finish_decl): Clear TREE_READONLY if the variable
+	needs destruction.
+
+2013-01-08  Joel Brobecker  <brobecker@adacore.com>
+
+	* parser.c (cp_parser_initializer_list): Move declaration
+	of variable non_const to start of lexical block.
+
+2013-01-04  Jason Merrill  <jason@redhat.com>
+
+	PR c++/55877
+	* decl.c (reset_type_linkage, bt_reset_linkage): New.
+	(grokdeclarator): Use reset_type_linkage.
+	* name-lookup.c (binding_table_foreach): Handle null table.
+	* tree.c (decl_anon_ns_mem_p): Check TYPE_MAIN_DECL, not TYPE_NAME.
+
+2013-01-03  Jason Merrill  <jason@redhat.com>
+
+	PR c++/55419
+	PR c++/55753
+	* pt.c (tsubst_copy_and_build) [TARGET_EXPR]: Don't touch
+	TREE_CONSTANT.
+
+	PR c++/55842
+	* semantics.c (trait_expr_value): Call maybe_instantiate_noexcept.
+
+	PR c++/55856
+	* semantics.c (build_data_member_initialization): Handle DECL_EXPR.
+
+2013-01-02  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54325
+	* call.c (build_new_method_call_1): Don't use build_value_init for
+	user-provided default constructors.
+
+	PR c++/55032
+	PR c++/55245
+	* tree.c (build_cplus_array_type): Copy layout information
+	to main variant if necessary.
+
+2012-12-19  Jason Merrill  <jason@redhat.com>
+
+	PR c++/55724
+	* pt.c (type_unification_real): Re-combine post-deduction loops.
+
+2012-12-11  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54883
+	* decl2.c (min_vis_r): Handle anon visibility for enums.
+
+2012-12-11  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/55643
+	* expr.c (mark_exp_read): Handle FLOAT_EXPR similarly to NOP_EXPR.
+
+2012-12-07  Jason Merrill  <jason@redhat.com>
+
+	PR c++/55419
+	* tree.c (build_target_expr): Don't set TREE_CONSTANT.
+
+2012-12-07  Matthias Klose  <doko@ubuntu.com>
+
+	* tree.c (build_aggr_init_expr): Add parameter name, mark as unused.
+
+2012-12-06  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54325
+	* tree.c (build_aggr_init_expr): Don't check for abstract class.
+	(build_cplus_new): Check here instead.
+
+	PR c++/55058
+	* pt.c (tsubst): Keep the quals when looking through a typedef.
+
+	PR c++/55249
+	* tree.c (build_vec_init_elt): Use the type of the initializer.
+
+	PR c++/54744
+	* pt.c (resolve_typename_type): Check TYPENAME_IS_RESOLVING_P on scope.
+
+	PR c++/54947
+	* parser.c (cp_parser_initializer_list): Don't require an
+	expression in [] to be constant until we know it's a C99
+	designator.
+
+	PR c++/55015
+	PR c++/53821
+	* semantics.c (maybe_add_lambda_conv_op): Revert earlier change.
+	* decl.c (start_preparsed_function): Make local class methods comdat
+	in templates, too.
+
+2012-11-29  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53137
+	* pt.c (tsubst_expr) [DECL_EXPR]: Set LAMBDA_EXPR_THIS_CAPTURE here.
+	(tsubst_copy_and_build) [LAMBDA_EXPR]: And clear it here.
+	(instantiate_class_template_1): Not here.
+
+	PR c++/53862
+	* pt.c (tsubst_arg_types): Add "end" parameter.
+	(check_undeduced_parms): Use it.
+
+	PR c++/53039
+	* pt.c (arg_from_parm_pack_p): Go back to using same_type_p or
+	cp_tree_equal.
+
+	* cp-tree.h (TEMPLATE_PARM_NUM_SIBLINGS): Remove.
+	(struct template_parm_index_s): Remove num_siblings.
+	* pt.c (fixup_template_parms, fixup_template_parm_index): Remove.
+	(fixup_template_type_parm_type): Remove.
+	(build_template_parm_index): Remove num_siblings parm.
+	(process_template_parm): Likewise.
+	* parser.c (cp_parser_template_parameter_list): Adjust.
+	* tree.c (cp_tree_equal): Don't compare num_siblings.
+	* typeck.c (comp_template_parms_position): Likewise.
+
+	PR c++/50852
+	PR c++/53039
+	* tree.c (strip_typedefs_expr): New.
+	* cp-tree.h: Declare it.
+	* pt.c (convert_template_argument, unify): Use it.
+	* parser.c (cp_parser_template_declaration_after_export): Don't call
+	fixup_template_parms.
+
+2012-11-29  Kai Tietz  <ktietz@redhat.com>
+
+	PR target/53912
+	* class.c (dump_class_hierarchy_r): Cast from pointer via uintptr_t.
+	(dump_vtable): Likewise.
+
+2012-11-24  Paolo Carlini  <paolo.carlini@oracle.com>
+
+	PR c++/55446
+	* init.c (build_vec_init): Do not early return error_mark_mode
+	when integer_all_onesp (maxindex).
+
+2012-11-05  Jakub Jelinek  <jakub@redhat.com>
+
+	Backported from mainline
+	2012-10-23  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/54988
+	* decl2.c (cplus_decl_attributes): Don't return early
+	if attributes is NULL.
+
+2012-10-26  Paolo Carlini  <paolo.carlini@oracle.com>
+
+	PR c++/54984
+	* init.c (build_new): Don't turn a null *init into a pointer to
+	empty vector orig_init.
+
+2012-10-08  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/54858
+	* tree.c (cp_tree_equal): Handle FIELD_DECL.
+
+2012-10-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/54777
+	* semantics.c (cxx_eval_constant_expression) <case COMPOUND_EXPR>: If
+	not ignoring the second operand, pass the original second operand
+	and not one with stripped nops to cxx_eval_constant_expression.
+
+2012-09-20  Release Manager
+
+	* GCC 4.7.2 released.
+
+2012-09-14  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53661
+	* typeck2.c (check_narrowing): Avoid false positives on conversion
+	from enumeral type.
+
+2012-09-13  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53839
+	* semantics.c (cxx_eval_indirect_ref): If we aren't looking for an
+	address, make sure the value is constant.
+
+2012-09-13  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54511
+	* pt.c (tsubst_decl) [VAR_DECL]: Handle DECL_ANON_UNION_VAR_P.
+
+2012-09-13  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53836
+	* pt.c (value_dependent_expression_p): A TREE_LIST initializer must
+	be dependent.
+
+2012-09-10  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54506
+	* decl.c (move_signature_fn_p): Split out from move_fn_p.
+	* method.c (process_subob_fn): Use it.
+	* cp-tree.h: Declare it.
+
+	PR c++/54341
+	PR c++/54253
+	* semantics.c (sort_constexpr_mem_initializers): New.
+	(build_constexpr_constructor_member_initializers): Use it.
+	(cx_check_missing_mem_inits): Skip artificial fields.
+	* init.c (expand_aggr_init_1): Don't zero out a class
+	with no data.
+
+	PR c++/54086
+	* decl.c (grokdeclarator): Allow const and constexpr together.
+
+2012-08-31  Ollie Wild  <aaw@google.com>
+
+	PR c++/54197
+	* call.c (extend_ref_init_temps_1): Handle COMPOUND_EXPR trees.
+
+2012-07-20  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54038
+	* tree.c (build_cplus_array_type): Use build_cplus_array_type to build
+	canonical array type rather than mess with its TYPE_*_VARIANT.
+
+2012-07-19  Jason Merrill  <jason@redhat.com>
+
+	PR c++/54026
+	* typeck.c (cp_apply_type_quals_to_decl): Check COMPLETE_TYPE_P.
+
+2012-07-18  Jason Merrill  <jason@redhat.com>
+
+	* method.c (process_subob_fn): Make sure no_implicit_p is non-null
+	before trying to store through it.
+
+2012-07-17  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53995
+	* decl.c (finish_enum_value_list): Only call
+	insert_late_enum_def_into_classtype_sorted_fields in class scope.
+
+2012-07-17  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53989
+	* tree.c (build_cplus_array_type): Also add TYPE_CANONICAL
+	to the list of variants.
+
+2012-07-17  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53549
+	* parser.c (cp_parser_class_head): Call xref_basetypes here.
+	(cp_parser_class_specifier_1): Not here.
+	* pt.c (tsubst_decl) [USING_DECL]: Check uses_template_parms
+	as well as DECL_DEPENDENT_P.
+
+2012-07-13  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53953
+	* method.c (synthesized_method_walk): Initialize no_implicit_p sooner.
+
+2012-07-10  Jason Merrill  <jason@redhat.com>
+
+	DR 1402
+	PR c++/53733
+	* cp-tree.h (FNDECL_SUPPRESS_IMPLICIT_DECL): New.
+	(struct lang_decl_fn): Add suppress_implicit_decl field.
+	* method.c (implicitly_declare_fn): Check it.
+	(process_subob_fn): Add no_implicit_p parm.
+	(walk_field_subobs, synthesized_method_walk): Likewise.
+	(maybe_explain_implicit_delete): Adjust.
+	(explain_implicit_non_constexpr): Adjust.
+
+	* method.c (synthesized_method_walk): Cleanups don't affect the EH
+	spec either.
+
+2012-07-02  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53816
+	* class.c (resolves_to_fixed_type_p): Check uses_template_parms
+	(current_function_decl) instead of processing_template_decl.
+
+	PR c++/53821
+	* semantics.c (maybe_add_lambda_conv_op): Don't set
+	DECL_INTERFACE_KNOWN.
+
+2012-06-27  Fabien Chêne  <fabien@gcc.gnu.org>
+
+	PR c++/51214
+	* cp-tree.h (insert_late_enum_def_into_classtype_sorted_fields):
+	Declare.
+	* class.c (insert_into_classtype_sorted_fields): New.
+	(add_enum_fields_to_record_type): New.
+	(count_fields): Adjust the comment.
+	(add_fields_to_record_type): Likewise.
+	(finish_struct_1): Move the code that inserts the fields for the
+	sorted case, into insert_into_classtype_sorted_fields, and call
+	it.
+	(insert_late_enum_def_into_classtype_sorted_fields): Define.
+	* decl.c (finish_enum_value_list): Call
+	insert_late_enum_def_into_classtype_sorted_fields if a late enum
+	definition is encountered.
+
+2012-06-25  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53498
+	PR c++/53305
+	* pt.c (tsubst_pack_expansion): Copy before dummy tsubst.
+
+	PR c++/52988
+	* typeck.c (decay_conversion): Don't discard side-effects from
+	expressions of nullptr_t.
+
+	PR c++/53202
+	* semantics.c (build_data_member_initialization): Always keep
+	initializer for empty base.
+	(cxx_eval_bare_aggregate): Discard it here.
+
+2012-06-25  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/53594
+	* class.c (check_bases_and_members): Avoid -Wuninitialized
+	diagnostics for non-static const members or references if they
+	use NSDMI.
+
+2012-06-19  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53651
+	* name-lookup.c (constructor_name_p): Don't try to look at the
+	name of a DECLTYPE_TYPE.
+
+	Reapply:
+	PR c++/53137
+	* pt.c (instantiate_class_template_1): Set LAMBDA_EXPR_THIS_CAPTURE.
+	(instantiate_decl): Don't push_to_top_level for local class methods.
+	(instantiate_class_template_1): Or for local classes.
+
+	PR c++/53599
+	* pt.c (lookup_template_class_1): Use ts_global.
+
+2012-06-14  Richard Guenther  <rguenther@suse.de>
+
+	Backport from mainline
+	2012-06-11  Richard Guenther  <rguenther@suse.de>
+
+	PR c++/53616
+	* mangle.c (write_array_type): Use double-ints for array domain
+	arithmetic.
+
+2012-06-14  Richard Guenther  <rguenther@suse.de>
+
+	Backport from mainline
+	2012-06-06  Fabien Chêne  <fabien@gcc.gnu.org>
+
+	PR c++/52841
+	* parser.c (cp_parser_alias_declaration): Return earlier
+	if an error occured.
+
+2012-06-14  Release Manager
+
+	* GCC 4.7.1 released.
+
+2012-06-12  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53599
+	Revert:
+	PR c++/53137
+	* pt.c (instantiate_class_template_1): Set LAMBDA_EXPR_THIS_CAPTURE.
+	(instantiate_decl): Don't push_to_top_level for local class methods.
+	(instantiate_class_template_1): Or for local classes.
+
+2012-06-04  Paolo Carlini  <paolo.carlini@oracle.com>
+
+	PR c++/53524
+	* call.c (build_conditional_expr_1): Use OPT_Wenum_compare
+	to control enumeral mismatch in conditional expression too.
+
+2012-06-01  Jason Merrill  <jason@redhat.com>
+
+	PR c++/52973
+	* parser.c (cp_parser_class_head): Apply attributes here.
+	* semantics.c (begin_class_definition): Not here.
+	* cp-tree.h: Adjust.
+
+	PR c++/52725
+	* parser.c (cp_parser_binary_expression): Bail early if we're parsing
+	tentatively and the LHS has a parse error.
+
+2012-06-01  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53137
+	* pt.c (instantiate_class_template_1): Set LAMBDA_EXPR_THIS_CAPTURE.
+	(instantiate_decl): Don't push_to_top_level for local class methods.
+	(instantiate_class_template_1): Or for local classes.
+
+	PR c++/53484
+	* pt.c (do_auto_deduction): Don't try to deduce from a
+	type-dependent initializer.
+
+2012-05-31  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53500
+	PR c++/52905
+	* call.c (joust): Handle comparing list and non-list ctors.
+
+2012-05-30  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53356
+	* tree.c (stabilize_init): Side effects make the init unstable.
+
+2012-05-30  Jason Merrill  <jason@redhat.com>
+
+	PR c++/53220
+	* call.c (convert_like_real) [ck_list]: Take array address directly.
+	* typeck.c (decay_conversion): Reject decay of an array compound
+	literal.
+
+2012-05-29  Paolo Carlini  <paolo.carlini@oracle.com>
+
+	PR c++/53491
+	* tree.c (stabilize_expr): Handle exp of void type.
+
+2012-05-28  Paolo Carlini  <paolo.carlini@oracle.com>
+
+	PR c++/53503
+	* semantics.c (potential_constant_expression_1): Handle LTGT_EXPR.
+
+2012-05-15  Alexandre Oliva  <aoliva@redhat.com>
+
+	PR c++/53209
+	* pt.c (tsubst_decl): Bail out if argvec is error_mark_node.
+
+2012-05-10  Paolo Carlini  <paolo.carlini@oracle.com>
+
+	PR c++/53301
+	* decl.c (check_default_argument): Fix typo (POINTER_TYPE_P
+	instead of TYPE_PTR_P) in zero-as-null-pointer-constant warning.
+
 2012-05-03  Paolo Carlini  <paolo.carlini@oracle.com>
 
 	PR c++/53186

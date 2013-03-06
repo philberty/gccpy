@@ -1137,12 +1137,6 @@ comp_template_parms_position (tree t1, tree t2)
   index1 = TEMPLATE_TYPE_PARM_INDEX (TYPE_MAIN_VARIANT (t1));
   index2 = TEMPLATE_TYPE_PARM_INDEX (TYPE_MAIN_VARIANT (t2));
 
-  /* If T1 and T2 belong to template parm lists of different size,
-     let's assume they are different.  */
-  if (TEMPLATE_PARM_NUM_SIBLINGS (index1)
-      != TEMPLATE_PARM_NUM_SIBLINGS (index2))
-    return false;
-
   /* Then compare their relative position.  */
   if (TEMPLATE_PARM_IDX (index1) != TEMPLATE_PARM_IDX (index2)
       || TEMPLATE_PARM_LEVEL (index1) != TEMPLATE_PARM_LEVEL (index2)
@@ -1838,7 +1832,7 @@ decay_conversion (tree exp)
   if (error_operand_p (exp))
     return error_mark_node;
 
-  if (NULLPTR_TYPE_P (type))
+  if (NULLPTR_TYPE_P (type) && !TREE_SIDE_EFFECTS (exp))
     return nullptr_node;
 
   /* build_c_cast puts on a NOP_EXPR to make the result not an lvalue.
@@ -1873,6 +1867,14 @@ decay_conversion (tree exp)
 	  && ! (TREE_CODE (exp) == CONSTRUCTOR && TREE_STATIC (exp)))
 	{
 	  error ("invalid use of non-lvalue array");
+	  return error_mark_node;
+	}
+
+      /* Don't let an array compound literal decay to a pointer.  It can
+	 still be used to initialize an array or bind to a reference.  */
+      if (TREE_CODE (exp) == TARGET_EXPR)
+	{
+	  error ("taking address of temporary array");
 	  return error_mark_node;
 	}
 
@@ -3117,7 +3119,8 @@ get_member_function_from_ptrfunc (tree *instance_ptrptr, tree function)
 	    return error_mark_node;
 	}
       /* ...and then the delta in the PMF.  */
-      instance_ptr = fold_build_pointer_plus (instance_ptr, delta);
+      instance_ptr = build2 (POINTER_PLUS_EXPR, TREE_TYPE (instance_ptr),
+			     instance_ptr, fold_convert (sizetype, delta));
 
       /* Hand back the adjusted 'this' argument to our caller.  */
       *instance_ptrptr = instance_ptr;
@@ -8288,9 +8291,9 @@ cp_apply_type_quals_to_decl (int type_quals, tree decl)
      constructor can produce constant init, so rely on cp_finish_decl to
      clear TREE_READONLY if the variable has non-constant init.  */
 
-  /* If the type has a mutable component, that component might be
-     modified.  */
-  if (TYPE_HAS_MUTABLE_P (type))
+  /* If the type has (or might have) a mutable component, that component
+     might be modified.  */
+  if (TYPE_HAS_MUTABLE_P (type) || !COMPLETE_TYPE_P (type))
     type_quals &= ~TYPE_QUAL_CONST;
 
   c_apply_type_quals_to_decl (type_quals, decl);

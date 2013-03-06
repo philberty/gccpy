@@ -1395,6 +1395,15 @@ Attribute_to_gnu (Node_Id gnat_node, tree *gnu_result_type_p, int attribute)
 	    TREE_NO_TRAMPOLINE (gnu_expr) = TREE_CONSTANT (gnu_expr) = 1;
 	}
 
+      /* For 'Access, issue an error message if the prefix is a C++ method
+	 since it can use a special calling convention on some platforms,
+	 which cannot be propagated to the access type.  */
+      else if (attribute == Attr_Access
+	       && Nkind (Prefix (gnat_node)) == N_Identifier
+	       && is_cplusplus_method (Entity (Prefix (gnat_node))))
+	post_error ("access to C++ constructor or member function not allowed",
+		    gnat_node);
+
       /* For other address attributes applied to a nested function,
 	 find an inner ADDR_EXPR and annotate it so that we can issue
 	 a useful warning with -Wtrampolines.  */
@@ -2387,14 +2396,16 @@ Loop_Statement_to_gnu (Node_Id gnat_node)
 
 	  /* Otherwise, use the do-while form with the help of a special
 	     induction variable in the unsigned version of the base type
-	     or the unsigned version of sizetype, whichever is the
+	     or the unsigned version of the size type, whichever is the
 	     largest, in order to have wrap-around arithmetics for it.  */
 	  else
 	    {
-	      if (TYPE_PRECISION (gnu_base_type) > TYPE_PRECISION (sizetype))
-		gnu_base_type = gnat_unsigned_type (gnu_base_type);
+	      if (TYPE_PRECISION (gnu_base_type)
+		  > TYPE_PRECISION (size_type_node))
+		gnu_base_type
+		  = gnat_type_for_size (TYPE_PRECISION (gnu_base_type), 1);
 	      else
-		gnu_base_type = sizetype;
+		gnu_base_type = size_type_node;
 
 	      gnu_first = convert (gnu_base_type, gnu_first);
 	      gnu_last = convert (gnu_base_type, gnu_last);
@@ -3113,6 +3124,7 @@ build_return_expr (tree ret_obj, tree ret_val)
       if (optimize
 	  && AGGREGATE_TYPE_P (operation_type)
 	  && !TYPE_IS_FAT_POINTER_P (operation_type)
+	  && TYPE_MODE (operation_type) == BLKmode
 	  && aggregate_value_p (operation_type, current_function_decl))
 	{
 	  /* Recognize the temporary created for a return value with variable
@@ -4051,7 +4063,7 @@ call_to_gnu (Node_Id gnat_node, tree *gnu_result_type_p, tree gnu_target,
 
       /* The first entry is for the actual return value if this is a
 	 function, so skip it.  */
-      if (TREE_VALUE (gnu_cico_list) == void_type_node)
+      if (function_call)
 	gnu_cico_list = TREE_CHAIN (gnu_cico_list);
 
       if (Nkind (Name (gnat_node)) == N_Explicit_Dereference)
@@ -4155,8 +4167,7 @@ call_to_gnu (Node_Id gnat_node, tree *gnu_result_type_p, tree gnu_target,
 	 return value from it and update the return type.  */
       if (TYPE_CI_CO_LIST (gnu_subprog_type))
 	{
-	  tree gnu_elmt = value_member (void_type_node,
-					TYPE_CI_CO_LIST (gnu_subprog_type));
+	  tree gnu_elmt = TYPE_CI_CO_LIST (gnu_subprog_type);
 	  gnu_call = build_component_ref (gnu_call, NULL_TREE,
 					  TREE_PURPOSE (gnu_elmt), false);
 	  gnu_result_type = TREE_TYPE (gnu_call);
@@ -5218,7 +5229,12 @@ gnat_to_gnu (Node_Id gnat_node)
 
 	/* Convert vector inputs to their representative array type, to fit
 	   what the code below expects.  */
-	gnu_array_object = maybe_vector_array (gnu_array_object);
+	if (VECTOR_TYPE_P (TREE_TYPE (gnu_array_object)))
+	  {
+	    if (present_in_lhs_or_actual_p (gnat_node))
+	      gnat_mark_addressable (gnu_array_object);
+	    gnu_array_object = maybe_vector_array (gnu_array_object);
+	  }
 
 	gnu_array_object = maybe_unconstrained_array (gnu_array_object);
 

@@ -3577,13 +3577,6 @@ gimple_types_compatible_p_1 (tree t1, tree t2, type_pair_t p,
 	    goto same_types;
 	  else if (i1 == NULL_TREE || i2 == NULL_TREE)
 	    goto different_types;
-	  /* If for a complete array type the possibly gimplified sizes
-	     are different the types are different.  */
-	  else if (((TYPE_SIZE (i1) != NULL) ^ (TYPE_SIZE (i2) != NULL))
-		   || (TYPE_SIZE (i1)
-		       && TYPE_SIZE (i2)
-		       && !operand_equal_p (TYPE_SIZE (i1), TYPE_SIZE (i2), 0)))
-	    goto different_types;
 	  else
 	    {
 	      tree min1 = TYPE_MIN_VALUE (i1);
@@ -4095,9 +4088,8 @@ iterative_hash_gimple_type (tree type, hashval_t val,
       v = iterative_hash_hashval_t (TYPE_STRING_FLAG (type), v);
     }
 
-  /* For array types hash their domain and the string flag.  */
-  if (TREE_CODE (type) == ARRAY_TYPE
-      && TYPE_DOMAIN (type))
+  /* For array types hash the domain and the string flag.  */
+  if (TREE_CODE (type) == ARRAY_TYPE && TYPE_DOMAIN (type))
     {
       v = iterative_hash_hashval_t (TYPE_STRING_FLAG (type), v);
       v = visit (TYPE_DOMAIN (type), state, v,
@@ -4324,19 +4316,23 @@ iterative_hash_canonical_type (tree type, hashval_t val)
       v = iterative_hash_hashval_t (TREE_CODE (TREE_TYPE (type)), v);
     }
 
-  /* For integer types hash the types min/max values and the string flag.  */
+  /* For integer types hash the sizetype and the string flag.  */
   if (TREE_CODE (type) == INTEGER_TYPE)
     {
       v = iterative_hash_hashval_t (TYPE_STRING_FLAG (type), v);
       v = iterative_hash_hashval_t (TYPE_IS_SIZETYPE (type), v);
     }
 
-  /* For array types hash their domain and the string flag.  */
-  if (TREE_CODE (type) == ARRAY_TYPE
-      && TYPE_DOMAIN (type))
+  /* For array types hash the domain bounds and the string flag.  */
+  if (TREE_CODE (type) == ARRAY_TYPE && TYPE_DOMAIN (type))
     {
       v = iterative_hash_hashval_t (TYPE_STRING_FLAG (type), v);
-      v = iterative_hash_canonical_type (TYPE_DOMAIN (type), v);
+      /* OMP lowering can introduce error_mark_node in place of
+	 random local decls in types.  */
+      if (TYPE_MIN_VALUE (TYPE_DOMAIN (type)) != error_mark_node)
+	v = iterative_hash_expr (TYPE_MIN_VALUE (TYPE_DOMAIN (type)), v);
+      if (TYPE_MAX_VALUE (TYPE_DOMAIN (type)) != error_mark_node)
+	v = iterative_hash_expr (TYPE_MAX_VALUE (TYPE_DOMAIN (type)), v);
     }
 
   /* Recurse for aggregates with a single element type.  */
@@ -4604,13 +4600,6 @@ gimple_canonical_types_compatible_p (tree t1, tree t2)
 	  if (i1 == NULL_TREE && i2 == NULL_TREE)
 	    return true;
 	  else if (i1 == NULL_TREE || i2 == NULL_TREE)
-	    return false;
-	  /* If for a complete array type the possibly gimplified sizes
-	     are different the types are different.  */
-	  else if (((TYPE_SIZE (i1) != NULL) ^ (TYPE_SIZE (i2) != NULL))
-		   || (TYPE_SIZE (i1)
-		       && TYPE_SIZE (i2)
-		       && !operand_equal_p (TYPE_SIZE (i1), TYPE_SIZE (i2), 0)))
 	    return false;
 	  else
 	    {
@@ -5475,16 +5464,61 @@ gimple_decl_printable_name (tree decl, int verbosity)
   return IDENTIFIER_POINTER (DECL_NAME (decl));
 }
 
-/* Return true when STMT is builtins call to CODE.  */
+/* Return true when STMTs arguments match those of FNDECL.  */
+
+static bool
+validate_call (gimple stmt, tree fndecl)
+{
+  tree arg, targs = TYPE_ARG_TYPES (TREE_TYPE (fndecl));
+  unsigned nargs = gimple_call_num_args (stmt);
+  unsigned i;
+  for (i = 0; i < nargs; ++i)
+    {
+      /* Variadic args follow.  */
+      if (!targs)
+	return true;
+      arg = gimple_call_arg (stmt, i);
+      if (INTEGRAL_TYPE_P (TREE_TYPE (arg))
+	  && INTEGRAL_TYPE_P (TREE_VALUE (targs)))
+	;
+      else if (POINTER_TYPE_P (TREE_TYPE (arg))
+	       && POINTER_TYPE_P (TREE_VALUE (targs)))
+	;
+      else if (TREE_CODE (TREE_TYPE (arg))
+	       != TREE_CODE (TREE_VALUE (targs)))
+	return false;
+      targs = TREE_CHAIN (targs);
+    }
+  if (targs && !VOID_TYPE_P (TREE_VALUE (targs)))
+    return false;
+  return true;
+}
+
+/* Return true when STMT is builtins call to CLASS.  */
+
+bool
+gimple_call_builtin_class_p (gimple stmt, enum built_in_class klass)
+{
+  tree fndecl;
+  if (is_gimple_call (stmt)
+      && (fndecl = gimple_call_fndecl (stmt)) != NULL_TREE
+      && DECL_BUILT_IN_CLASS (fndecl) == klass)
+    return validate_call (stmt, fndecl);
+  return false;
+}
+
+/* Return true when STMT is builtins call to CODE of CLASS.  */
 
 bool
 gimple_call_builtin_p (gimple stmt, enum built_in_function code)
 {
   tree fndecl;
-  return (is_gimple_call (stmt)
-	  && (fndecl = gimple_call_fndecl (stmt)) != NULL
-	  && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL
-	  && DECL_FUNCTION_CODE (fndecl) == code);
+  if (is_gimple_call (stmt)
+      && (fndecl = gimple_call_fndecl (stmt)) != NULL_TREE
+      && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL 
+      && DECL_FUNCTION_CODE (fndecl) == code)
+    return validate_call (stmt, fndecl);
+  return false;
 }
 
 /* Return true if STMT clobbers memory.  STMT is required to be a

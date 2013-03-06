@@ -83,6 +83,9 @@ type Type interface {
 	// compare the Types directly.
 	String() string
 
+	// Used internally by gccgo--the string retaining quoting.
+	rawString() string
+
 	// Kind returns the specific kind of this type.
 	Kind() Kind
 
@@ -432,7 +435,24 @@ func (t *commonType) toType() Type {
 	return canonicalize(t)
 }
 
-func (t *commonType) String() string { return *t.string }
+func (t *commonType) rawString() string { return *t.string }
+
+func (t *commonType) String() string {
+	// For gccgo, strip out quoted strings.
+	s := *t.string
+	var q bool
+	r := make([]byte, len(s))
+	j := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\t' {
+			q = !q
+		} else if !q {
+			r[j] = s[i]
+			j++
+		}
+	}
+	return string(r[:j])
+}
 
 func (t *commonType) Size() uintptr { return t.size }
 
@@ -942,7 +962,7 @@ func canonicalize(t Type) Type {
 	u := t.uncommon()
 	var s string
 	if u == nil || u.PkgPath() == "" {
-		s = t.String()
+		s = t.rawString()
 	} else {
 		s = u.PkgPath() + "." + u.Name()
 	}
@@ -1210,8 +1230,19 @@ func directlyAssignable(T, V *commonType) bool {
 		for i := range t.fields {
 			tf := &t.fields[i]
 			vf := &v.fields[i]
-			if tf.name != vf.name || tf.pkgPath != vf.pkgPath ||
-				tf.typ != vf.typ || tf.tag != vf.tag || tf.offset != vf.offset {
+			if tf.name != vf.name && (tf.name == nil || vf.name == nil || *tf.name != *vf.name) {
+				return false
+			}
+			if tf.pkgPath != vf.pkgPath && (tf.pkgPath == nil || vf.pkgPath == nil || *tf.pkgPath != *vf.pkgPath) {
+				return false
+			}
+			if tf.typ != vf.typ {
+				return false
+			}
+			if tf.tag != vf.tag && (tf.tag == nil || vf.tag == nil || *tf.tag != *vf.tag) {
+				return false
+			}
+			if tf.offset != vf.offset {
 				return false
 			}
 		}

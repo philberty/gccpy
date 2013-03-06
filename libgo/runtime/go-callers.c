@@ -67,10 +67,13 @@ runtime_callers (int32 skip, uintptr *pcbuf, int32 m)
 }
 
 int Callers (int, struct __go_open_array)
-  __asm__ ("libgo_runtime.runtime.Callers");
+  __asm__ ("runtime.Callers");
 
 int
 Callers (int skip, struct __go_open_array pc)
 {
-  return runtime_callers (skip, (uintptr *) pc.__values, pc.__count);
+  /* In the Go 1 release runtime.Callers has an off-by-one error,
+     which we can not correct because it would break backward
+     compatibility.  Adjust SKIP here to be compatible.  */
+  return runtime_callers (skip - 1, (uintptr *) pc.__values, pc.__count);
 }

@@ -311,6 +311,7 @@ var execTests = []execTest{
 	{".VariadicFuncInt", "{{call .VariadicFuncInt 33 `he` `llo`}}", "33=<he+llo>", tVal, true},
 	{"if .BinaryFunc call", "{{ if .BinaryFunc}}{{call .BinaryFunc `1` `2`}}{{end}}", "[1=2]", tVal, true},
 	{"if not .BinaryFunc call", "{{ if not .BinaryFunc}}{{call .BinaryFunc `1` `2`}}{{else}}No{{end}}", "No", tVal, true},
+	{"Interface Call", `{{stringer .S}}`, "foozle", map[string]interface{}{"S": bytes.NewBufferString("foozle")}, true},
 
 	// Erroneous function calls (check args).
 	{".BinaryFuncTooFew", "{{call .BinaryFunc `1`}}", "", tVal, false},
@@ -386,7 +387,7 @@ var execTests = []execTest{
 	{"slice[WRONG]", "{{index .SI `hello`}}", "", tVal, false},
 	{"map[one]", "{{index .MSI `one`}}", "1", tVal, true},
 	{"map[two]", "{{index .MSI `two`}}", "2", tVal, true},
-	{"map[NO]", "{{index .MSI `XXX`}}", "", tVal, true},
+	{"map[NO]", "{{index .MSI `XXX`}}", "0", tVal, true},
 	{"map[WRONG]", "{{index .MSI 10}}", "", tVal, false},
 	{"double index", "{{index .SMSI 1 `eleven`}}", "11", tVal, true},
 
@@ -507,6 +508,10 @@ func vfunc(V, *V) string {
 	return "vfunc"
 }
 
+func stringer(s fmt.Stringer) string {
+	return s.String()
+}
+
 func testExecute(execTests []execTest, template *Template, t *testing.T) {
 	b := new(bytes.Buffer)
 	funcs := FuncMap{
@@ -516,6 +521,7 @@ func testExecute(execTests []execTest, template *Template, t *testing.T) {
 		"typeOf":   typeOf,
 		"vfunc":    vfunc,
 		"zeroArgs": zeroArgs,
+		"stringer": stringer,
 	}
 	for _, test := range execTests {
 		var tmpl *Template

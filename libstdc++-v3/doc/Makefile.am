@@ -332,6 +332,7 @@ xml_sources_manual = \
 	${xml_dir}/manual/numerics.xml \
 	${xml_dir}/manual/parallel_mode.xml \
 	${xml_dir}/manual/policy_data_structures.xml \
+	${xml_dir}/manual/policy_data_structures_biblio.xml \
 	${xml_dir}/manual/prerequisites.xml \
 	${xml_dir}/manual/profile_mode.xml \
 	${xml_dir}/manual/shared_ptr.xml \
@@ -465,9 +466,10 @@ XSLT_PARAM = --param toc.section.depth 4
 #XSL_STYLE_DIR = /usr/share/xml/docbook/stylesheet/docbook-xsl-ns
 #XSL_STYLE_DIR = /usr/share/sgml/docbook/xsl-ns-stylesheets
 XSL_FO_STYLE = $(XSL_STYLE_DIR)/fo/docbook.xsl
-XSL_HTML_STYLE = $(XSL_STYLE_DIR)/xhtml-1_1/chunk.xsl
-XSL_HTML_SINGLE_STYLE = $(XSL_STYLE_DIR)/xhtml-1_1/docbook.xsl
+XSL_HTML_STYLE = $(XSL_STYLE_DIR)/xhtml/chunk.xsl
+XSL_HTML_SINGLE_STYLE = $(XSL_STYLE_DIR)/html/docbook.xsl
 XSL_EPUB_STYLE = $(XSL_STYLE_DIR)/epub3/chunk.xsl
+XSL_LOCAL_STYLE = ${glibcxx_builddir}/doc/xsl/customization.xsl
 
 ${docbook_outdir}/epub:
 	mkdir -p ${docbook_outdir}/epub
@@ -485,22 +487,15 @@ ${docbook_outdir}/html:
 ${docbook_outdir}/pdf:
 	mkdir -p ${docbook_outdir}/pdf
 
+${docbook_outdir}/latex:
+	mkdir -p ${docbook_outdir}/latex
+
 ${docbook_outdir}/texinfo:
 	mkdir -p ${docbook_outdir}/texinfo
 
 ${docbook_outdir}/xml:
 	mkdir -p ${docbook_outdir}/xml
 
-# Validate existing XML structure.
-XMLLINT = xmllint
-LINT_FLAGS = --debug --xinclude --noent --noblanks --noout
-SCHEMA_FLAGS = http://www.docbook.org/xml/5.0/dtd/docbook.dtd
-#SCHEMA_FLAGS = --nonet /usr/share/xml/docbook5/schema/dtd/5.0/docbook.dtd
-XMLLINT_VALID_FLAGS = $(LINT_FLAGS) --dtdvalid $(SCHEMA_FLAGS)
-XMLLINT_FLAGS = --xinclude --nsclean --c14n --noent --noblanks --nocdata
-doc-xml-validate-docbook: $(xml_sources) $(xml_images)
-	@echo "Generating XML validation log..."
-	$(XMLLINT) $(XMLLINT_VALID_FLAGS) ${top_srcdir}/doc/xml/spine.xml
 
 # XML, all one page
 # Some info on canonicalization
@@ -517,6 +512,24 @@ stamp-xml-single-docbook: $(xml_sources) ${docbook_outdir}/xml
 
 doc-xml-single-docbook: stamp-xml-single-docbook
 
+# Validate existing XML structure.
+XMLLINT = xmllint
+LINT_FLAGS = --debug --xinclude --noent --noblanks --noout
+SCHEMA_FLAGS = --dtdvalid http://www.docbook.org/xml/5.0/dtd/docbook.dtd
+SCHEMA_RNG_FLAGS = --relaxng http://www.docbook.org/xml/5.0/rng/docbook.rng
+#SCHEMA_FLAGS = --nonet --dtdvalid /usr/share/xxx/dtd/5.0/docbook.dtd
+XMLLINT_VALID_FLAGS = $(LINT_FLAGS) $(SCHEMA_FLAGS)
+XMLLINT_FLAGS = --xinclude --nsclean --c14n --noent --noblanks --nocdata
+doc-xml-validate-docbook: doc-xml-validate-dtd-db
+
+doc-xml-validate-dtd-db: $(xml_sources) $(xml_images)
+	@echo "Generating XML validation log..."
+	$(XMLLINT) $(XMLLINT_VALID_FLAGS) ${top_srcdir}/doc/xml/spine.xml
+
+doc-xml-validate-rng-db: $(xml_sources) $(xml_images) doc-xml-single-docbook
+	@echo "Generating XML RelaxNG validation log..."
+	$(XMLLINT) $(LINT_FLAGS) $(SCHEMA_RNG_FLAGS) ${set_xml}
+
 # HTML support files
 stamp-html-docbook-images: stamp-html-docbook $(xml_images)
 	$(INSTALL_DATA)	$(xml_images) ${docbook_outdir}/html/images
@@ -529,21 +542,25 @@ stamp-html-docbook-lwg: stamp-html-docbook $(xml_extra)
 stamp-html-docbook-data: stamp-html-docbook-images stamp-html-docbook-lwg
 	$(STAMP) stamp-html-docbook-data
 
-# HTML, index plus chapters
+# HTML, "chunked" into index plus chapters as separate pages
 stamp-html-docbook: $(xml_sources) ${docbook_outdir}/html
 	@echo "Generating html files..."
 	$(XSLTPROC) $(XSLT_PARAM) $(XSLT_FLAGS) -o ${docbook_outdir}/html/ \
-	$(XSL_HTML_STYLE) ${top_srcdir}/doc/xml/spine.xml
+	 --stringparam chunker.output.encoding UTF-8 \
+	$(XSL_HTML_STYLE) \
+	${top_srcdir}/doc/xml/spine.xml
 	$(STAMP) stamp-html-docbook
 
 doc-html-docbook: stamp-html-docbook-data
 
 # HTML, all one page
+# NB: Have to generate customization XSL for UTF-8 output.
 manual_html = ${docbook_outdir}/html/libstdc++-manual-single.html
 stamp-html-single-docbook: $(xml_sources) ${docbook_outdir}/html
 	@echo "Generating html single file..."
 	$(XSLTPROC) $(XSLT_PARAM) $(XSLT_FLAGS) -o ${manual_html} \
-	$(XSL_HTML_SINGLE_STYLE) ${top_srcdir}/doc/xml/spine.xml
+	${XSL_LOCAL_STYLE} \
+	${top_srcdir}/doc/xml/spine.xml
 	$(STAMP) stamp-html-single-docbook
 
 doc-html-single-docbook: stamp-html-single-docbook
@@ -559,11 +576,16 @@ doc-fo-docbook: stamp-fo-docbook
 
 # PDF, via dblatex
 manual_pdf = ${docbook_outdir}/pdf/libstdc++-manual.pdf
-DBLATEX_FLAGS = --dump --verbose --pdf
-stamp-pdf-docbook: $(xml_sources) ${docbook_outdir}/pdf
+DBLATEX_FLAGS = --verbose --pdf --dump --debug --tmpdir=${docbook_outdir}/latex
+
+doc-pdf-docbook-dirs: ${docbook_outdir}/pdf ${docbook_outdir}/latex
+
+doc-pdf-docbook-pre: $(xml_sources) doc-pdf-docbook-dirs
+
+stamp-pdf-docbook: doc-pdf-docbook-pre doc-xml-single-docbook
 	@echo "Generating pdf dblatex files..."
-	dblatex $(DBLATEX_FLAGS) \
-	-o ${manual_pdf} ${top_srcdir}/doc/xml/spine.xml
+	dblatex $(DBLATEX_FLAGS) -o ${manual_pdf} \
+	${top_srcdir}/doc/xml/spine.xml
 	$(STAMP) stamp-pdf-docbook
 
 doc-pdf-docbook: stamp-pdf-docbook

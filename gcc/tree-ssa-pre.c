@@ -448,10 +448,6 @@ static struct
 
   /* The number of new PHI nodes added by PRE.  */
   int phis;
-
-  /* The number of values found constant.  */
-  int constified;
-
 } pre_stats;
 
 static bool do_partial_partial;
@@ -862,6 +858,8 @@ bitmap_set_replace_value (bitmap_set_t set, unsigned int lookfor,
 	  return;
 	}
     }
+
+  gcc_unreachable ();
 }
 
 /* Return true if two bitmap sets are equal.  */
@@ -1283,7 +1281,7 @@ translate_vuse_through_block (VEC (vn_reference_op_s, heap) *operands,
 	  bitmap visited = NULL;
 	  /* Try to find a vuse that dominates this phi node by skipping
 	     non-clobbering statements.  */
-	  vuse = get_continuation_for_phi (phi, &ref, &visited);
+	  vuse = get_continuation_for_phi (phi, &ref, &visited, false);
 	  if (visited)
 	    BITMAP_FREE (visited);
 	}
@@ -2618,19 +2616,6 @@ compute_antic (void)
   sbitmap_free (changed_blocks);
 }
 
-/* Return true if we can value number the call in STMT.  This is true
-   if we have a pure or constant call to a real function.  */
-
-static bool
-can_value_number_call (gimple stmt)
-{
-  if (gimple_call_internal_p (stmt))
-    return false;
-  if (gimple_call_flags (stmt) & (ECF_PURE | ECF_CONST))
-    return true;
-  return false;
-}
-
 /* Return true if OP is a tree which we can perform PRE on.
    This may not match the operations we can value number, but in
    a perfect world would.  */
@@ -3076,7 +3061,7 @@ create_expression_by_pieces (basic_block block, pre_expr expr,
     case NARY:
       {
 	vn_nary_op_t nary = PRE_EXPR_NARY (expr);
-	tree genop[4];
+	tree *genop = XALLOCAVEC (tree, nary->length);
 	unsigned i;
 	for (i = 0; i < nary->length; ++i)
 	  {
@@ -3118,7 +3103,7 @@ create_expression_by_pieces (basic_block block, pre_expr expr,
 		break;
 	      case 3:
 		folded = fold_build3 (nary->opcode, nary->type,
-				      genop[0], genop[1], genop[3]);
+				      genop[0], genop[1], genop[2]);
 		break;
 	      default:
 		gcc_unreachable ();
@@ -3524,7 +3509,8 @@ do_regular_insertion (basic_block block, basic_block dom)
 
   FOR_EACH_VEC_ELT (pre_expr, exprs, i, expr)
     {
-      if (expr->kind != NAME)
+      if (expr->kind == NARY
+	  || expr->kind == REFERENCE)
 	{
 	  pre_expr *avail;
 	  unsigned int val;
@@ -3625,36 +3611,36 @@ do_regular_insertion (basic_block block, basic_block dom)
 	  /* If all edges produce the same value and that value is
 	     an invariant, then the PHI has the same value on all
 	     edges.  Note this.  */
-	  else if (!cant_insert && all_same && eprime
-		   && (edoubleprime->kind == CONSTANT
-		       || edoubleprime->kind == NAME)
-		   && !value_id_constant_p (val))
+	  else if (!cant_insert && all_same)
 	    {
-	      unsigned int j;
-	      bitmap_iterator bi;
-	      bitmap_set_t exprset = VEC_index (bitmap_set_t,
-						value_expressions, val);
+	      tree exprtype = get_expr_type (expr);
+	      tree temp;
+	      gimple assign;
+	      pre_expr newe;
+	      gimple_stmt_iterator gsi;
 
-	      unsigned int new_val = get_expr_value_id (edoubleprime);
-	      FOR_EACH_EXPR_ID_IN_SET (exprset, j, bi)
+	      gcc_assert (edoubleprime->kind == CONSTANT
+			  || edoubleprime->kind == NAME);
+
+	      if (!pretemp || TREE_TYPE (pretemp) != exprtype)
 		{
-		  pre_expr expr = expression_for_id (j);
-
-		  if (expr->kind == NAME)
-		    {
-		      vn_ssa_aux_t info = VN_INFO (PRE_EXPR_NAME (expr));
-		      /* Just reset the value id and valnum so it is
-			 the same as the constant we have discovered.  */
-		      if (edoubleprime->kind == CONSTANT)
-			{
-			  info->valnum = PRE_EXPR_CONSTANT (edoubleprime);
-			  pre_stats.constified++;
-			}
-		      else
-			info->valnum = VN_INFO (PRE_EXPR_NAME (edoubleprime))->valnum;
-		      info->value_id = new_val;
-		    }
+		  pretemp = create_tmp_reg (exprtype, "pretmp");
+		  add_referenced_var (pretemp);
 		}
+	      temp = make_ssa_name (pretemp, NULL);
+	      assign = gimple_build_assign (temp,
+					    edoubleprime->kind == CONSTANT ? PRE_EXPR_CONSTANT (edoubleprime) : PRE_EXPR_NAME (edoubleprime));
+	      gsi = gsi_after_labels (block);
+	      gsi_insert_before (&gsi, assign, GSI_NEW_STMT);
+
+	      gimple_set_plf (assign, NECESSARY, false);
+	      VN_INFO_GET (temp)->value_id = val;
+	      VN_INFO (temp)->valnum = temp;
+	      bitmap_set_bit (inserted_exprs, SSA_NAME_VERSION (temp));
+	      newe = get_or_alloc_expr_for_name (temp);
+	      add_to_value (val, newe);
+	      bitmap_value_replace_in_set (AVAIL_OUT (block), newe);
+	      bitmap_insert_into_set (NEW_SETS (block), newe);
 	    }
 	  free (avail);
 	}
@@ -3682,7 +3668,8 @@ do_partial_partial_insertion (basic_block block, basic_block dom)
 
   FOR_EACH_VEC_ELT (pre_expr, exprs, i, expr)
     {
-      if (expr->kind != NAME)
+      if (expr->kind == NARY
+	  || expr->kind == REFERENCE)
 	{
 	  pre_expr *avail;
 	  unsigned int val;
@@ -3959,8 +3946,7 @@ compute_avail (void)
 	     or control flow.
 	     If this isn't a call or it is the last stmt in the
 	     basic-block then the CFG represents things correctly.  */
-	  if (is_gimple_call (stmt)
-	      && !stmt_ends_bb_p (stmt))
+	  if (is_gimple_call (stmt) && !stmt_ends_bb_p (stmt))
 	    {
 	      /* Non-looping const functions always return normally.
 		 Otherwise the call might not return or have side-effects
@@ -3982,8 +3968,7 @@ compute_avail (void)
 	      bitmap_value_insert_into_set (AVAIL_OUT (block), e);
 	    }
 
-	  if (gimple_has_volatile_ops (stmt)
-	      || stmt_could_throw_p (stmt))
+	  if (gimple_has_side_effects (stmt) || stmt_could_throw_p (stmt))
 	    continue;
 
 	  switch (gimple_code (stmt))
@@ -4001,7 +3986,8 @@ compute_avail (void)
 		pre_expr result = NULL;
 		VEC(vn_reference_op_s, heap) *ops = NULL;
 
-		if (!can_value_number_call (stmt))
+		/* We can value number only calls to real functions.  */
+		if (gimple_call_internal_p (stmt))
 		  continue;
 
 		copy_reference_ops_from_call (stmt, &ops);
@@ -4834,11 +4820,12 @@ init_pre (bool do_fre)
 
 /* Deallocate data structures used by PRE.  */
 
-static void
+static unsigned 
 fini_pre (bool do_fre)
 {
   bool do_eh_cleanup = !bitmap_empty_p (need_eh_cleanup);
   bool do_ab_cleanup = !bitmap_empty_p (need_ab_cleanup);
+  unsigned todo = 0;
 
   free (postorder);
   VEC_free (bitmap_set_t, heap, value_expressions);
@@ -4865,10 +4852,12 @@ fini_pre (bool do_fre)
   BITMAP_FREE (need_ab_cleanup);
 
   if (do_eh_cleanup || do_ab_cleanup)
-    cleanup_tree_cfg ();
+    todo = TODO_cleanup_cfg;
 
   if (!do_fre)
     loop_optimizer_finalize ();
+
+  return todo;
 }
 
 /* Main entry point to the SSA-PRE pass.  DO_FRE is true if the caller
@@ -4937,7 +4926,6 @@ execute_pre (bool do_fre)
   statistics_counter_event (cfun, "PA inserted", pre_stats.pa_insert);
   statistics_counter_event (cfun, "New PHIs", pre_stats.phis);
   statistics_counter_event (cfun, "Eliminated", pre_stats.eliminations);
-  statistics_counter_event (cfun, "Constified", pre_stats.constified);
 
   clear_expression_ids ();
   if (!do_fre)
@@ -4947,7 +4935,7 @@ execute_pre (bool do_fre)
     }
 
   scev_finalize ();
-  fini_pre (do_fre);
+  todo |= fini_pre (do_fre);
 
   if (!do_fre)
     /* TODO: tail_merge_optimize may merge all predecessors of a block, in which
@@ -4959,6 +4947,13 @@ execute_pre (bool do_fre)
        - share the cfg cleanup with fini_pre.  */
     todo |= tail_merge_optimize (todo);
   free_scc_vn ();
+
+  /* Tail merging invalidates the virtual SSA web, together with
+     cfg-cleanup opportunities exposed by PRE this will wreck the
+     SSA updating machinery.  So make sure to run update-ssa
+     manually, before eventually scheduling cfg-cleanup as part of
+     the todo.  */
+  update_ssa (TODO_update_ssa_only_virtuals);
 
   return todo;
 }
@@ -4993,8 +4988,7 @@ struct gimple_opt_pass pass_pre =
   0,					/* properties_provided */
   0,					/* properties_destroyed */
   TODO_rebuild_alias,			/* todo_flags_start */
-  TODO_update_ssa_only_virtuals  | TODO_ggc_collect
-  | TODO_verify_ssa /* todo_flags_finish */
+  TODO_ggc_collect | TODO_verify_ssa	/* todo_flags_finish */
  }
 };
 

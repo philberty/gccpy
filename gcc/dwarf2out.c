@@ -3134,6 +3134,12 @@ static GTY (()) VEC (pubname_entry, gc) * pubtype_table;
    defines/undefines (and file start/end markers).  */
 static GTY (()) VEC (macinfo_entry, gc) * macinfo_table;
 
+/* True if .debug_macinfo or .debug_macros section is going to be
+   emitted.  */
+#define have_macinfo \
+  (debug_info_level >= DINFO_LEVEL_VERBOSE \
+   && !VEC_empty (macinfo_entry, macinfo_table))
+
 /* Array of dies for which we should generate .debug_ranges info.  */
 static GTY ((length ("ranges_table_allocated"))) dw_ranges_ref ranges_table;
 
@@ -8006,6 +8012,8 @@ value_format (dw_attr_ref a)
 	  return DW_FORM_block1;
 	case 2:
 	  return DW_FORM_block2;
+	case 4:
+	  return DW_FORM_block4;
 	default:
 	  gcc_unreachable ();
 	}
@@ -9784,6 +9792,7 @@ modified_type_die (tree type, int is_const_type, int is_volatile_type,
   tree item_type = NULL;
   tree qualified_type;
   tree name, low, high;
+  dw_die_ref mod_scope;
 
   if (code == ERROR_MARK)
     return NULL;
@@ -9844,6 +9853,8 @@ modified_type_die (tree type, int is_const_type, int is_volatile_type,
       /* Else cv-qualified version of named type; fall through.  */
     }
 
+  mod_scope = scope_die_for (type, context_die);
+
   if (is_const_type
       /* If both is_const_type and is_volatile_type, prefer the path
 	 which leads to a qualified type.  */
@@ -9851,17 +9862,17 @@ modified_type_die (tree type, int is_const_type, int is_volatile_type,
 	  || get_qualified_type (type, TYPE_QUAL_CONST) == NULL_TREE
 	  || get_qualified_type (type, TYPE_QUAL_VOLATILE) != NULL_TREE))
     {
-      mod_type_die = new_die (DW_TAG_const_type, comp_unit_die (), type);
+      mod_type_die = new_die (DW_TAG_const_type, mod_scope, type);
       sub_die = modified_type_die (type, 0, is_volatile_type, context_die);
     }
   else if (is_volatile_type)
     {
-      mod_type_die = new_die (DW_TAG_volatile_type, comp_unit_die (), type);
+      mod_type_die = new_die (DW_TAG_volatile_type, mod_scope, type);
       sub_die = modified_type_die (type, is_const_type, 0, context_die);
     }
   else if (code == POINTER_TYPE)
     {
-      mod_type_die = new_die (DW_TAG_pointer_type, comp_unit_die (), type);
+      mod_type_die = new_die (DW_TAG_pointer_type, mod_scope, type);
       add_AT_unsigned (mod_type_die, DW_AT_byte_size,
 		       simple_type_size_in_bits (type) / BITS_PER_UNIT);
       item_type = TREE_TYPE (type);
@@ -9872,10 +9883,10 @@ modified_type_die (tree type, int is_const_type, int is_volatile_type,
   else if (code == REFERENCE_TYPE)
     {
       if (TYPE_REF_IS_RVALUE (type) && dwarf_version >= 4)
-	mod_type_die = new_die (DW_TAG_rvalue_reference_type, comp_unit_die (),
+	mod_type_die = new_die (DW_TAG_rvalue_reference_type, mod_scope,
 				type);
       else
-	mod_type_die = new_die (DW_TAG_reference_type, comp_unit_die (), type);
+	mod_type_die = new_die (DW_TAG_reference_type, mod_scope, type);
       add_AT_unsigned (mod_type_die, DW_AT_byte_size,
 		       simple_type_size_in_bits (type) / BITS_PER_UNIT);
       item_type = TREE_TYPE (type);
@@ -10592,7 +10603,16 @@ based_loc_descr (rtx reg, HOST_WIDE_INT offset,
 	}
     }
 
-  regno = DWARF_FRAME_REGNUM (REGNO (reg));
+  regno = REGNO (reg);
+#ifdef LEAF_REG_REMAP
+  if (current_function_uses_only_leaf_regs)
+    {
+      int leaf_reg = LEAF_REG_REMAP (regno);
+      if (leaf_reg != -1)
+	regno = (unsigned) leaf_reg;
+    }
+#endif
+  regno = DWARF_FRAME_REGNUM (regno);
 
   if (!optimize && fde
       && (fde->drap_reg == regno || fde->vdrap_reg == regno))
@@ -16073,10 +16093,36 @@ pop_decl_scope (void)
   VEC_pop (tree, decl_scope_table);
 }
 
+/* walk_tree helper function for uses_local_type, below.  */
+
+static tree
+uses_local_type_r (tree *tp, int *walk_subtrees, void *data ATTRIBUTE_UNUSED)
+{
+  if (!TYPE_P (*tp))
+    *walk_subtrees = 0;
+  else
+    {
+      tree name = TYPE_NAME (*tp);
+      if (name && DECL_P (name) && decl_function_context (name))
+	return *tp;
+    }
+  return NULL_TREE;
+}
+
+/* If TYPE involves a function-local type (including a local typedef to a
+   non-local type), returns that type; otherwise returns NULL_TREE.  */
+
+static tree
+uses_local_type (tree type)
+{
+  tree used = walk_tree_without_duplicates (&type, uses_local_type_r, NULL);
+  return used;
+}
+
 /* Return the DIE for the scope that immediately contains this type.
-   Non-named types get global scope.  Named types nested in other
-   types get their containing scope if it's open, or global scope
-   otherwise.  All other types (i.e. function-local named types) get
+   Non-named types that do not involve a function-local type get global
+   scope.  Named types nested in namespaces or other types get their
+   containing scope.  All other types (i.e. function-local named types) get
    the current active scope.  */
 
 static dw_die_ref
@@ -16084,18 +16130,24 @@ scope_die_for (tree t, dw_die_ref context_die)
 {
   dw_die_ref scope_die = NULL;
   tree containing_scope;
-  int i;
 
   /* Non-types always go in the current scope.  */
   gcc_assert (TYPE_P (t));
 
-  containing_scope = TYPE_CONTEXT (t);
+  /* Use the scope of the typedef, rather than the scope of the type
+     it refers to.  */
+  if (TYPE_NAME (t) && DECL_P (TYPE_NAME (t)))
+    containing_scope = DECL_CONTEXT (TYPE_NAME (t));
+  else
+    containing_scope = TYPE_CONTEXT (t);
 
-  /* Use the containing namespace if it was passed in (for a declaration).  */
+  /* Use the containing namespace if there is one.  */
   if (containing_scope && TREE_CODE (containing_scope) == NAMESPACE_DECL)
     {
       if (context_die == lookup_decl_die (containing_scope))
 	/* OK */;
+      else if (debug_info_level > DINFO_LEVEL_TERSE)
+	context_die = get_context_die (containing_scope);
       else
 	containing_scope = NULL_TREE;
     }
@@ -16107,30 +16159,25 @@ scope_die_for (tree t, dw_die_ref context_die)
     containing_scope = NULL_TREE;
 
   if (SCOPE_FILE_SCOPE_P (containing_scope))
-    scope_die = comp_unit_die ();
+    {
+      /* If T uses a local type keep it local as well, to avoid references
+	 to function-local DIEs from outside the function.  */
+      if (current_function_decl && uses_local_type (t))
+	scope_die = context_die;
+      else
+	scope_die = comp_unit_die ();
+    }
   else if (TYPE_P (containing_scope))
     {
-      /* For types, we can just look up the appropriate DIE.  But
-	 first we check to see if we're in the middle of emitting it
-	 so we know where the new DIE should go.  */
-      for (i = VEC_length (tree, decl_scope_table) - 1; i >= 0; --i)
-	if (VEC_index (tree, decl_scope_table, i) == containing_scope)
-	  break;
-
-      if (i < 0)
+      /* For types, we can just look up the appropriate DIE.  */
+      if (debug_info_level > DINFO_LEVEL_TERSE)
+	scope_die = get_context_die (containing_scope);
+      else
 	{
-	  gcc_assert (debug_info_level <= DINFO_LEVEL_TERSE
-		      || TREE_ASM_WRITTEN (containing_scope));
-	  /*We are not in the middle of emitting the type
-	    CONTAINING_SCOPE. Let's see if it's emitted already.  */
-	  scope_die = lookup_type_die (containing_scope);
-
-	  /* If none of the current dies are suitable, we get file scope.  */
+	  scope_die = lookup_type_die_strip_naming_typedef (containing_scope);
 	  if (scope_die == NULL)
 	    scope_die = comp_unit_die ();
 	}
-      else
-	scope_die = lookup_type_die_strip_naming_typedef (containing_scope);
     }
   else
     scope_die = context_die;
@@ -18919,12 +18966,8 @@ gen_type_die_with_usage (tree type, dw_die_ref context_die,
       /* Prevent broken recursion; we can't hand off to the same type.  */
       gcc_assert (DECL_ORIGINAL_TYPE (TYPE_NAME (type)) != type);
 
-      /* Use the DIE of the containing namespace as the parent DIE of
-         the type description DIE we want to generate.  */
-      if (DECL_FILE_SCOPE_P (TYPE_NAME (type))
-	  || (DECL_CONTEXT (TYPE_NAME (type))
-	      && TREE_CODE (DECL_CONTEXT (TYPE_NAME (type))) == NAMESPACE_DECL))
-	context_die = get_context_die (DECL_CONTEXT (TYPE_NAME (type)));
+      /* Give typedefs the right scope.  */
+      context_die = scope_die_for (type, context_die);
 
       TREE_ASM_WRITTEN (type) = 1;
 
@@ -20655,7 +20698,7 @@ dwarf2out_define (unsigned int lineno ATTRIBUTE_UNUSED,
       macinfo_entry e;
       /* Insert a dummy first entry to be able to optimize the whole
 	 predefined macro block using DW_MACRO_GNU_transparent_include.  */
-      if (VEC_empty (macinfo_entry, macinfo_table) && lineno == 0)
+      if (VEC_empty (macinfo_entry, macinfo_table) && lineno <= 1)
 	{
 	  e.code = 0;
 	  e.lineno = 0;
@@ -20682,7 +20725,7 @@ dwarf2out_undef (unsigned int lineno ATTRIBUTE_UNUSED,
       macinfo_entry e;
       /* Insert a dummy first entry to be able to optimize the whole
 	 predefined macro block using DW_MACRO_GNU_transparent_include.  */
-      if (VEC_empty (macinfo_entry, macinfo_table) && lineno == 0)
+      if (VEC_empty (macinfo_entry, macinfo_table) && lineno <= 1)
 	{
 	  e.code = 0;
 	  e.lineno = 0;
@@ -20821,13 +20864,13 @@ optimize_macinfo_range (unsigned int idx, VEC (macinfo_entry, gc) *files,
 
   /* Optimize only if there are at least two consecutive define/undef ops,
      and either all of them are before first DW_MACINFO_start_file
-     with lineno 0 (i.e. predefined macro block), or all of them are
+     with lineno {0,1} (i.e. predefined macro block), or all of them are
      in some included header file.  */
   if (second->code != DW_MACINFO_define && second->code != DW_MACINFO_undef)
     return 0;
   if (VEC_empty (macinfo_entry, files))
     {
-      if (first->lineno != 0 || second->lineno != 0)
+      if (first->lineno > 1 || second->lineno > 1)
 	return 0;
     }
   else if (first->lineno == 0)
@@ -20840,7 +20883,7 @@ optimize_macinfo_range (unsigned int idx, VEC (macinfo_entry, gc) *files,
   for (i = idx; VEC_iterate (macinfo_entry, macinfo_table, i, cur); i++)
     if (cur->code != DW_MACINFO_define && cur->code != DW_MACINFO_undef)
       break;
-    else if (first->lineno == 0 && cur->lineno != 0)
+    else if (VEC_empty (macinfo_entry, files) && cur->lineno > 1)
       break;
     else
       {
@@ -20854,7 +20897,7 @@ optimize_macinfo_range (unsigned int idx, VEC (macinfo_entry, gc) *files,
 
   /* From the containing include filename (if any) pick up just
      usable characters from its basename.  */
-  if (first->lineno == 0)
+  if (VEC_empty (macinfo_entry, files))
     base = "";
   else
     base = lbasename (VEC_last (macinfo_entry, files)->info);
@@ -22547,16 +22590,15 @@ dwarf2out_finish (const char *filename)
 		 inlined and optimized out.  In that case we are lost and
 		 assign the empty child.  This should not be big issue as
 		 the function is likely unreachable too.  */
-	      tree context = NULL_TREE;
-
 	      gcc_assert (node->created_for);
 
 	      if (DECL_P (node->created_for))
-		context = DECL_CONTEXT (node->created_for);
+		origin = get_context_die (DECL_CONTEXT (node->created_for));
 	      else if (TYPE_P (node->created_for))
-		context = TYPE_CONTEXT (node->created_for);
+		origin = scope_die_for (node->created_for, comp_unit_die ());
+	      else
+		origin = comp_unit_die ();
 
-	      origin = get_context_die (context);
 	      add_child_die (origin, die);
 	    }
 	}
@@ -22576,7 +22618,11 @@ dwarf2out_finish (const char *filename)
   for (node = deferred_asm_name; node; node = node->next)
     {
       tree decl = node->created_for;
-      if (DECL_ASSEMBLER_NAME (decl) != DECL_NAME (decl))
+      /* When generating LTO bytecode we can not generate new assembler
+         names at this point and all important decls got theirs via
+	 free-lang-data.  */
+      if ((!flag_generate_lto || DECL_ASSEMBLER_NAME_SET_P (decl))
+	  && DECL_ASSEMBLER_NAME (decl) != DECL_NAME (decl))
 	{
 	  add_linkage_attr (node->die, decl);
 	  move_linkage_attr (node->die);
@@ -22691,7 +22737,7 @@ dwarf2out_finish (const char *filename)
     add_AT_lineptr (comp_unit_die (), DW_AT_stmt_list,
 		    debug_line_section_label);
 
-  if (debug_info_level >= DINFO_LEVEL_VERBOSE)
+  if (have_macinfo)
     add_AT_macptr (comp_unit_die (),
 		   dwarf_strict ? DW_AT_macro_info : DW_AT_GNU_macros,
 		   macinfo_section_label);
@@ -22726,8 +22772,8 @@ dwarf2out_finish (const char *filename)
   htab_delete (comdat_type_table);
 
   /* Output the main compilation unit if non-empty or if .debug_macinfo
-     will be emitted.  */
-  output_comp_unit (comp_unit_die (), debug_info_level >= DINFO_LEVEL_VERBOSE);
+     or .debug_macro will be emitted.  */
+  output_comp_unit (comp_unit_die (), have_macinfo);
 
   /* Output the abbreviation table.  */
   if (abbrev_die_table_in_use != 1)
@@ -22807,12 +22853,11 @@ dwarf2out_finish (const char *filename)
     }
 
   /* Have to end the macro section.  */
-  if (debug_info_level >= DINFO_LEVEL_VERBOSE)
+  if (have_macinfo)
     {
       switch_to_section (debug_macinfo_section);
       ASM_OUTPUT_LABEL (asm_out_file, macinfo_section_label);
-      if (!VEC_empty (macinfo_entry, macinfo_table))
-	output_macinfo ();
+      output_macinfo ();
       dw2_asm_output_data (1, 0, "End compilation unit");
     }
 

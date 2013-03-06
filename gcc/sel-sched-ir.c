@@ -1,5 +1,5 @@
 /* Instruction scheduling pass.  Selective scheduler and pipeliner.
-   Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011
+   Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012
    Free Software Foundation, Inc.
 
 This file is part of GCC.
@@ -3224,7 +3224,11 @@ has_dependence_note_reg_use (int regno)
       if (reg_last->clobbers)
 	*dsp = (*dsp & ~SPECULATIVE) | DEP_ANTI;
 
-      /* Handle BE_IN_SPEC.  */
+      /* Merge BE_IN_SPEC bits into *DSP when the dependency producer
+	 is actually a check insn.  We need to do this for any register
+	 read-read dependency with the check unless we track properly
+	 all registers written by BE_IN_SPEC-speculated insns, as
+	 we don't have explicit dependence lists.  See PR 53975.  */
       if (reg_last->uses)
 	{
 	  ds_t pro_spec_checked_ds;
@@ -3232,9 +3236,7 @@ has_dependence_note_reg_use (int regno)
 	  pro_spec_checked_ds = INSN_SPEC_CHECKED_DS (has_dependence_data.pro);
 	  pro_spec_checked_ds = ds_get_max_dep_weak (pro_spec_checked_ds);
 
-	  if (pro_spec_checked_ds != 0
-	      && bitmap_bit_p (INSN_REG_SETS (has_dependence_data.pro), regno))
-	    /* Merge BE_IN_SPEC bits into *DSP.  */
+	  if (pro_spec_checked_ds != 0)
 	    *dsp = ds_full_merge (*dsp, pro_spec_checked_ds,
 				  NULL_RTX, NULL_RTX);
 	}
@@ -3658,7 +3660,7 @@ sel_recompute_toporder (void)
 static bool
 maybe_tidy_empty_bb (basic_block bb)
 {
-  basic_block succ_bb, pred_bb;
+  basic_block succ_bb, pred_bb, note_bb;
   VEC (basic_block, heap) *dom_bbs;
   edge e;
   edge_iterator ei;
@@ -3680,6 +3682,22 @@ maybe_tidy_empty_bb (basic_block bb)
   FOR_EACH_EDGE (e, ei, bb->preds)
     if (e->flags & EDGE_COMPLEX)
       return false;
+    else if (e->flags & EDGE_FALLTHRU)
+      {
+	rtx note;
+	/* If prev bb ends with asm goto, see if any of the
+	   ASM_OPERANDS_LABELs don't point to the fallthru
+	   label.  Do not attempt to redirect it in that case.  */
+	if (JUMP_P (BB_END (e->src))
+	    && (note = extract_asm_operands (PATTERN (BB_END (e->src)))))
+	  {
+	    int i, n = ASM_OPERANDS_LABEL_LENGTH (note);
+
+	    for (i = 0; i < n; ++i)
+	      if (XEXP (ASM_OPERANDS_LABEL (note, i), 0) == BB_HEAD (bb))
+		return false;
+	  }
+      }
 
   free_data_sets (bb);
 
@@ -3696,6 +3714,17 @@ maybe_tidy_empty_bb (basic_block bb)
   rescan_p = true;
   pred_bb = NULL;
   dom_bbs = NULL;
+
+  /* Save a pred/succ from the current region to attach the notes to.  */
+  note_bb = NULL;
+  FOR_EACH_EDGE (e, ei, bb->preds)
+    if (in_current_region_p (e->src))
+      {
+	note_bb = e->src;
+	break;
+      }
+  if (note_bb == NULL)
+    note_bb = succ_bb;
 
   /* Redirect all non-fallthru edges to the next bb.  */
   while (rescan_p)
@@ -3746,10 +3775,8 @@ maybe_tidy_empty_bb (basic_block bb)
   else
     {
       /* This is a block without fallthru predecessor.  Just delete it.  */
-      gcc_assert (pred_bb != NULL);
-
-      if (in_current_region_p (pred_bb))
-	move_bb_info (pred_bb, bb);
+      gcc_assert (note_bb);
+      move_bb_info (note_bb, bb);
       remove_empty_bb (bb, true);
     }
 
@@ -5231,10 +5258,9 @@ sel_remove_bb (basic_block bb, bool remove_from_cfg_p)
 static void
 move_bb_info (basic_block merge_bb, basic_block empty_bb)
 {
-  gcc_assert (in_current_region_p (merge_bb));
-
-  concat_note_lists (BB_NOTE_LIST (empty_bb),
-		     &BB_NOTE_LIST (merge_bb));
+  if (in_current_region_p (merge_bb))
+    concat_note_lists (BB_NOTE_LIST (empty_bb),
+		       &BB_NOTE_LIST (merge_bb));
   BB_NOTE_LIST (empty_bb) = NULL_RTX;
 
 }

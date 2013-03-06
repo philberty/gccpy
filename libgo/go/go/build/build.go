@@ -68,7 +68,7 @@ type Context struct {
 
 	// ReadDir returns a slice of os.FileInfo, sorted by Name,
 	// describing the content of the named directory.
-	// If ReadDir is nil, Import uses io.ReadDir.
+	// If ReadDir is nil, Import uses ioutil.ReadDir.
 	ReadDir func(dir string) (fi []os.FileInfo, err error)
 
 	// OpenFile opens a file (not a directory) for reading.
@@ -339,7 +339,7 @@ func (e *NoGoError) Error() string {
 //	- files starting with _ or . (likely editor temporary files)
 //	- files with build constraints not satisfied by the context
 //
-// If an error occurs, Import returns a non-nil error also returns a non-nil
+// If an error occurs, Import returns a non-nil error and a non-nil
 // *Package containing partial information.
 //
 func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) (*Package, error) {
@@ -536,7 +536,7 @@ Found:
 			return p, err
 		}
 
-		pkg := string(pf.Name.Name)
+		pkg := pf.Name.Name
 		if pkg == "documentation" {
 			continue
 		}
@@ -570,7 +570,7 @@ Found:
 				if !ok {
 					continue
 				}
-				quoted := string(spec.Path.Value)
+				quoted := spec.Path.Value
 				path, err := strconv.Unquote(quoted)
 				if err != nil {
 					log.Panicf("%s: parser returned invalid quoted string: <%s>", filename, quoted)
@@ -678,7 +678,7 @@ func (ctxt *Context) shouldBuild(content []byte) bool {
 		}
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 { // Blank line
-			end = cap(content) - cap(line) // &line[0] - &content[0]
+			end = len(content) - len(p)
 			continue
 		}
 		if !bytes.HasPrefix(line, slashslash) { // Not comment line

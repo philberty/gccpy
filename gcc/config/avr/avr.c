@@ -80,29 +80,18 @@
 
 /* Known address spaces.  The order must be the same as in the respective
    enum from avr.h (or designated initialized must be used).  */
-const avr_addrspace_t avr_addrspace[] =
+const avr_addrspace_t avr_addrspace[ADDR_SPACE_COUNT] =
 {
-    { ADDR_SPACE_RAM,  0, 2, ""     ,   0 },
-    { ADDR_SPACE_FLASH,  1, 2, "__flash",   0 },
-    { ADDR_SPACE_FLASH1, 1, 2, "__flash1",  1 },
-    { ADDR_SPACE_FLASH2, 1, 2, "__flash2",  2 },
-    { ADDR_SPACE_FLASH3, 1, 2, "__flash3",  3 },
-    { ADDR_SPACE_FLASH4, 1, 2, "__flash4",  4 },
-    { ADDR_SPACE_FLASH5, 1, 2, "__flash5",  5 },
-    { ADDR_SPACE_MEMX, 1, 3, "__memx",  0 },
-    { 0              , 0, 0, NULL,      0 }
+  { ADDR_SPACE_RAM,  0, 2, "", 0, NULL },
+  { ADDR_SPACE_FLASH,  1, 2, "__flash",   0, ".progmem.data" },
+  { ADDR_SPACE_FLASH1, 1, 2, "__flash1",  1, ".progmem1.data" },
+  { ADDR_SPACE_FLASH2, 1, 2, "__flash2",  2, ".progmem2.data" },
+  { ADDR_SPACE_FLASH3, 1, 2, "__flash3",  3, ".progmem3.data" },
+  { ADDR_SPACE_FLASH4, 1, 2, "__flash4",  4, ".progmem4.data" },
+  { ADDR_SPACE_FLASH5, 1, 2, "__flash5",  5, ".progmem5.data" },
+  { ADDR_SPACE_MEMX, 1, 3, "__memx",  0, ".progmemx.data" },
 };
 
-/* Map 64-k Flash segment to section prefix.  */
-static const char* const progmem_section_prefix[6] =
-  {
-    ".progmem.data",
-    ".progmem1.data",
-    ".progmem2.data",
-    ".progmem3.data",
-    ".progmem4.data",
-    ".progmem5.data"
-  };
 
 /* Holding RAM addresses of some SFRs used by the compiler and that
    are unique over all devices in an architecture like 'avr4'.  */
@@ -138,12 +127,6 @@ static const char* out_movqi_mr_r (rtx, rtx[], int*);
 static const char* out_movhi_mr_r (rtx, rtx[], int*);
 static const char* out_movsi_mr_r (rtx, rtx[], int*);
 
-static int avr_naked_function_p (tree);
-static int interrupt_function_p (tree);
-static int signal_function_p (tree);
-static int avr_OS_task_function_p (tree);
-static int avr_OS_main_function_p (tree);
-static int avr_regs_to_save (HARD_REG_SET *);
 static int get_sequence_length (rtx insns);
 static int sequent_regs_live (void);
 static const char *ptrreg_to_str (int);
@@ -214,8 +197,9 @@ const struct mcu_type_s *avr_current_device;
 static GTY(()) section *progmem_swtable_section;
 
 /* Unnamed sections associated to __attribute__((progmem)) aka. PROGMEM
-   or to address space __flash*.  */
-static GTY(()) section *progmem_section[6];
+   or to address space __flash* or __memx.  Only used as singletons inside
+   avr_asm_select_section, but it must not be local there because of GTY.  */
+static GTY(()) section *progmem_section[ADDR_SPACE_COUNT];
 
 /* Condition for insns/expanders from avr-dimode.md.  */
 bool avr_have_dimode = true;
@@ -491,7 +475,7 @@ avr_naked_function_p (tree func)
    by the "interrupt" attribute.  */
 
 static int
-interrupt_function_p (tree func)
+avr_interrupt_function_p (tree func)
 {
   return avr_lookup_function_attribute1 (func, "interrupt");
 }
@@ -500,7 +484,7 @@ interrupt_function_p (tree func)
    by the "signal" attribute.  */
 
 static int
-signal_function_p (tree func)
+avr_signal_function_p (tree func)
 {
   return avr_lookup_function_attribute1 (func, "signal");
 }
@@ -519,6 +503,80 @@ static int
 avr_OS_main_function_p (tree func)
 {
   return avr_lookup_function_attribute1 (func, "OS_main");
+}
+
+
+/* Implement `TARGET_SET_CURRENT_FUNCTION'.  */
+/* Sanity cheching for above function attributes.  */
+
+static void
+avr_set_current_function (tree decl)
+{
+  location_t loc;
+  const char *isr;
+
+  if (decl == NULL_TREE
+      || current_function_decl == NULL_TREE
+      || current_function_decl == error_mark_node
+      || cfun->machine->attributes_checked_p)
+    return;
+
+  loc = DECL_SOURCE_LOCATION (decl);
+
+  cfun->machine->is_naked = avr_naked_function_p (decl);
+  cfun->machine->is_signal = avr_signal_function_p (decl);
+  cfun->machine->is_interrupt = avr_interrupt_function_p (decl);
+  cfun->machine->is_OS_task = avr_OS_task_function_p (decl);
+  cfun->machine->is_OS_main = avr_OS_main_function_p (decl);
+
+  isr = cfun->machine->is_interrupt ? "interrupt" : "signal";
+
+  /* Too much attributes make no sense as they request conflicting features. */
+
+  if (cfun->machine->is_OS_task + cfun->machine->is_OS_main
+      + (cfun->machine->is_signal || cfun->machine->is_interrupt) > 1)
+    error_at (loc, "function attributes %qs, %qs and %qs are mutually"
+               " exclusive", "OS_task", "OS_main", isr);
+
+  /* 'naked' will hide effects of 'OS_task' and 'OS_main'.  */
+
+  if (cfun->machine->is_naked
+      && (cfun->machine->is_OS_task || cfun->machine->is_OS_main))
+    warning_at (loc, OPT_Wattributes, "function attributes %qs and %qs have"
+                " no effect on %qs function", "OS_task", "OS_main", "naked");
+
+  if (cfun->machine->is_interrupt || cfun->machine->is_signal)
+    {
+      tree args = TYPE_ARG_TYPES (TREE_TYPE (decl));
+      tree ret = TREE_TYPE (TREE_TYPE (decl));
+      const char *name = IDENTIFIER_POINTER (DECL_NAME (decl));
+      
+      /* Silently ignore 'signal' if 'interrupt' is present.  AVR-LibC startet
+         using this when it switched from SIGNAL and INTERRUPT to ISR.  */
+
+      if (cfun->machine->is_interrupt)
+        cfun->machine->is_signal = 0;
+
+      /* Interrupt handlers must be  void __vector (void)  functions.  */
+
+      if (args && TREE_CODE (TREE_VALUE (args)) != VOID_TYPE)
+        error_at (loc, "%qs function cannot have arguments", isr);
+
+      if (TREE_CODE (ret) != VOID_TYPE)
+        error_at (loc, "%qs function cannot return a value", isr);
+
+      /* If the function has the 'signal' or 'interrupt' attribute, ensure
+         that the name of the function is "__vector_NN" so as to catch
+         when the user misspells the vector name.  */
+
+      if (!STR_PREFIX_P (name, "__vector"))
+        warning_at (loc, 0, "%qs appears to be a misspelled %s handler",
+                    name, isr);
+    }
+
+  /* Avoid the above diagnosis to be printed more than once.  */
+  
+  cfun->machine->attributes_checked_p = 1;
 }
 
 
@@ -570,8 +628,7 @@ static int
 avr_regs_to_save (HARD_REG_SET *set)
 {
   int reg, count;
-  int int_or_sig_p = (interrupt_function_p (current_function_decl)
-                      || signal_function_p (current_function_decl));
+  int int_or_sig_p = cfun->machine->is_interrupt || cfun->machine->is_signal;
 
   if (set)
     CLEAR_HARD_REG_SET (*set);
@@ -606,6 +663,16 @@ avr_regs_to_save (HARD_REG_SET *set)
     }
   return count;
 }
+
+
+/* Implement `TARGET_ALLOCATE_STACK_SLOTS_FOR_ARGS' */
+
+static bool
+avr_allocate_stack_slots_for_args (void)
+{
+  return !cfun->machine->is_naked;
+}
+
 
 /* Return true if register FROM can be eliminated via register TO.  */
 
@@ -683,9 +750,9 @@ avr_simple_epilogue (void)
           && get_frame_size () == 0
           && avr_outgoing_args_size() == 0
           && avr_regs_to_save (NULL) == 0
-          && ! interrupt_function_p (current_function_decl)
-          && ! signal_function_p (current_function_decl)
-          && ! avr_naked_function_p (current_function_decl)
+          && ! cfun->machine->is_interrupt
+          && ! cfun->machine->is_signal
+          && ! cfun->machine->is_naked
           && ! TREE_THIS_VOLATILE (current_function_decl));
 }
 
@@ -1090,12 +1157,6 @@ expand_prologue (void)
 
   size = get_frame_size() + avr_outgoing_args_size();
   
-  /* Init cfun->machine.  */
-  cfun->machine->is_naked = avr_naked_function_p (current_function_decl);
-  cfun->machine->is_interrupt = interrupt_function_p (current_function_decl);
-  cfun->machine->is_signal = signal_function_p (current_function_decl);
-  cfun->machine->is_OS_task = avr_OS_task_function_p (current_function_decl);
-  cfun->machine->is_OS_main = avr_OS_main_function_p (current_function_decl);
   cfun->machine->stack_usage = 0;
   
   /* Prologue: naked.  */
@@ -2452,17 +2513,17 @@ avr_function_ok_for_sibcall (tree decl_callee, tree exp_callee)
 
   /* Ensure that caller and callee have compatible epilogues */
   
-  if (interrupt_function_p (current_function_decl)
-      || signal_function_p (current_function_decl)
+  if (cfun->machine->is_interrupt
+      || cfun->machine->is_signal
+      || cfun->machine->is_naked
       || avr_naked_function_p (decl_callee)
-      || avr_naked_function_p (current_function_decl)
       /* FIXME: For OS_task and OS_main, we are over-conservative.
          This is due to missing documentation of these attributes
          and what they actually should do and should not do. */
       || (avr_OS_task_function_p (decl_callee)
-          != avr_OS_task_function_p (current_function_decl))
+          != cfun->machine->is_OS_task)
       || (avr_OS_main_function_p (decl_callee)
-          != avr_OS_main_function_p (current_function_decl)))
+          != cfun->machine->is_OS_main))
     {
       return false;
     }
@@ -6650,40 +6711,6 @@ avr_assemble_integer (rtx x, unsigned int size, int aligned_p)
 }
 
 
-/* Worker function for ASM_DECLARE_FUNCTION_NAME.  */
-
-void
-avr_asm_declare_function_name (FILE *file, const char *name, tree decl)
-{
-
-  /* If the function has the 'signal' or 'interrupt' attribute, test to
-     make sure that the name of the function is "__vector_NN" so as to
-     catch when the user misspells the interrupt vector name.  */
-
-  if (cfun->machine->is_interrupt)
-    {
-      if (!STR_PREFIX_P (name, "__vector"))
-        {
-          warning_at (DECL_SOURCE_LOCATION (decl), 0,
-                      "%qs appears to be a misspelled interrupt handler",
-                      name);
-        }
-    }
-  else if (cfun->machine->is_signal)
-    {
-      if (!STR_PREFIX_P (name, "__vector"))
-        {
-           warning_at (DECL_SOURCE_LOCATION (decl), 0,
-                       "%qs appears to be a misspelled signal handler",
-                       name);
-        }
-    }
-
-  ASM_OUTPUT_TYPE_DIRECTIVE (file, name, "function");
-  ASM_OUTPUT_LABEL (file, name);
-}
-
-
 /* Return value is nonzero if pseudos that have been
    assigned to registers of class CLASS would likely be spilled
    because registers of CLASS are needed for spill registers.  */
@@ -6941,9 +6968,6 @@ avr_pgm_check_var_decl (tree node)
 
   if (reason)
     {
-      avr_edump ("%?: %s, %d, %d\n",
-                 avr_addrspace[as].name,
-                 avr_addrspace[as].segment, avr_current_device->n_flash);
       if (avr_addrspace[as].segment >= avr_current_device->n_flash)
         {
           if (TYPE_P (node))
@@ -7086,8 +7110,6 @@ avr_output_progmem_section_asm_op (const void *data)
 static void
 avr_asm_init_sections (void)
 {
-  unsigned int n;
-  
   /* Set up a section for jump tables.  Alignment is handled by
      ASM_OUTPUT_BEFORE_CASE_LABEL.  */
   
@@ -7106,13 +7128,6 @@ avr_asm_init_sections (void)
                                ",\"ax\",@progbits");
     }
 
-  for (n = 0; n < sizeof (progmem_section) / sizeof (*progmem_section); n++)
-    {
-      progmem_section[n]
-        = get_unnamed_section (0, avr_output_progmem_section_asm_op,
-                               progmem_section_prefix[n]);
-    }
-  
   /* Override section callbacks to keep track of `avr_need_clear_bss_p'
      resp. `avr_need_copy_data_p'.  */
   
@@ -7190,10 +7205,9 @@ avr_asm_named_section (const char *name, unsigned int flags, tree decl)
   if (flags & AVR_SECTION_PROGMEM)
     {
       addr_space_t as = (flags & AVR_SECTION_PROGMEM) / SECTION_MACH_DEP;
-      int segment = avr_addrspace[as].segment;
       const char *old_prefix = ".rodata";
-      const char *new_prefix = progmem_section_prefix[segment];
-      
+      const char *new_prefix = avr_addrspace[as].section_name;
+
       if (STR_PREFIX_P (name, old_prefix))
         {
           const char *sname = ACONCAT ((new_prefix,
@@ -7305,13 +7319,18 @@ avr_asm_select_section (tree decl, int reloc, unsigned HOST_WIDE_INT align)
       && avr_progmem_p (decl, DECL_ATTRIBUTES (decl)))
     {
       addr_space_t as = TYPE_ADDR_SPACE (TREE_TYPE (decl));
-      int segment = avr_addrspace[as].segment;
+
+      /* __progmem__ goes in generic space but shall be allocated to
+         .progmem.data  */
+
+      if (ADDR_SPACE_GENERIC_P (as))
+        as = ADDR_SPACE_FLASH;
       
       if (sect->common.flags & SECTION_NAMED)
         {
           const char * name = sect->named.name;
           const char * old_prefix = ".rodata";
-          const char * new_prefix = progmem_section_prefix[segment];
+          const char * new_prefix = avr_addrspace[as].section_name;
 
           if (STR_PREFIX_P (name, old_prefix))
             {
@@ -7320,8 +7339,15 @@ avr_asm_select_section (tree decl, int reloc, unsigned HOST_WIDE_INT align)
               return get_section (sname, sect->common.flags, sect->named.decl);
             }
         }
-          
-      return progmem_section[segment];
+
+      if (!progmem_section[as])
+        {
+          progmem_section[as]
+            = get_unnamed_section (0, avr_output_progmem_section_asm_op,
+                                   avr_addrspace[as].section_name);
+        }
+
+      return progmem_section[as];
     }
 
   return sect;
@@ -8863,6 +8889,28 @@ avr_hard_regno_mode_ok (int regno, enum machine_mode mode)
 }
 
 
+/* Implement `HARD_REGNO_CALL_PART_CLOBBERED'.  */
+
+int
+avr_hard_regno_call_part_clobbered (unsigned regno, enum machine_mode mode)
+{
+  /* FIXME: This hook gets called with MODE:REGNO combinations that don't
+        represent valid hard registers like, e.g. HI:29.  Returning TRUE
+        for such registers can lead to performance degradation as mentioned
+        in PR53595.  Thus, report invalid hard registers as FALSE.  */
+  
+  if (!avr_hard_regno_mode_ok (regno, mode))
+    return 0;
+  
+  /* Return true if any of the following boundaries is crossed:
+     17/18, 27/28 and 29/30.  */
+  
+  return ((regno < 18 && regno + GET_MODE_SIZE (mode) > 18)
+          || (regno < REG_Y && regno + GET_MODE_SIZE (mode) > REG_Y)
+          || (regno < REG_Z && regno + GET_MODE_SIZE (mode) > REG_Z));
+}
+
+
 /* Implement `MODE_CODE_BASE_REG_CLASS'.  */
 
 enum reg_class
@@ -9867,7 +9915,7 @@ avr_mem_clobber (void)
 static void
 avr_expand_delay_cycles (rtx operands0)
 {
-  unsigned HOST_WIDE_INT cycles = UINTVAL (operands0);
+  unsigned HOST_WIDE_INT cycles = UINTVAL (operands0) & GET_MODE_MASK (SImode);
   unsigned HOST_WIDE_INT cycles_used;
   unsigned HOST_WIDE_INT loop_count;
   
@@ -10859,6 +10907,9 @@ avr_fold_builtin (tree fndecl, int n_args ATTRIBUTE_UNUSED, tree *arg,
 #undef  TARGET_FUNCTION_ARG_ADVANCE
 #define TARGET_FUNCTION_ARG_ADVANCE avr_function_arg_advance
 
+#undef  TARGET_SET_CURRENT_FUNCTION
+#define TARGET_SET_CURRENT_FUNCTION avr_set_current_function
+
 #undef  TARGET_RETURN_IN_MEMORY
 #define TARGET_RETURN_IN_MEMORY avr_return_in_memory
 
@@ -10877,6 +10928,9 @@ avr_fold_builtin (tree fndecl, int n_args ATTRIBUTE_UNUSED, tree *arg,
 #define TARGET_FRAME_POINTER_REQUIRED avr_frame_pointer_required_p
 #undef  TARGET_CAN_ELIMINATE
 #define TARGET_CAN_ELIMINATE avr_can_eliminate
+
+#undef  TARGET_ALLOCATE_STACK_SLOTS_FOR_ARGS
+#define TARGET_ALLOCATE_STACK_SLOTS_FOR_ARGS avr_allocate_stack_slots_for_args
 
 #undef  TARGET_CLASS_LIKELY_SPILLED_P
 #define TARGET_CLASS_LIKELY_SPILLED_P avr_class_likely_spilled_p

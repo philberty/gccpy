@@ -72,7 +72,7 @@
          UNSPEC_CMPXCHG))]
   ""
   "cmpexch<four_if_si>\t%0, %1, %r2"
-  [(set_attr "type" "X1_L2")])
+  [(set_attr "type" "X1_remote")])
 
 
 (define_expand "atomic_exchange<mode>"
@@ -101,7 +101,7 @@
 	 UNSPEC_XCHG))]
   ""
   "exch<four_if_si>\t%0, %1, %r2"
-  [(set_attr "type" "X1_2cycle")])
+  [(set_attr "type" "X1_remote")])
 
 
 (define_expand "atomic_fetch_<fetchop_name><mode>"
@@ -121,7 +121,7 @@
   emit_insn (gen_atomic_fetch_<fetchop_name>_bare<mode> (operands[0],
                                                          operands[1],
                                                          operands[2]));
-  tilegx_pre_atomic_barrier (model);
+  tilegx_post_atomic_barrier (model);
   DONE;
 })
 
@@ -137,7 +137,7 @@
 	   UNSPEC_ATOMIC))]
   ""
   "fetch<fetchop_name><four_if_si>\t%0, %1, %r2"
-  [(set_attr "type" "X1_2cycle")])
+  [(set_attr "type" "X1_remote")])
 
 
 (define_expand "atomic_fetch_sub<mode>"
@@ -160,6 +160,6 @@
   emit_insn (gen_atomic_fetch_add_bare<mode> (operands[0],
                                               operands[1],
                                               operands[2]));
-  tilegx_pre_atomic_barrier (model);
+  tilegx_post_atomic_barrier (model);
   DONE;
 })

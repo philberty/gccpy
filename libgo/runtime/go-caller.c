@@ -36,7 +36,7 @@ static symvalfn_type symvalfn;
    function/file/line information.  */
 
 void RegisterDebugLookup (infofn_type, symvalfn_type)
-  __asm__ ("libgo_runtime.runtime.RegisterDebugLookup");
+  __asm__ ("runtime.RegisterDebugLookup");
 
 void
 RegisterDebugLookup (infofn_type pi, symvalfn_type ps)
@@ -48,7 +48,7 @@ RegisterDebugLookup (infofn_type pi, symvalfn_type ps)
 /* Return function/file/line information for PC.  */
 
 _Bool
-__go_file_line (uintptr_t pc, struct __go_string *fn, struct __go_string *file,
+__go_file_line (uintptr pc, struct __go_string *fn, struct __go_string *file,
 		int *line)
 {
   if (infofn == NULL)
@@ -76,9 +76,9 @@ struct caller_ret
   _Bool ok;
 };
 
-struct caller_ret Caller (int n) asm ("libgo_runtime.runtime.Caller");
+struct caller_ret Caller (int n) asm ("runtime.Caller");
 
-Func *FuncForPC (uintptr_t) asm ("libgo_runtime.runtime.FuncForPC");
+Func *FuncForPC (uintptr_t) asm ("runtime.FuncForPC");
 
 /* Implement runtime.Caller.  */
 
@@ -132,7 +132,7 @@ struct funcline_go_return
 
 struct funcline_go_return
 runtime_funcline_go (Func *f, uintptr targetpc)
-  __asm__ ("libgo_runtime.runtime.funcline_go");
+  __asm__ ("runtime.funcline_go");
 
 struct funcline_go_return
 runtime_funcline_go (Func *f __attribute__((unused)), uintptr targetpc)

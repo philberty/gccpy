@@ -4721,7 +4721,14 @@ expand_builtin_trap (void)
 {
 #ifdef HAVE_trap
   if (HAVE_trap)
-    emit_insn (gen_trap ());
+    {
+      rtx insn = emit_insn (gen_trap ());
+      /* For trap insns when not accumulating outgoing args force
+	 REG_ARGS_SIZE note to prevent crossjumping of calls with
+	 different args sizes.  */
+      if (!ACCUMULATE_OUTGOING_ARGS)
+	add_reg_note (insn, REG_ARGS_SIZE, GEN_INT (stack_pointer_delta));
+    }
   else
 #endif
     emit_library_call (abort_libfunc, LCT_NORETURN, VOIDmode, 0);
@@ -11927,7 +11934,7 @@ fold_builtin_strspn (location_t loc, tree s1, tree s2)
       if (p1 && p2)
 	{
 	  const size_t r = strspn (p1, p2);
-	  return size_int (r);
+	  return build_int_cst (size_type_node, r);
 	}
 
       /* If either argument is "", return NULL_TREE.  */
@@ -11972,7 +11979,7 @@ fold_builtin_strcspn (location_t loc, tree s1, tree s2)
       if (p1 && p2)
 	{
 	  const size_t r = strcspn (p1, p2);
-	  return size_int (r);
+	  return build_int_cst (size_type_node, r);
 	}
 
       /* If the first argument is "", return NULL_TREE.  */

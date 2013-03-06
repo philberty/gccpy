@@ -517,6 +517,10 @@ FPBIT_FUNCS := $(filter-out _sf_to_tf,$(FPBIT_FUNCS))
 DPBIT_FUNCS := $(filter-out _df_to_tf,$(DPBIT_FUNCS))
 endif
 
+FPBIT_FUNCS := $(filter-out $(LIB2FUNCS_EXCLUDE),$(FPBIT_FUNCS))
+DPBIT_FUNCS := $(filter-out $(LIB2FUNCS_EXCLUDE),$(DPBIT_FUNCS))
+TPBIT_FUNCS := $(filter-out $(LIB2FUNCS_EXCLUDE),$(TPBIT_FUNCS))
+
 fpbit-src := $(srcdir)/fp-bit.c
 
 # Build FPBIT.
@@ -914,7 +918,7 @@ libgcc-std.ver: $(srcdir)/libgcc-std.ver.in
 	sed -e 's/__PFX__/$(LIBGCC_VER_GNU_PREFIX)/g' \
 	    -e 's/__FIXPTPFX__/$(LIBGCC_VER_FIXEDPOINT_GNU_PREFIX)/g' < $< > $@
 
-libgcc_s$(SHLIB_EXT): $(libgcc-s-objects) $(extra-parts)
+libgcc_s$(SHLIB_EXT): $(libgcc-s-objects) $(extra-parts) libgcc.a
 	# @multilib_flags@ is still needed because this may use
 	# $(GCC_FOR_TARGET) and $(LIBGCC2_CFLAGS) directly.
 	# @multilib_dir@ is not really necessary, but sometimes it has
@@ -922,7 +926,7 @@ libgcc_s$(SHLIB_EXT): $(libgcc-s-objects) $(extra-parts)
 	$(mkinstalldirs) $(MULTIDIR)
 	$(subst @multilib_flags@,$(CFLAGS) -B./,$(subst \
 		@multilib_dir@,$(MULTIDIR),$(subst \
-		@shlib_objs@,$(objects),$(subst \
+		@shlib_objs@,$(objects) libgcc.a,$(subst \
 		@shlib_base_name@,libgcc_s,$(subst \
 		@shlib_map_file@,$(mapfile),$(subst \
 		@shlib_slibdir_qual@,$(MULTIOSSUBDIR),$(subst \
@@ -1002,13 +1006,25 @@ $(libgcc-objects) $(libgcc-s-objects) $(libgcc-eh-objects) \
 	$(libunwind-objects) $(libunwind-s-objects) \
 	$(EXTRA_PARTS): libgcc_tm.h
 
-install-unwind_h:
+# Copy unwind.h to the place where gcc will look for it at build-time
+install-unwind_h-forbuild:
 	dest=$(gcc_objdir)/include/tmp$$$$-unwind.h; \
 	cp unwind.h $$dest; \
 	chmod a+r $$dest; \
 	sh $(srcdir)/../move-if-change $$dest $(gcc_objdir)/include/unwind.h
 
-all: install-unwind_h
+# Copy unwind.h to the place where gcc will look at run-time, once installed
+#
+# This is redundant with the internal copy above when using a regular toplevel
+# "install" target, because gcc's install will copy to the destination as well.
+#
+# This is however useful for "install-no-fixincludes" case, when only the gcc
+# internal headers are copied by gcc's install.
+install-unwind_h:
+	$(mkinstalldirs) $(DESTDIR)$(libsubdir)/include
+	$(INSTALL_DATA) unwind.h $(DESTDIR)$(libsubdir)/include
+
+all: install-unwind_h-forbuild
 
 # Documentation targets (empty).
 .PHONY: info html dvi pdf install-info install-html install-pdf
@@ -1067,12 +1083,13 @@ install-leaf: $(install-shared) $(install-libunwind)
 	  esac;							\
 	done
 
-install: install-leaf
+install: install-leaf install-unwind_h
 	@: $(MAKE) ; $(MULTIDO) $(FLAGS_TO_PASS) multi-do DO=install
 
 install-strip: install
 
 .PHONY: install install-shared install-libunwind install-strip
+.PHONY: install-unwind_h install-unwind_h-forbuild
 
 # Don't export variables to the environment, in order to not confuse
 # configure.

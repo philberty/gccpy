@@ -128,6 +128,15 @@ enum
 	MaxGcproc = 4,
 };
 
+// Maximum memory allocation size, a hint for callers.
+// This must be a #define instead of an enum because it
+// is so large.
+#if __SIZEOF_POINTER__ == 8
+#define	MaxMem	(16ULL<<30)	/* 16 GB */
+#else
+#define	MaxMem	((uintptr)-1)
+#endif
+
 // A generic linked list of blocks.  (Typically the block is bigger than sizeof(MLink).)
 struct MLink
 {
@@ -237,7 +246,7 @@ struct MStats
 };
 
 extern MStats mstats
-  __asm__ ("libgo_runtime.runtime.VmemStats");
+  __asm__ ("runtime.VmemStats");
 
 
 // Size classes.  Computed and initialized by InitSizes.

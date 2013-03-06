@@ -1822,6 +1822,10 @@ can_combine_p (rtx insn, rtx i3, rtx pred ATTRIBUTE_UNUSED,
   if (set == 0)
     return 0;
 
+  /* The simplification in expand_field_assignment may call back to
+     get_last_value, so set safe guard here.  */
+  subst_low_luid = DF_INSN_LUID (insn);
+
   set = expand_field_assignment (set);
   src = SET_SRC (set), dest = SET_DEST (set);
 
@@ -8432,6 +8436,7 @@ force_to_mode (rtx x, enum machine_mode mode, unsigned HOST_WIDE_INT mask,
 	 in OP_MODE.  */
 
       if (CONST_INT_P (XEXP (x, 1))
+	  && INTVAL (XEXP (x, 1)) >= 0
 	  && INTVAL (XEXP (x, 1)) < HOST_BITS_PER_WIDE_INT
 	  && HWI_COMPUTABLE_MODE_P (op_mode))
 	{
@@ -10295,8 +10300,7 @@ simplify_shift_const_1 (enum rtx_code code, enum machine_mode result_mode,
 	    break;
 
 	  /* Make this fit the case below.  */
-	  varop = gen_rtx_XOR (mode, XEXP (varop, 0),
-			       GEN_INT (GET_MODE_MASK (mode)));
+	  varop = gen_rtx_XOR (mode, XEXP (varop, 0), constm1_rtx);
 	  continue;
 
 	case IOR:
@@ -10796,13 +10800,6 @@ gen_lowpart_for_combine (enum machine_mode omode, rtx x)
   rtx result;
 
   if (omode == imode)
-    return x;
-
-  /* Return identity if this is a CONST or symbolic reference.  */
-  if (omode == Pmode
-      && (GET_CODE (x) == CONST
-	  || GET_CODE (x) == SYMBOL_REF
-	  || GET_CODE (x) == LABEL_REF))
     return x;
 
   /* We can only support MODE being wider than a word if X is a
