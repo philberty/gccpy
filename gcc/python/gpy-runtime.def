@@ -14,20 +14,21 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-autogen definitions py-runtime;
+autogen definitions gpy-runtime;
 
-py-runtime = { code = GPY_RR_extend_globl_stack;
-	       arguments = "tree size";
-	       proto = "tree";
-	       comment = "/* Extends the runtime globl stack by passed size (integer_type_node) */";
-               function_identifier = "gpy_rr_extend_runtime_stack";
+py-runtime = { code = GPY_RR_initRRStack;
+	       arguments = "tree size, tree decl, tree id";
+	       proto = "tree, tree, tree";
+	       comment = "/* Extends shizzle */";
+               function_identifier = "gpy_rr_initRRStack";
                fntype = "void_type_node,
 	                 integer_type_node,
+			 gpy_object_type_ptr_ptr,
+			 gpy_const_char_ptr,
 			 NULL_TREE";
 	       build_call = build_call_expr;
-	       build_call_args = "fndecl, 1, size";
-             };
-
+	       build_call_args = "fndecl, 3, size, decl, id";
+	   };
 py-runtime = { code = GPY_RR_fold_attrib;
 	       arguments = "tree ident, tree addr, tree offset, tree nargs";
 	       proto = "tree, tree, tree, tree";
@@ -103,6 +104,18 @@ py-runtime = { code = GPY_RR_fold_integer;
                          NULL_TREE";
 	       build_call = build_call_expr;
 	       build_call_args = "fndecl, 1, integer";
+             };
+py-runtime = { code = GPY_RR_fold_encList;
+	       arguments = "VEC(tree,gc) * elms";
+	       proto = "VEC(tree,gc) *";
+	       comment = "/* Fold enclosure list via List (1,2,3,...) */";
+               function_identifier = "gpy_rr_fold_encList";
+               fntype = "gpy_object_type_ptr,
+		         integer_type_node,
+			 va_list_type_node,
+                         NULL_TREE";
+	       build_call = build_call_expr_loc_vec;
+	       build_call_args = "BUILTINS_LOCATION, fndecl, elms";
              };
 py-runtime = { code = GPY_RR_incr_ref_count;
 	       arguments = "tree obj";
@@ -186,4 +199,15 @@ py-runtime = { code = GPY_RR_fold_argument;
                          NULL_TREE";
 	       build_call = build_call_expr;
 	       build_call_args = "fndecl, 2, args, offset";
+             };
+py-runtime = { code = GPY_RR_eval_boolean;
+	       arguments = "tree res";
+	       proto = "tree";
+	       comment = "/* Eval result */";
+               function_identifier = "gpy_rr_eval_boolean";
+               fntype = "boolean_type_node,
+	       	      	 gpy_object_type_ptr,
+                         NULL_TREE";
+	       build_call = build_call_expr;
+	       build_call_args = "fndecl, 1, res";
              };

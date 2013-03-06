@@ -22,13 +22,15 @@ along with GCC; see the file COPYING3.  If not see
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-
-#include <gmp.h>
-#include <mpfr.h>
+#include <stdarg.h>
 
 #include <gpython/gpython.h>
 #include <gpython/vectors.h>
 #include <gpython/objects.h>
+#include <gpython/runtime.h>
+
+#include <gmp.h>
+#include <mpfr.h>
 
 #define GPY_ARG_LIT_CHECK(A,I,X)				\
   gpy_assert (A[I]->T == TYPE_OBJECT_LIT);			\
@@ -46,7 +48,7 @@ bool gpy_args_check_fmt (gpy_object_t ** args, const char * fmt)
       switch (*i)
 	{
 	case ',':
-	    break;
+	  break;
 
 	case '.':
 	  break;
@@ -104,7 +106,7 @@ char * gpy_args_lit_parse_string (gpy_object_t * arg)
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
   gpy_assert (arg->o.literal->type == TYPE_STRING);
 
-  retval = arg->o.literal->literal.string;
+  retval = strdup (arg->o.literal->literal.string);
 
   return retval;
 }

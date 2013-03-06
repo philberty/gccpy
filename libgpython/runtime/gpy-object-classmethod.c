@@ -35,15 +35,16 @@ along with GCC; see the file COPYING3.  If not see
 #include <gpython/objects.h>
 #include <gpython/runtime.h>
 
-struct gpy_object_staticmethod_t {
+struct gpy_object_classmethod_t {
   unsigned char * code;
   char * identifier;
   unsigned int nargs;
 };
 
-/* args = code addr/nargs */
-gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
-					    gpy_object_t ** args)
+extern char * gpy_object_classmethod_ident (gpy_object_t *);
+
+gpy_object_t * gpy_object_classmethod_new (gpy_typedef_t * type,
+					   gpy_object_t ** args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
@@ -54,7 +55,7 @@ gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
   unsigned char * code_addr = gpy_args_lit_parse_pointer (args[1]);
   int nargs = gpy_args_lit_parse_int (args[2]);
 
-  struct gpy_object_staticmethod_t * self = gpy_malloc (type->state_size);
+  struct gpy_object_classmethod_t * self = gpy_malloc (type->state_size);
   self->identifier = id;
   self->code = code_addr;
   self->nargs = nargs;
@@ -65,7 +66,7 @@ gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
 }
 
 /* free's the object state not the */
-void gpy_object_staticmethod_dealloc (gpy_object_t * self)
+void gpy_object_classmethod_dealloc (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
   gpy_object_state_t * object_state = self->o.object_state;
@@ -74,62 +75,53 @@ void gpy_object_staticmethod_dealloc (gpy_object_t * self)
   object_state->state = NULL;
 }
 
-void gpy_object_staticmethod_print (gpy_object_t * self, FILE *fd, bool newline)
+void gpy_object_classmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 {
-  fprintf (fd, "static method instance <%p> ", (void *)self);
+  gpy_object_state_t * object_state = self->o.object_state;
+
+  fprintf (fd, "bound method %s @ <%p> ",
+	   gpy_object_classmethod_ident (self),
+	   (void *)self);
   if (newline)
     fprintf (fd, "\n");
 }
 
 #ifdef USE_LIBFFI
 
-gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
-					     gpy_object_t ** arguments)
+gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
+					    gpy_object_t ** arguments)
 {
   gpy_object_t * retval = NULL_OBJECT;
   gpy_assert (self->T == TYPE_OBJECT_DECL);
 
-  unsigned char * code = gpy_object_staticmethod_getaddr (self);
-  int nargs = gpy_object_staticmethod_nparms (self);
+  unsigned char * code = gpy_object_classmethod_getaddr (self);
+  int nargs = gpy_object_classmethod_nparms (self);
   if (code)
     {
-      if (nargs > 0)
+      gpy_assert (nargs > 0);
+
+      ffi_cif cif;
+      ffi_type *args[nargs];
+      void *values[nargs];
+
+      int idx;
+      for (idx = 0; idx < nargs; ++idx)
 	{
-	  ffi_cif cif;
-	  ffi_type *args[nargs];
-	  void *values[nargs];
-
-	  int idx;
-	  for (idx = 0; idx < nargs; ++idx)
-	    {
-	      args[idx] = &ffi_type_pointer;
-	      values[idx] = (void *)(arguments + idx);
-	    }
-	  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
-				    &ffi_type_void, args)
-		      == FFI_OK);
-	  ffi_call (&cif, (void (*)(void))code, NULL, values);
+	  args[idx] = &ffi_type_pointer;
+	  values[idx] = (void *)(arguments + idx);
 	}
-      else
-	{
-	  ffi_cif cif;
-	  ffi_type *args[1];
-
-	  args[0] = &ffi_type_void;
-
-	  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, 0,
-		       &ffi_type_void, args)
-		      == FFI_OK);
-	  ffi_call (&cif, (void (*)(void))code, NULL, NULL);
-	}
+      gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
+				&ffi_type_void, args)
+		  == FFI_OK);
+      ffi_call (&cif, (void (*)(void))code, NULL, values);
     }
   return retval;
 }
 
 #else /* !defined(USE_LIBFFI) */
 
-gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
-					     gpy_object_t ** args)
+gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
+					    gpy_object_t ** args)
 {
   fatal ("no libffi support!\n");
   return NULL;
@@ -137,33 +129,41 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
 
 #endif /* !defined(USE_LIBFFI) */
 
-int gpy_object_staticmethod_nparms (gpy_object_t * self)
+unsigned char * gpy_object_classmethod_getaddr (gpy_object_t * self)
 {
   gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_staticmethod_t * s = state->state;
-  return s->nargs;
-}
-
-unsigned char * gpy_object_staticmethod_getaddr (gpy_object_t * self)
-{
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_staticmethod_t * s = state->state;
+  struct gpy_object_classmethod_t * s = state->state;
   return s->code;
 }
 
-static struct gpy_typedef_t functor_obj = {
-  "staticmethod",
-  sizeof (struct gpy_object_staticmethod_t),
-  &gpy_object_staticmethod_new,
-  &gpy_object_staticmethod_dealloc,
-  &gpy_object_staticmethod_print,
-  &gpy_object_staticmethod_call,
-  &gpy_object_staticmethod_nparms,
+int gpy_object_classmethod_nparms (gpy_object_t * self)
+{
+  gpy_object_state_t * state = self->o.object_state;
+  struct gpy_object_classmethod_t * s = state->state;
+  return s->nargs;
+}
+
+char * gpy_object_classmethod_ident (gpy_object_t * self)
+{
+  gpy_object_state_t * state = self->o.object_state;
+  struct gpy_object_classmethod_t * s = state->state;
+  return s->identifier;
+}
+
+static struct gpy_typedef_t class_functor_obj = {
+  "classmethod",
+  sizeof (struct gpy_object_classmethod_t),
+  &gpy_object_classmethod_new,
+  &gpy_object_classmethod_dealloc,
+  &gpy_object_classmethod_print,
+  &gpy_object_classmethod_call,
+  &gpy_object_classmethod_nparms,
+  NULL,
   NULL,
   NULL
 };
 
-void gpy_obj_staticmethod_mod_init (gpy_vector_t * const vec)
+void gpy_obj_classmethod_mod_init (gpy_vector_t * const vec)
 {
-  gpy_vec_push (vec, &functor_obj);
+  gpy_vec_push (vec, &class_functor_obj);
 }

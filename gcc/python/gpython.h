@@ -17,7 +17,39 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef __GCC_GPYTHON_H__
 #define __GCC_GPYTHON_H__
 
-extern bool GPY_OPT_dump_dot;
+#include "config.h"
+#include "system.h"
+#include "ansidecl.h"
+#include "coretypes.h"
+#include "tm.h"
+#include "opts.h"
+#include "tree.h"
+#include "tree-iterator.h"
+#include "tree-pass.h"
+#include "gimple.h"
+#include "toplev.h"
+#include "debug.h"
+#include "options.h"
+#include "flags.h"
+#include "convert.h"
+#include "diagnostic-core.h"
+#include "langhooks.h"
+#include "langhooks-def.h"
+#include "target.h"
+#include "cgraph.h"
+
+#include <gmp.h>
+#include <mpfr.h>
+#include "vec.h"
+#include "hashtab.h"
+
+/* gccpy headers needed ... */
+#include "dot-dot.h"
+#include "dot-hashtab.h"
+#include "dot-tree.h"
+#include "gpy-runtime.h"
+
+extern bool GPY_dump_dot;
 extern char * GPY_current_module_name;
 
 #if !defined(YYLTYPE)
@@ -29,18 +61,18 @@ typedef gpy_location_t YYLTYPE;
 #define YYLTYPE YYLTYPE
 #endif
 
+/* important langhook prototypes */
 extern void gpy_set_prefix (const char *);
 extern void gpy_preserve_from_gc (tree);
 extern void gpy_add_search_path (const char *);
 extern void gpy_parse_input_files (const char **, unsigned int);
-
 extern tree gpy_type_for_size (unsigned int, int);
 extern tree gpy_type_for_mode (enum machine_mode, int);
 
-extern int gpy_lex_parse (const char *);
-extern void __gpy_debug__ (const char *, unsigned int,
-			   const char *, ...)
+extern int gpy_do_compile (const char *);
+extern void __gpy_debug__ (const char *, unsigned int, const char *, ...)
   __attribute__ ((format (printf, 3, 4)));
+
 #define debug(...)					\
   __gpy_debug__(__FILE__, __LINE__, __VA_ARGS__);
 

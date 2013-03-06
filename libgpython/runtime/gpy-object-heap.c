@@ -22,15 +22,16 @@ along with GCC; see the file COPYING3.  If not see
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-
-#include <gmp.h>
-#include <mpfr.h>
+#include <stdarg.h>
 
 #include <gpython/gpython.h>
 #include <gpython/vectors.h>
 #include <gpython/objects.h>
+#include <gpython/runtime.h>
 
-void gpy_obj_lists_mod_init (gpy_vector_t * const vec)
+// TODO...
+
+gpy_object_t * gpy_object_HeapAlloc (size_t size)
 {
-  return;
+  return NULL;
 }

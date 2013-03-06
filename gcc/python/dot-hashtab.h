@@ -14,8 +14,8 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>. */
 
-#ifndef __PY_VEC_H__
-#define __PY_VEC_H__
+#ifndef __DOT_HASHTAB_H__
+#define __DOT_HASHTAB_H__
 
 typedef unsigned long gpy_hashval_t;
 typedef struct gpy_hash_entry {
@@ -32,9 +32,10 @@ typedef struct gpy_symbol_t {
   tree offset, field, type;
 } gpy_symbol_t;
 
-typedef gpy_hash_tab_t * gpy_context_t;
-DEF_VEC_P (gpy_context_t);
-DEF_VEC_ALLOC_P (gpy_context_t, gc);
+typedef gpy_hash_tab_t * dot_context;
+DEF_VEC_P (dot_context);
+DEF_VEC_ALLOC_P (dot_context, gc);
+typedef VEC(dot_context,gc) * dot_context_t;
 
 extern gpy_hashval_t gpy_dd_hash_string (const char *);
 extern gpy_hash_entry_t * gpy_dd_hash_lookup_table (gpy_hash_tab_t *, gpy_hashval_t);
@@ -43,4 +44,4 @@ extern void ** gpy_dd_hash_insert (gpy_hashval_t, void *, gpy_hash_tab_t *);
 extern void gpy_dd_hash_grow_table (gpy_hash_tab_t *);
 extern void gpy_dd_hash_init_table (gpy_hash_tab_t *);
 
-#endif /*__PY_VEC_H__*/
+#endif /*__DOT_HASHTAB_H__*/

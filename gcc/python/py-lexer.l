@@ -15,36 +15,14 @@
      along with GCC; see the file COPYING3.  If not see
      <http://www.gnu.org/licenses/>.  */
 
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "opts.h"
-#include "tree.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-
-#include <gmp.h>
-#include <mpfr.h>
-
-#include "vec.h"
-#include "hashtab.h"
-
 #include "gpython.h"
-#include "py-il-dot.h"
-#include "py-il-tree.h"
-#include "py-vec.h"
-
 #include "y.py.h"
 
+  /* ************************** */
+  /* Thanks to Andi Hellmund for his work to do this Lexer and Parser! */
+  /* ************************** */
+
+  /* */
   extern int yyparse (void);
   int lang_token_action (char *yytext);
 
@@ -76,7 +54,7 @@
   static unsigned int token_count = 0;
 
   /* maybe_dedent is true if we must potentially generate dedent tokens
-   * in lang_token_action. This is per default true once we start a 
+   * in lang_token_action. This is per default true once we start a
    * new line because we might directly see a token without any whitespaces
    * so that we must generate DEDENT tokens.
    *
@@ -103,7 +81,7 @@
 
   /* The LANG_TOKEN_ACTION macro allows us to define common actions associated
    * with each real language tokens (really returned to the parser) before
-   * the token is really returned. 
+   * the token is really returned.
    *
    * This MUST NOT be used for tokens which aren't passed to the parser, though
    * ignored by the scanner.
@@ -115,12 +93,13 @@
       int tk = lang_token_action (yytext);	\
       if (tk != NO_TOKEN)			\
 	return tk;				\
-    } while (0);                                                
+    } while (0);
 
 #define UNPUT_TOKEN() yyless(0)
 
 %}
 
+%option noyywrap
 %option yylineno
 %x xLINE_CONT xINDENTATION
 
@@ -128,7 +107,7 @@ DIGIT        [0-9]
 ID           [_a-zA-Z][a-zA_Z0-9_$]*
 QSTRING      \"[^\"\n]*[\"\n]
 NEWLINES     (\r\n|\r|\n)
-FORMFEED     [\f] 
+FORMFEED     [\f]
 WHITESPACE   [ \t]
 
 %%
@@ -168,10 +147,10 @@ elif                    { LANG_TOKEN_ACTION; return ELIF; }
 else                    { LANG_TOKEN_ACTION; return ELSE; }
 
 \[                      { LANG_TOKEN_ACTION; implicit_lining++; return '['; }
-\]                      { LANG_TOKEN_ACTION; implicit_lining++; return ']'; }
+\]                      { LANG_TOKEN_ACTION; implicit_lining--; return ']'; }
 \(                      { LANG_TOKEN_ACTION; implicit_lining++; return '('; }
 \)                      { LANG_TOKEN_ACTION; implicit_lining--; return ')'; }
-\{                      { LANG_TOKEN_ACTION; implicit_lining--; return '{'; }
+\{                      { LANG_TOKEN_ACTION; implicit_lining++; return '{'; }
 \}                      { LANG_TOKEN_ACTION; implicit_lining--; return '}'; }
 
 ";"                     { LANG_TOKEN_ACTION; return ';'; }
@@ -237,7 +216,7 @@ else                    { LANG_TOKEN_ACTION; return ELSE; }
   BEGIN xLINE_CONT;
 }
 
-<xLINE_CONT>{NEWLINES}  { 
+<xLINE_CONT>{NEWLINES}  {
   BEGIN INITIAL;
  }
 
@@ -256,7 +235,7 @@ else                    { LANG_TOKEN_ACTION; return ELSE; }
 
       token_count = 0;
 
-      /*fprintf(stdout, "DEBUG: NEWLINE\n");*/
+      /* fprintf(stdout, "DEBUG: NEWLINE\n"); */
       return NEWLINE;
     }
 }
@@ -288,24 +267,18 @@ else                    { LANG_TOKEN_ACTION; return ELSE; }
 <<EOF>>                 {
   if( top_len != 0 )
     {
-      printf ("DEDENT EOF!\n");
       VEC_pop( gpy_int, gpy_indent_stack );
       top_len = VEC_index( gpy_int, gpy_indent_stack,
 			   VEC_length( gpy_int, gpy_indent_stack )-1 );
       return DEDENT;
     }
   else
-    return 0; 
+    return 0;
   }
 
 %%
 
-int yywrap (void)
-{
-  return 1;
-}
-
-int gpy_lex_parse (const char * in)
+int gpy_do_compile (const char * in)
 {
   VEC_safe_push (gpy_int, gc, gpy_indent_stack, 0);
   top_len = 0;
@@ -330,10 +303,7 @@ int gpy_lex_parse (const char * in)
 int lang_token_action (char *yytext)
 {
   if (++token_count > 0)
-    {
-      indentation_mode = false;
-    }
-
+    indentation_mode = false;
   /* fprintf(stdout, "TOKENCOUNT: %d\n", token_count); */
   if (gen_indentation == true)
     {
@@ -344,24 +314,20 @@ int lang_token_action (char *yytext)
               maybe_dedent = true;
               /* unput the space to re-match this rule */
               UNPUT_TOKEN();
+
               // fprintf(stdout, "DEDENT: top(%u) - %u\n", top_len, indentation);
               VEC_pop(gpy_int, gpy_indent_stack);
               top_len = VEC_index( gpy_int, gpy_indent_stack,
 				   VEC_length( gpy_int, gpy_indent_stack )-1 );
-
               gen_indentation = true;
 
               // fprintf(stdout, "DEBUG: DEDENT\n");
               return DEDENT;
 	    }
 	  else if (indentation == top_len)
-	    {
-              maybe_dedent = false;
-	    }
+	    maybe_dedent = false;
 	  else
-	    {
-	      fatal_error("unmatched indentation!\n");
-	    }
+	    fatal_error ("unmatched indentation!\n");
 	}
       else
 	{
@@ -372,12 +338,11 @@ int lang_token_action (char *yytext)
               gen_indentation = false;
 
               UNPUT_TOKEN();
-              fprintf(stdout, "DEBUG: INDENT\n");
+              // fprintf(stdout, "DEBUG: INDENT\n");
               return INDENT;
 	    }
 	}
     }
-
   gen_indentation = false;
   return NO_TOKEN;
 }

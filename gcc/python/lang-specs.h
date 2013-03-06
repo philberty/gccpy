@@ -15,7 +15,5 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 {".py",  "@py", 0, 1, 0},
-{"@py",  "gpy1 %i %(cc1_options) %{!fsyntax-only:%(invoke_as)}",
+{"@py",  "gpy1 %i %(cc1_options) %{I*} %{L*} %D %{!fsyntax-only:%(invoke_as)}",
     0, 1, 0},
-
-

@@ -101,6 +101,7 @@ typedef struct gpy_typedef_t {
   void (*tp_print)(gpy_object_t * , FILE *, bool);
   gpy_object_t * (*tp_call) (gpy_object_t *, gpy_object_t **);
   int (*tp_nparms) (gpy_object_t *);
+  bool (*tp_eval_boolean) (gpy_object_t *);
   struct gpy_number_prot_t * binary_protocol;
   struct gpy_object_attrib_t ** members_defintion;
 } gpy_typedef_t ;

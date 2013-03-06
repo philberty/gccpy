@@ -7799,7 +7799,7 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
     }
   else
     {
-#ifdef ENABLE_GIMPLE_CHECKING
+      //#ifdef ENABLE_GIMPLE_CHECKING
       if (!(fallback & fb_mayfail))
 	{
 	  fprintf (stderr, "gimplification failed:\n");
@@ -7807,7 +7807,7 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 	  debug_tree (*expr_p);
 	  internal_error ("gimplification failed");
 	}
-#endif
+      //#endif
       gcc_assert (fallback & fb_mayfail);
 
       /* If this is an asm statement, and the user asked for the

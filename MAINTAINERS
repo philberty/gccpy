@@ -153,6 +153,8 @@ java			Andrew Haley		aph@redhat.com
 java			Tom Tromey		tromey@redhat.com
 objective-c/c++		Mike Stump		mikestump@comcast.net
 objective-c/c++		Stan Shebs		stanshebs@earthlink.net
+Python                  Philip Herron           redbrain@gcc.gnu.org
+Python                  Andi Hellmund           mail@andihelmund.org
 
 			Various Maintainers
 
@@ -250,6 +252,7 @@ OpenMP			Jakub Jelinek		jakub@redhat.com
 testsuite		Rainer Orth		ro@CeBiTec.Uni-Bielefeld.DE
 testsuite		Mike Stump		mikestump@comcast.net
 register allocation	Vladimir Makarov	vmakarov@redhat.com
+libgpython              Philip Herron           redbrain@gcc.gnu.org
 
 Note that individuals who maintain parts of the compiler need approval to
 check in changes outside of the parts of the compiler they maintain.

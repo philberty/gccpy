@@ -14,46 +14,16 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "tm.h"
-#include "opts.h"
-#include "tree.h"
-#include "tree-iterator.h"
-#include "tree-pass.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-#include "cgraph.h"
-
-#include <gmp.h>
-#include <mpfr.h>
-
-#include "vec.h"
-#include "hashtab.h"
-
 #include "gpython.h"
-#include "py-il-dot.h"
-#include "py-il-tree.h"
-#include "py-vec.h"
 
 static VEC(gpydot,gc) * gpy_decls;
 typedef VEC(gpydot,gc) * (*dot_pass)(VEC(gpydot,gc) *);
-static dot_pass gpy_dot_pass_mngr[] = 
+static dot_pass dot_pass_mngr[] =
 {
-  &gpy_dot_pass_check1,       /* sanity checks */
-  &gpy_dot_pass_const_fold,   /* Constant folding */
-  &gpy_dot_pass_translate,    /* translate/fix the python code for lowering */
-  &gpy_dot_pass_pretty_print, /* pretty print if -fdump-dump-dot */
+  &dot_pass_check1,       /* sanity checks */
+  &dot_pass_const_fold,   /* Constant folding */
+  &dot_pass_translate,    /* translate/fix the python code for lowering */
+  &dot_pass_PrettyPrint, /* pretty print if -fdump-dot */
   /*
     Potential to add in more passes here ... just hook the function pointer in here
     and it shall be called and you gain access to the current state of the dot AST.
@@ -61,39 +31,64 @@ static dot_pass gpy_dot_pass_mngr[] =
   NULL                         /* sentinal */
 };
 
+/* silly helper function... */
+char * dot_pass_concat (const char * s1, const char * s2)
+{
+  size_t s1len = strlen (s1);
+  size_t s2len = strlen (s2);
+  size_t tlen = s1len + s2len;
+
+  char buffer[tlen+3];
+  char * p;
+  for (p = buffer; *s1 != '\0'; ++s1)
+    {
+      *p = *s1;
+      ++p;
+    }
+  *p = '.';
+  p++;
+  for (; *s2 != '\0'; ++s2)
+    {
+      *p = *s2;
+      ++p;
+    }
+  *p = '\0';
+
+  return xstrdup (buffer);
+}
+
 /* Pushes each decl from the parser onto the current translation unit */
-void gpy_dot_pass_manager_process_decl (gpy_dot_tree_t * const dot)
+void dot_pass_manager_ProcessDecl (gpy_dot_tree_t * const dot)
 {
   /* Push the declaration! */
   VEC_safe_push (gpydot, gc, gpy_decls, dot);
 }
 
-/**
- * Things are quite complicated from here on and will change frequently
- * We need to do a 1st pass over the code to generate our module.
- **/
-void gpy_dot_pass_manager_write_globals (void)
+/* Function to run over the pass manager hooks and
+   generate the generic code to pass to gcc middle-end
+ */
+void dot_pass_manager_WriteGlobals (void)
 {
   dot_pass *p = NULL;
   VEC(gpydot,gc) * dot_decls = gpy_decls;
-  
+
   /* walk the passes */
-  for (p = gpy_dot_pass_mngr; *p != NULL; ++p)
+  for (p = dot_pass_mngr; *p != NULL; ++p)
     dot_decls = (*p)(dot_decls);
 
   /* generate the types from the passed decls */
-  VEC(tree,gc) * module_types = gpy_dot_pass_generate_types (dot_decls);
+  VEC(tree,gc) * module_types = dot_pass_GenTypes (dot_decls);
+  dot_pass_pretty_PrintTypes (module_types);
 
   /* lower the decls from DOT -> GENERIC */
-  VEC(tree,gc) * dot2gen_trees = gpy_dot_pass_genericify (module_types, gpy_decls);
+  VEC(tree,gc) * dot2gen_trees = dot_pass_genericify (module_types, dot_decls);
   VEC(tree,gc) * globals = dot2gen_trees;
-  
+
   int global_vec_len = VEC_length (tree, globals);
   tree * global_vec = XNEWVEC (tree, global_vec_len);
   tree itx = NULL_TREE;
   int idx, idy = 0;
-
-  /* 
+  /*
      Lets make sure to dump the Translation Unit this isn't that
      useful to read over but can help to make sure certain tree's
      are being generated...
@@ -105,7 +100,6 @@ void gpy_dot_pass_manager_write_globals (void)
     {
       if (tu_stream)
 	dump_node (itx, 0, tu_stream);
-
       global_vec [idy] = itx;
       idy++;
     }

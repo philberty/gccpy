@@ -14,33 +14,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "opts.h"
-#include "tree.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-
-#include <gmp.h>
-#include <mpfr.h>
-
-#include "vec.h"
-#include "hashtab.h"
-
 #include "gpython.h"
-#include "py-il-dot.h"
-#include "py-il-tree.h"
-#include "py-vec.h"
 
 #define threshold_alloc(x) (((x)+16)*3/2)
 
@@ -88,7 +62,7 @@ void ** gpy_dd_hash_insert (gpy_hashval_t h, void * obj,
   gpy_hash_entry_t * entry = NULL;
   if (tbl->length >= tbl->size)
     gpy_dd_hash_grow_table (tbl);
-  
+
   entry = gpy_dd_hash_lookup_table (tbl, h);
   if (entry->data)
     retval = &(entry->data);

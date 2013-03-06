@@ -13,14 +13,15 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>. */
-#ifndef __GCC_PY_IL_DOT_H_
-#define __GCC_PY_IL_DOT_H__
+
+#ifndef __GCC_PY_DOTIL_H_
+#define __GCC_PY_DOTIL_H__
 
 /* DOT tree codes... */
 typedef enum {
-  D_PRINT_STMT,
+  D_PRINT_STMT = 0,
   D_IDENTIFIER,
-  
+
   D_MODIFY_EXPR,
   D_MULT_EXPR,
   D_DIVD_EXPR,
@@ -30,6 +31,7 @@ typedef enum {
   D_T_INTEGER,
   D_T_FLOAT,
   D_T_STRING,
+  D_T_LIST,
 
   D_CALL_EXPR,
   D_ATTRIB_REF,
@@ -44,7 +46,18 @@ typedef enum {
   D_TD_NULL,
 
   D_PRIMITIVE,
-} opcode_t ; 
+
+  D_STRUCT_IF,
+  D_STRUCT_ELIF,
+  D_STRUCT_ELSE,
+  D_STRUCT_CONDITIONAL,
+
+  D_EQ_EQ_EXPR,
+  D_LESS_EXPR,
+  D_LESS_EQ_EXPR,
+  D_GREATER_EXPR,
+  D_GREATER_EQ_EXPR
+} opcode_t ;
 
 typedef struct GTY(()) gpy_tree_common_dot_t {
   opcode_t T;
@@ -101,14 +114,14 @@ DEF_VEC_ALLOC_P (gpydot,gc);
 extern gpy_dot_tree_t * dot_build_class_decl (gpy_dot_tree_t *, gpy_dot_tree_t *);
 extern gpy_dot_tree_t * dot_build_func_decl (gpy_dot_tree_t *, gpy_dot_tree_t *,
 					     gpy_dot_tree_t *);
+extern gpy_dot_tree_t * dot_build_conditional_struct (gpy_dot_tree_t *, gpy_dot_tree_t *,
+						      gpy_dot_tree_t *);
 
 extern gpy_dot_tree_t * dot_build_decl1 (opcode_t, gpy_dot_tree_t *);
 extern gpy_dot_tree_t * dot_build_decl2 (opcode_t, gpy_dot_tree_t *, gpy_dot_tree_t *);
 
 extern gpy_dot_tree_t * dot_build_integer (int);
 extern gpy_dot_tree_t * dot_build_string (char *);
-extern gpy_dot_tree_t * dot_build_identifier (const char *);
+extern gpy_dot_tree_t * dot_build_identifier (char *);
 
-extern gpy_dot_tree_t * gpy_dot_process_AST_Align (gpy_dot_tree_t **);
-
-#endif /* __GCC_PY_IL_DOT_H_ */
+#endif /* __GCC_PY_DOTIL_H_ */

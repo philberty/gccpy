@@ -14,31 +14,14 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include "gpython.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-#include <stdarg.h>
-
-#include <gpython/gpython.h>
-#include <gpython/vectors.h>
-#include <gpython/objects.h>
-#include <gpython/runtime.h>
-
-typedef void (*gpy_main_start)(void);
-extern unsigned char * __GPY_entry;
-
-int main (int argc, char *argv[])
+/*
+  This pass should pass over the IL at its most basic form
+  stright from the parser and preform sanity checks to make
+  sure everything looks correct before other pass's
+*/
+VEC(gpydot,gc) * dot_pass_check1 (VEC(gpydot,gc) * decls)
 {
-  gpy_rr_init_runtime ();
-
-  gpy_main_start __entry = (gpy_main_start)__GPY_entry;
-  __entry ();
-
-  gpy_rr_cleanup_final ();
-  return 0;
+  return decls;
 }

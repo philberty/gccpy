@@ -19,32 +19,7 @@ along with GCC; see the file COPYING3.  If not see
  * - http://docs.python.org/release/2.5.2/ref/grammar.txt
  */
 
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "opts.h"
-#include "tree.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-#include <gmp.h>
-#include <mpfr.h>
-
-#include "vec.h"
-#include "hashtab.h"
-
 #include "gpython.h"
-#include "py-il-dot.h"
-#include "py-il-tree.h"
-#include "py-vec.h"
 
 #if !defined(YYLLOC_DEFAULT)
 # define YYLLOC_DEFAULT(Current, Rhs, N)                           \
@@ -62,6 +37,8 @@ along with GCC; see the file COPYING3.  If not see
   while (0)
 #endif
 
+#define YYDEBUG 1
+
 static VEC(gpydot,gc) * gpy_symbol_stack;
 extern int yylineno;
 
@@ -73,10 +50,10 @@ extern void yyerror (const char *);
   char * string;
   long int integer;
   gpy_dot_tree_t * symbol;
+  opcode_t opcode;
 }
 
 %debug
-/* Locations will be added later to add debugging information */
 %locations
 
 %error-verbose
@@ -143,26 +120,18 @@ extern void yyerror (const char *);
 %type<symbol> stmt_list
 %type<symbol> simple_stmt
 %type<symbol> expression_stmt
-%type<symbol> assignment_stmt
 %type<symbol> target_list
 %type<symbol> target
-%type<symbol> expression_list
 %type<symbol> funcdef
 %type<symbol> classdef
 %type<symbol> suite
 %type<symbol> suite_statement_list
 %type<symbol> indent_stmt
 %type<symbol> literal
-%type<symbol> m_expr
-%type<symbol> a_expr
-%type<symbol> u_expr
 %type<symbol> atom
 %type<symbol> primary
 %type<symbol> expression
-%type<symbol> conditional_expression
 %type<symbol> call
-%type<symbol> shift_expr
-%type<symbol> comparison
 %type<symbol> decl
 %type<symbol> argument_list
 %type<symbol> argument_list_stmt
@@ -172,13 +141,26 @@ extern void yyerror (const char *);
 %type<symbol> attributeref
 %type<symbol> ident
 %type<symbol> while_stmt
+%type<symbol> ifblock
+%type<symbol> elifstmt
+%type<symbol> elsestmt
+%type<symbol> elif_list
+%type<symbol> elifblock
+%type<symbol> if_stmt
+%type<symbol> elseblock
+%type<symbol> list_display
+%type<symbol> enclosure
 
 %type<symbol> funcname
 %type<symbol> classname
 
+%left '='
 %left '-' '+'
 %left '*' '/'
-%right '='
+%left EQUAL_EQUAL
+%left LESS LESS_EQUAL
+%left GREATER GREATER_EQUAL
+%right '^'
 %nonassoc UMINUS
 
 %%
@@ -186,10 +168,7 @@ extern void yyerror (const char *);
 declarations: /* epsilon */
             | declarations decl
             {
-	      if ($2)
-		{
-		  gpy_dot_pass_manager_process_decl ($2); 
-		}
+	      dot_pass_manager_ProcessDecl ($2);
 	    }
             ;
 
@@ -201,9 +180,44 @@ decl: NEWLINE
 while_stmt: WHILE expression ':' suite
           { $$ = dot_build_decl2 (D_STRUCT_WHILE, $2, $4); }
 
+ifblock: IF expression ':' suite
+       { $$ = dot_build_decl2 (D_STRUCT_IF, $2, $4); }
+
+elifstmt: ELIF expression ':' suite
+        { $$ = dot_build_decl2 (D_STRUCT_IF, $2, $4); }
+
+elsestmt: ELSE ':' suite
+        { $$ = dot_build_decl1 (D_STRUCT_ELSE, $3); }
+
+elseblock:
+         { $$ = NULL; }
+         | elsestmt
+         ;
+
+elif_list: elif_list elifstmt
+         {
+	   DOT_CHAIN($1) = $2;
+	   $$ = $2;
+	 }
+         | elifstmt
+         {
+	   VEC_safe_push (gpydot, gc,
+			  gpy_symbol_stack, $1);
+	   $$ = $1;
+	 }
+
+elifblock:
+         { $$ = NULL; }
+         | elif_list
+         { $$ = VEC_pop (gpydot, gpy_symbol_stack); }
+
+if_stmt: ifblock elifblock elseblock
+       { $$ = dot_build_conditional_struct ($1, $2, $3); }
+
 compound_stmt: funcdef
              | classdef
              | while_stmt
+             | if_stmt
              ;
 
 classdef: CLASS classname ':' suite
@@ -251,7 +265,6 @@ suite: stmt_list NEWLINE
      | NEWLINE INDENT suite_statement_list DEDENT
      {
        $$ = VEC_pop (gpydot, gpy_symbol_stack);
-       // printf ("poping suite!\n");
      }
      ;
 
@@ -275,11 +288,10 @@ statement: stmt_list NEWLINE
          | compound_stmt
          ;
 
-stmt_list: simple_stmt 
+stmt_list: simple_stmt
          ;
 
-simple_stmt: assignment_stmt
-           | expression_stmt
+simple_stmt: expression
            | print_stmt
            ;
 
@@ -296,8 +308,7 @@ argument_list: argument_list ',' expression
 	     }
              | expression
              {
-	       VEC_safe_push (gpydot, gc,
-			      gpy_symbol_stack, $1);
+	       VEC_safe_push (gpydot, gc, gpy_symbol_stack, $1);
 	       $$ = $1;
 	     }
              ;
@@ -309,20 +320,12 @@ print_stmt: PRINT argument_list_stmt
 	  }
 	  ;
 
-
-expression_stmt: expression_list
+expression: expression_stmt
           ;
 
-assignment_stmt: target_list '=' expression_list
-               {
-		 gpy_dot_tree_t *dot = dot_build_decl2 (D_MODIFY_EXPR, $1, $3);
-		 $$ = dot;
-	       }
-               ;
-  
 target_list: target
            ;
-  
+
 target: IDENTIFIER
       {
 	gpy_dot_tree_t *dot = dot_build_identifier ($1);
@@ -339,50 +342,23 @@ attributeref: primary '.' ident
             {
 	      $$ = dot_build_decl2 (D_ATTRIB_REF, $1, $3);
             }
-            ;
+	    ;
 
-expression_list: expression
-               ;
-
-expression: conditional_expression
-          ;
-  
-conditional_expression: comparison
-                      ;
-
-u_expr: primary
-       ;
-
-m_expr: u_expr
-      | m_expr '*' u_expr
-      {
-	gpy_dot_tree_t *dot = dot_build_decl2 (D_MULT_EXPR, $1, $3);
-	$$ = dot;
-      }
-      | m_expr '/' u_expr
-      {
-	gpy_dot_tree_t *dot = dot_build_decl2 (D_DIVD_EXPR, $1, $3);
-	$$ = dot;
-      }
-      ;
-  
-a_expr: m_expr
-      | a_expr '+' m_expr
-      {
-	gpy_dot_tree_t *dot = dot_build_decl2 (D_ADD_EXPR, $1, $3);
-	$$ = dot;
-      }
-      | a_expr '-' m_expr
-      {
-	gpy_dot_tree_t *dot = dot_build_decl2 (D_MINUS_EXPR, $1, $3);
-	$$ = dot;
-      }
-      ;
-
-shift_expr: a_expr
-          ;
-
-comparison: shift_expr
+expression_stmt: target_list '=' expression_stmt
+          { $$ = dot_build_decl2 (D_MODIFY_EXPR, $1, $3); }
+          | expression_stmt '+' expression_stmt
+          { $$ = dot_build_decl2 (D_ADD_EXPR, $1, $3); }
+          | expression_stmt '-' expression_stmt
+          { $$ = dot_build_decl2 (D_MINUS_EXPR, $1, $3); }
+          | expression_stmt LESS expression_stmt
+          { $$ = dot_build_decl2 (D_LESS_EXPR, $1, $3); }
+          | expression_stmt GREATER expression_stmt
+          { $$ = dot_build_decl2 (D_GREATER_EXPR, $1, $3); }
+          | expression_stmt EQUAL_EQUAL expression_stmt
+          { $$ = dot_build_decl2 (D_EQ_EQ_EXPR, $1, $3); }
+          | '(' expression_stmt')'
+          { $$ = $2; }
+          | primary
           ;
 
 literal: INTEGER
@@ -399,6 +375,7 @@ literal: INTEGER
 
 atom: ident
     | literal
+    | enclosure
     ;
 
 call: primary '(' argument_list_stmt ')'
@@ -408,6 +385,15 @@ call: primary '(' argument_list_stmt ')'
     }
     ;
 
+list_display: '[' argument_list_stmt ']'
+            {
+	      $$ = dot_build_decl1 (D_T_LIST, $2);
+            }
+            ;
+
+enclosure: list_display
+         ;
+
 primary: atom
        | call
        | attributeref
@@ -415,7 +401,7 @@ primary: atom
 
 %%
 
-void yyerror( const char *msg )
+void yyerror (const char *msg)
 {
-  error( "%s at line %i\n", msg, yylineno );
+  fatal_error ("%s at line %i\n", msg, yylineno);
 }

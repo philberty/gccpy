@@ -14,38 +14,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "tm.h"
-#include "opts.h"
-#include "tree.h"
-#include "tree-iterator.h"
-#include "tree-pass.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-#include "cgraph.h"
-
-#include <gmp.h>
-#include <mpfr.h>
-
-#include "vec.h"
-#include "hashtab.h"
-
 #include "gpython.h"
-#include "py-il-dot.h"
-#include "py-il-tree.h"
-#include "py-vec.h"
-#include "py-runtime.h"
 
 /*
   This pass should pass over the IL and preform translations
@@ -77,7 +46,7 @@ for animal in animals:
 Also fix how control structres look and iterators etc..
 
 */
-VEC(gpydot,gc) * gpy_dot_pass_translate (VEC(gpydot,gc) * decls)
+VEC(gpydot,gc) * dot_pass_translate (VEC(gpydot,gc) * decls)
 {
   return decls;
 }

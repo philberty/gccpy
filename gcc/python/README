@@ -29,8 +29,7 @@ perform all of it's built-in optimization passes defined in the 'gcc/tree-ssa-*.
 Links and More Information
 --------------------------
 
-Currently being persued as a Gsoc Project by me:
-
- * Philip Herron ( herron.philip@googlemail.com )
+ * Philip Herron <redbrain@gcc.gnu.org>
+ * Andi Hellmund <mail@andihellmund.com>
  
-Mentor Ian Lance Taylor
+Mentoring Ian Lance Taylor <ian@google.com>

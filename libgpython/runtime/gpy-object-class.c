@@ -35,8 +35,6 @@ along with GCC; see the file COPYING3.  If not see
 #include <gpython/objects.h>
 #include <gpython/runtime.h>
 
-typedef void (*__field_init_ptr)(void *);
-
 static
 void gpy_object_classobj_init_decl_attribs (const void * self,
 					    gpy_object_attrib_t ** attribs)
@@ -56,22 +54,6 @@ void gpy_object_classobj_init_decl_attribs (const void * self,
 	}
       else
 	*offs = NULL;
-    }
-}
-
-static
-void gpy_object_classobj_methodattribs_addself (gpy_object_attrib_t ** attribs,
-						gpy_object_t * self)
-{
-  int idx;
-  for (idx = 0; attribs[idx] != NULL; ++idx)
-    {
-      gpy_object_attrib_t * i = attribs[idx];
-      if (i->addr)
-	{
-	  gpy_object_t * att = (gpy_object_t *) i->addr;
-	  gpy_object_classmethod_inherit_self (att, self);
-	}
     }
 }
 
@@ -105,14 +87,14 @@ gpy_object_t * gpy_object_classobj_new (gpy_typedef_t * type,
   retval = gpy_create_object_decl (ctype, self);
 
   /* we need to walk though the field_init here */
-  unsigned char * __field_init__ = gpy_rr_eval_attrib_reference (retval, "__field_init__");
+  unsigned char * __field_init__ = gpy_rr_eval_attrib_reference (retval,
+								 "__field_init__");
   gpy_object_t * field_init = *((gpy_object_t **) __field_init__);
   unsigned char * codeaddr = gpy_object_classmethod_getaddr (field_init);
-  
+
   ffi_cif cif;
   ffi_type *argsdecl[1];
   void *values[1];
-  
   argsdecl[0] = &ffi_type_pointer;
   values[0] = (void *)&self;
 
@@ -187,6 +169,15 @@ gpy_object_t * gpy_object_classobj_call (gpy_object_t * self,
   gpy_typedef_t * type = self->o.object_state->definition;
   void * oldstate = self->o.object_state->state;
 
+  /*
+    When a class is defined we run through the field initilizer and
+    create an OBJECT_CLASS_DECL
+
+    when we create an instance like x = myclass ()
+    we must create the 'self' which is the new instance object state
+    which holds the same data in the class_decl so we memcpy and need to incr
+    the ref_count on each object until we overwrite whats in self.
+   */
   void * newstate = malloc (type->state_size);
   memcpy (newstate, oldstate, type->state_size);
   retval = gpy_create_object_state (type, newstate);
@@ -222,7 +213,6 @@ int gpy_object_classobj_nparms (gpy_object_t * self)
       /*
 	we -1 to the arguments here for the arguments check to pass
 	since when we call __init__ (self)
-       
 	we are creating the self argument in the call... so it isn't
 	directly passed
       */
@@ -239,6 +229,7 @@ static struct gpy_typedef_t class_obj = {
   &gpy_object_classobj_print,
   &gpy_object_classobj_call,
   &gpy_object_classobj_nparms,
+  NULL,
   NULL,
   NULL
 };

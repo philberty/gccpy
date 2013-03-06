@@ -124,21 +124,21 @@ AC_SUBST(LDFLAGS)
 AC_HEADER_STDBOOL
 AC_HEADER_STDC
 AC_CHECK_HEADERS([stdlib.h string.h stdarg.h unistd.h \
-			   	      stdint.h stdio.h getopt.h \
-				      	         assert.h sys/types.h signal.h \
-						 	    fcntl.h pthread.h sys/wait.h \
-							    	      gmp.h mpfr.h])
+   	      stdint.h stdio.h getopt.h \
+	      assert.h sys/types.h signal.h \
+		    fcntl.h pthread.h sys/wait.h \
+	   	      gmp.h mpfr.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_CHECK_FUNCS([popen fopen fclose sprintf fprintf strdup \
-		      	    strlen strcpy strcmp getopt_long \
-			    	   memcpy calloc system sysconf atoi \
-				   	  getpid execl fork wait exit atof \
-					  	 vfprintf memcmp getc fgets pipe \
-						 	  waitpid fdopen])
+	    	    strlen strcpy strcmp getopt_long \
+	   	   memcpy calloc system sysconf atoi \
+	   	  getpid execl fork wait exit atof \
+	  	 vfprintf memcmp getc fgets pipe \
+		  waitpid fdopen])
 
 # Checks for library functions.
 AC_FUNC_MALLOC

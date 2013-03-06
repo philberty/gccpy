@@ -15,68 +15,71 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-/* 
-   This file was generated via autogen @see py-runtime.{def/tpl}
-     - To regenerate with new definitions $ autogen py-runtime.def
+/*
+   This file was generated via autogen @see gpy-runtime.{def/tpl}
+     - To regenerate with new definitions $ autogen gpy-runtime.def
  */
 
 
-#ifndef __GCC_PY_RUNTIME_H__
-#define __GCC_PY_RUNTIME_H__
+#ifndef __GCC_GPY_RUNTIME_H__
+#define __GCC_GPY_RUNTIME_H__
 
-#define GPY_RR_globl_stack         "__GPY_GLOBL_RR_STACK"
-#define GPY_RR_stack_size          "__GPY_GLOBL_RR_STACK_SIZE"
-#define GPY_RR_stack_data_offset   "__GPY_GLOBL_RR_STACK_DATA_OFFSET"
-#define GPY_RR_globl_stack_pointer "__GPY_GLOBL_RR_STACK_POINTER"
-#define GPY_RR_globl_call_stack    "__GPY_GLOBL_CALL_STACK"
-#define GPY_RR_globl_primitives    "__GPY_GLOBL_PRIMITIVES"
-#define GPY_RR_globl_return_addr   "__GPY_GLOBL_RETURN_ADDR"
+// identifiers for all major runtime memory components
+#define GPY_RR_stack_ptr           "__GPY_RR_STACK_PTR"
+#define GPY_RR_module_stack        "__GPY_GLOBL_MOD_STACK"
 #define GPY_RR_entry               "__GPY_entry"
 
 /* return a const string tree */
 extern tree gpy_dot_type_const_string_tree (const char *);
-  
-/* Extends the runtime globl stack by passed size (integer_type_node) */
-extern tree GPY_RR_extend_globl_stack (tree);
-  
+
+/* Extends shizzle */
+extern tree GPY_RR_initRRStack (tree, tree, tree);
+
 /* Fold attribute info into an attribute type */
 extern tree GPY_RR_fold_attrib (tree, tree, tree, tree);
-  
+
 /* Requires the first tree in the arguments to be an integer_type_node of the number of arguments */
 extern tree GPY_RR_fold_attrib_list (VEC(tree,gc) *);
-  
+
 /* Fold class data into class object args = <attrib list><size><identifier> */
 extern tree GPY_RR_fold_class_decl (tree, tree, tree);
-  
+
 /* Fold func into decl <identifier><fndcel><nargs> */
 extern tree GPY_RR_fold_func_decl (tree, tree, tree);
-  
+
 /* Fold func into decl <identifier><fndcel><nargs> */
 extern tree GPY_RR_fold_classmethod_decl (tree, tree, tree);
-  
+
 /* Fold integer into Int object  via Int (x) */
 extern tree GPY_RR_fold_integer (tree);
-  
+
+/* Fold enclosure list via List (1,2,3,...) */
+extern tree GPY_RR_fold_encList (VEC(tree,gc) *);
+
 /* incr the refrence count on the object  */
 extern tree GPY_RR_incr_ref_count (tree);
-  
+
 /* decr the refrence count on the object  */
 extern tree GPY_RR_decr_ref_count (tree);
-  
+
 /* first index is the fd (1/0) 2nd idx is number of elements and finaly va_list of args */
 extern tree GPY_RR_eval_print (VEC(tree,gc) *);
-  
+
 /* Evaluate the operation op of the 2 objects x and y and return result */
 extern tree GPY_RR_eval_expression (tree, tree, tree);
-  
+
 /* Eval base.attrib */
 extern tree GPY_RR_fold_attrib_ref (tree, tree);
-  
+
 /* Eval call */
 extern tree GPY_RR_fold_call (VEC(tree,gc) *);
-  
+
 /* Eval arg */
 extern tree GPY_RR_fold_argument (tree, tree);
-  
-#endif //__GCC_PY_RUNTIME_H__
+
+/* Eval result */
+extern tree GPY_RR_eval_boolean (tree);
+
+#endif //__GCC_GPY_RUNTIME_H__
+
 

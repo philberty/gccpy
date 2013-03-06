@@ -18,68 +18,37 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-/* 
-   This file was generated via autogen @see py-runtime.{def/tpl}
-     - To regenerate with new definitions $ autogen py-runtime.def
+/*
+   This file was generated via autogen @see gpy-runtime.{def/tpl}
+     - To regenerate with new definitions $ autogen gpy-runtime.def
  */
 
 [+ CASE (suffix) +]
 [+ == h +]
-#ifndef __GCC_PY_RUNTIME_H__
-#define __GCC_PY_RUNTIME_H__
+#ifndef __GCC_GPY_RUNTIME_H__
+#define __GCC_GPY_RUNTIME_H__
 
-#define GPY_RR_globl_stack         "__GPY_GLOBL_RR_STACK"
-#define GPY_RR_stack_size          "__GPY_GLOBL_RR_STACK_SIZE"
-#define GPY_RR_stack_data_offset   "__GPY_GLOBL_RR_STACK_DATA_OFFSET"
-#define GPY_RR_globl_stack_pointer "__GPY_GLOBL_RR_STACK_POINTER"
-#define GPY_RR_globl_call_stack    "__GPY_GLOBL_CALL_STACK"
-#define GPY_RR_globl_primitives    "__GPY_GLOBL_PRIMITIVES"
-#define GPY_RR_globl_return_addr   "__GPY_GLOBL_RETURN_ADDR"
+// identifiers for all major runtime memory components
+#define GPY_RR_stack_ptr           "__GPY_RR_STACK_PTR"
+#define GPY_RR_module_stack        "__GPY_GLOBL_MOD_STACK"
 #define GPY_RR_entry               "__GPY_entry"
 
 /* return a const string tree */
 extern tree gpy_dot_type_const_string_tree (const char *);
-  [+ FOR py-runtime +]
+[+ FOR py-runtime +]
 [+ (get "comment") +]
 extern tree [+ (get "code") +] ([+ (get "proto") +]);
-  [+ ENDFOR py-runtime +]
-#endif //__GCC_PY_RUNTIME_H__
+[+ ENDFOR py-runtime +]
+#endif //__GCC_GPY_RUNTIME_H__
+
 [+ == c +]
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "tm.h"
-#include "opts.h"
-#include "tree.h"
-#include "tree-iterator.h"
-#include "tree-pass.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-#include "cgraph.h"
-
-#include <gmp.h>
-#include <mpfr.h>
-
 #include <gpython.h>
-#include <py-il-dot.h>
-#include <py-il-tree.h>
-#include <py-runtime.h>
-#include <py-vec.h>
 
 VEC(tree,gc) * gpy_builtin_types_vec;
 static tree gpy_build_py_object_type (void);
 static tree gpy_build_py_vector_type (void);
 
-  [+ FOR py-runtime +]
+[+ FOR py-runtime +]
 tree [+ (get "code") +] ([+ (get "arguments") +])
 {
   tree fntype = build_function_type_list ([+ (get "fntype") +]);
@@ -96,7 +65,7 @@ tree [+ (get "code") +] ([+ (get "arguments") +])
 
   return [+ (get "build_call") +] ([+ (get "build_call_args") +]);
 }
-  [+ ENDFOR py-runtime +]
+[+ ENDFOR py-runtime +]
 
 static
 tree gpy_build_py_vector_type (void)
@@ -176,7 +145,7 @@ static
 tree gpy_build_py_object_type (void)
 {
   tree object_state_struct_Type = make_node (RECORD_TYPE);
-  
+
   tree name = get_identifier("identifier");
   tree field = build_decl(BUILTINS_LOCATION, FIELD_DECL, name,
 			  build_pointer_type(char_type_node));
@@ -196,7 +165,7 @@ tree gpy_build_py_object_type (void)
   DECL_CONTEXT(field) = object_state_struct_Type;
   DECL_CHAIN(last_field) = field;
   last_field = field;
-  
+
   name = get_identifier("definition");
   field = build_decl(BUILTINS_LOCATION, FIELD_DECL, name,
 		     ptr_type_node);
@@ -235,7 +204,7 @@ tree gpy_build_py_object_type (void)
   last_field = field;
 
   layout_type (union_type__);
-  
+
   name = get_identifier("o");
   tree union_type_decl = build_decl(BUILTINS_LOCATION, TYPE_DECL, name,
 				    union_type__);
@@ -245,7 +214,7 @@ tree gpy_build_py_object_type (void)
   rest_of_decl_compilation(union_type_decl, 1, 0);
 
   tree gpy_object_struct_Type = make_node (RECORD_TYPE);
-  
+
   name = get_identifier("type");
   field = build_decl(BUILTINS_LOCATION, FIELD_DECL, name, integer_type_node);
   DECL_CONTEXT(field) = gpy_object_struct_Type;
@@ -259,7 +228,7 @@ tree gpy_build_py_object_type (void)
   last_field = field;
 
   layout_type (object_state_struct_Type);
-  
+
   name = get_identifier ("gpy_object_t");
   tree gpy_object_type_decl = build_decl(BUILTINS_LOCATION, TYPE_DECL, name,
 					 gpy_object_struct_Type);
@@ -299,7 +268,7 @@ void gpy_dot_types_init (void)
   VEC_safe_push (tree, gc, gpy_builtin_types_vec,
 		 build_pointer_type (gpy_object_type_ptr));
   gpy_preserve_from_gc (gpy_object_type_ptr_ptr);
-  
+
   VEC_safe_push (tree, gc, gpy_builtin_types_vec, ctype);
   gpy_preserve_from_gc (gpy_const_char_ptr);
 

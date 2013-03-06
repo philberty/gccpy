@@ -14,36 +14,11 @@
    along with GCC; see the file COPYING3.  If not see
    <http://www.gnu.org/licenses/>. */
 
-#include "config.h"
-#include "system.h"
-#include "ansidecl.h"
-#include "coretypes.h"
-#include "tm.h"
-#include "opts.h"
-#include "tree.h"
-#include "tree-iterator.h"
-#include "tree-pass.h"
-#include "gimple.h"
-#include "toplev.h"
-#include "debug.h"
-#include "options.h"
-#include "flags.h"
-#include "convert.h"
-#include "diagnostic-core.h"
-#include "langhooks.h"
-#include "langhooks-def.h"
-#include "target.h"
-#include "cgraph.h"
-
-#include "gmp.h"
-#include "mpfr.h"
-
 #include "gpython.h"
-#include "py-il-dot.h"
-#include "py-il-tree.h"
-#include "py-vec.h"
 
 char * GPY_current_module_name = NULL;
+bool GPY_dump_dot = false;
+
 /* Language-dependent contents of a type.  */
 struct GTY(()) lang_type {
   char dummy;
@@ -61,7 +36,7 @@ struct GTY(()) lang_identifier {
 
 /* The resulting tree type.  */
 union GTY((desc ("TREE_CODE (&%h.generic) == IDENTIFIER_NODE"),
-           chain_next ("(union lang_tree_node *) TREE_CHAIN (&%h.generic)")))
+           chain_next ("CODE_CONTAINS_STRUCT (TREE_CODE (&%h.generic), TS_COMMON) ? ((union lang_tree_node *) TREE_CHAIN (&%h.generic)) : NULL")))
 lang_tree_node
 {
   union tree_node GTY((tag ("0"),
@@ -93,31 +68,31 @@ bool gpy_langhook_init (void)
   mpfr_set_default_prec (128);
   // for exceptions
   using_eh_for_cleanups ();
-  
+
   return true;
 }
 
 /* Initialize before parsing options.  */
 static void
-gpy_langhook_init_options (unsigned int decoded_options_count,
-                           struct cl_decoded_option *decoded_options)
+gpy_langhook_init_options (unsigned int decoded_options_count ATTRIBUTE_UNUSED,
+                           struct cl_decoded_option *decoded_options ATTRIBUTE_UNUSED)
 {
   return;
 }
 
 /* Handle gpy specific options.  Return 0 if we didn't do anything.  */
 static bool
-gpy_langhook_handle_option (size_t scode, const char *arg, int value, int kind,
-                            location_t l, const struct cl_option_handlers * handlers)
+gpy_langhook_handle_option (size_t scode, const char *arg ATTRIBUTE_UNUSED,
+			    int value ATTRIBUTE_UNUSED, int kind ATTRIBUTE_UNUSED,
+                            location_t l ATTRIBUTE_UNUSED,
+			    const struct cl_option_handlers * handlers ATTRIBUTE_UNUSED)
 {
   enum opt_code code = (enum opt_code) scode;
   int retval = 1;
 
   switch (code)
     {
-    case OPT_fpy_dump_dot:
-      GPY_OPT_dump_dot = true;
-      break;
+      /* ignore options for now... */
 
     default:
       break;
@@ -128,12 +103,16 @@ gpy_langhook_handle_option (size_t scode, const char *arg, int value, int kind,
 
 /* Run after parsing options.  */
 static
-bool gpy_langhook_post_options (const char **pfilename ATTRIBUTE_UNUSED)
+bool gpy_langhook_post_options (const char **pfilename
+				ATTRIBUTE_UNUSED)
 {
   gcc_assert (num_in_fnames > 0);
 
   if (flag_excess_precision_cmdline == EXCESS_PRECISION_DEFAULT)
     flag_excess_precision_cmdline = EXCESS_PRECISION_STANDARD;
+
+  // if (gpy_set_dump_dot)
+  GPY_OPT_dump_dot = true;
 
   /* Returning false means that the backend should be used.  */
   return false;
@@ -148,9 +127,13 @@ void gpy_langhook_parse_file (void)
   unsigned int idx;
   for (idx = 0; idx < num_in_fnames; ++idx)
     {
-      const char * t = in_fnames[idx];
-      GPY_current_module_name = xstrdup (t);
-      gpy_lex_parse (t);
+      const char * in = in_fnames[idx];
+      /* this will break when handling num_in_fnames > 1
+	 would be ideal to get fname base name and use this
+	 as prefix for identifiers within input module.
+       */
+      GPY_current_module_name = xstrdup (in_fnames [idx]);
+      gpy_do_compile (in);
     }
 }
 
@@ -178,9 +161,13 @@ tree gpy_langhook_builtin_function (tree decl ATTRIBUTE_UNUSED)
 static
 bool gpy_langhook_global_bindings_p (void)
 {
-  return 1;
+  return current_function_decl == NULL_TREE;
 }
 
+/* Ideally we should use these (push/get decls) langhooks
+   but its simplier for  gccpy to use those defined in
+   dot-pass-manager.c due to the internal IL called dot.
+*/
 static
 tree gpy_langhook_pushdecl (tree decl ATTRIBUTE_UNUSED)
 {
@@ -191,6 +178,7 @@ tree gpy_langhook_pushdecl (tree decl ATTRIBUTE_UNUSED)
 static
 tree gpy_langhook_getdecls (void)
 {
+  gcc_unreachable ();
   return NULL;
 }
 
@@ -198,7 +186,8 @@ tree gpy_langhook_getdecls (void)
 static
 void gpy_langhook_write_globals (void)
 {
-  gpy_dot_pass_manager_write_globals ();
+  // pass off to middle end function basically.
+  dot_pass_manager_WriteGlobals ();
 }
 
 static int
@@ -206,42 +195,62 @@ gpy_langhook_gimplify_expr (tree *expr_p ATTRIBUTE_UNUSED,
                             gimple_seq *pre_p ATTRIBUTE_UNUSED,
                             gimple_seq *post_p ATTRIBUTE_UNUSED)
 {
-  // debug_tree( (*expr_p) );
-  enum tree_code code = TREE_CODE (*expr_p);
-
-  /* This is handled mostly by gimplify.c, but we have to deal with
-     not warning about int x = x; as it is a GCC extension to turn off
-     this warning but only if warn_init_self is zero.  */
-  if (code == DECL_EXPR
-      && TREE_CODE (DECL_EXPR_DECL (*expr_p)) == VAR_DECL
-      && !DECL_EXTERNAL (DECL_EXPR_DECL (*expr_p))
-      && !TREE_STATIC (DECL_EXPR_DECL (*expr_p))
-      && (DECL_INITIAL (DECL_EXPR_DECL (*expr_p)) == DECL_EXPR_DECL (*expr_p))
-      && !warn_init_self)
-    TREE_NO_WARNING (DECL_EXPR_DECL (*expr_p)) = 1;
-
+  if (TREE_CODE (*expr_p) == CALL_EXPR
+      && CALL_EXPR_STATIC_CHAIN (*expr_p) != NULL_TREE)
+    gimplify_expr (&CALL_EXPR_STATIC_CHAIN (*expr_p), pre_p, post_p,
+		   is_gimple_val, fb_rvalue);
+  /* Often useful to use debug_tree here to see whats going on because
+     ever gimplication calls this. */
+  // debug_tree (*expr_p)
   return GS_UNHANDLED;
 }
 
 /* Functions called directly by the generic backend.  */
-tree convert (tree type ATTRIBUTE_UNUSED,
-              tree expr ATTRIBUTE_UNUSED)
+tree convert (tree type, tree expr)
 {
+  if (type == error_mark_node
+      || expr == error_mark_node
+      || TREE_TYPE (expr) == error_mark_node)
+    return error_mark_node;
+
+  if (type == TREE_TYPE (expr))
+    return expr;
+
+  if (TYPE_MAIN_VARIANT (type) == TYPE_MAIN_VARIANT (TREE_TYPE (expr)))
+    return fold_convert (type, expr);
+
+  switch (TREE_CODE (type))
+    {
+    case VOID_TYPE:
+    case BOOLEAN_TYPE:
+      return fold_convert (type, expr);
+    case INTEGER_TYPE:
+      return fold (convert_to_integer (type, expr));
+    case POINTER_TYPE:
+      return fold (convert_to_pointer (type, expr));
+    case REAL_TYPE:
+      return fold (convert_to_real (type, expr));
+    case COMPLEX_TYPE:
+      return fold (convert_to_complex (type, expr));
+    default:
+      break;
+    }
+
   gcc_unreachable ();
 }
 
 static GTY(()) tree gpy_gc_root;
-
 void gpy_preserve_from_gc (tree t)
 {
   gpy_gc_root = tree_cons (NULL_TREE, t, gpy_gc_root);
 }
 
+/* Useful logging kind of ... */
 void __gpy_debug__ (const char * file, unsigned int lineno,
 		    const char * fmt, ...)
 {
   va_list args;
-  fprintf (stderr, "debug: <%s:%i> -> ", file, lineno);
+  fprintf (stderr, "DEBUG: <%s:%i> ", file, lineno);
   va_start (args, fmt);
   vfprintf (stderr, fmt, args);
   va_end (args);
@@ -252,7 +261,7 @@ void __gpy_debug__ (const char * file, unsigned int lineno,
  * <gcc>/langhooks.h
  */
 #undef LANG_HOOKS_NAME
-#undef LANG_HOOKS_INIT 
+#undef LANG_HOOKS_INIT
 #undef LANG_HOOKS_INIT_OPTIONS
 #undef LANG_HOOKS_HANDLE_OPTION
 #undef LANG_HOOKS_POST_OPTIONS
@@ -264,6 +273,7 @@ void __gpy_debug__ (const char * file, unsigned int lineno,
 #undef LANG_HOOKS_PUSHDECL
 #undef LANG_HOOKS_GETDECLS
 #undef LANG_HOOKS_WRITE_GLOBALS
+#undef LANG_HOOKS_GIMPLIFY_EXPR
 #undef LANG_HOOKS_GIMPLIFY_EXPR
 
 #define LANG_HOOKS_NAME                 "GNU Python"

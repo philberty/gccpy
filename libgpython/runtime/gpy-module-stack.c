@@ -29,18 +29,33 @@ along with GCC; see the file COPYING3.  If not see
 #include <gpython/objects.h>
 #include <gpython/runtime.h>
 
-gpy_object_t ** __GPY_GLOBL_RR_STACK;
-gpy_vector_t * __GPY_GLOBL_CALL_STACK;
+// Holds all runtime information to primitive types
 gpy_vector_t * __GPY_GLOBL_PRIMITIVES;
-gpy_object_t ** __GPY_GLOBL_RETURN_ADDR;
-gpy_object_t ** __GPY_GLOBL_RR_STACK_POINTER;
+
+// runtime stack for all module runtime data
 
 /*
-  size
-  current_length
-  return addr
-  .... symbols
+  NOTE on thread-saftey for future, this stack will need
+  Global Lock, and a per thread __CALL_STACK & __RET_ADDR
 */
+
+/*
+__STACK
+ -> _LENGTH
+ -> --------
+ -> * maybe __CALL_STACK //TODO
+ -> * maybe __RET_ADDR   //TODO
+ -> --------
+ -> MODULE_A
+ -> MODULE_B
+...
+*/
+#define __GPY_INIT_LEN              3
+static int __GPY_GLOBAL_STACK_LEN = 0;
+static gpy_hash_tab_t stack_table;
+
+gpy_object_t ** __GPY_MODULE_RR_STACK;
+gpy_object_t ** __GPY_RR_STACK_PTR;
 
 static
 void gpy_rr_init_primitives (void)
@@ -54,34 +69,49 @@ void gpy_rr_init_primitives (void)
 static
 void gpy_rr_init_runtime_stack (void)
 {
+  gpy_dd_hash_init_table (&stack_table);
+
   __GPY_GLOBL_PRIMITIVES = gpy_malloc (sizeof (gpy_vector_t));
   gpy_vec_init (__GPY_GLOBL_PRIMITIVES);
   gpy_rr_init_primitives ();
 
-  __GPY_GLOBL_CALL_STACK = gpy_malloc (sizeof (gpy_vector_t));
-  gpy_vec_init (__GPY_GLOBL_CALL_STACK);
+  __GPY_MODULE_RR_STACK = (gpy_object_t **) gpy_calloc
+    (__GPY_INIT_LEN, sizeof (gpy_object_t *));
+  *__GPY_MODULE_RR_STACK = gpy_rr_fold_integer (__GPY_INIT_LEN);
+  __GPY_RR_STACK_PTR = (__GPY_MODULE_RR_STACK + __GPY_INIT_LEN);
 
-  __GPY_GLOBL_RR_STACK = gpy_calloc (3, sizeof (gpy_object_t *));
-  *__GPY_GLOBL_RR_STACK = gpy_rr_fold_integer (2);
-
-  __GPY_GLOBL_RR_STACK_POINTER = __GPY_GLOBL_RR_STACK;
-  __GPY_GLOBL_RR_STACK_POINTER++;
-
-  *__GPY_GLOBL_RR_STACK_POINTER = gpy_rr_fold_integer (0);
-
-  __GPY_GLOBL_RR_STACK_POINTER++;
-  *__GPY_GLOBL_RR_STACK_POINTER = NULL;
-  __GPY_GLOBL_RETURN_ADDR = __GPY_GLOBL_RR_STACK_POINTER;
+  __GPY_GLOBAL_STACK_LEN += __GPY_INIT_LEN;
 }
 
 /* remember to update the stack pointer's and the stack size */
 void gpy_rr_extend_runtime_stack (int nslots)
 {
-  size_t size = sizeof (gpy_object_t *) * (3+nslots);
-  __GPY_GLOBL_RR_STACK = gpy_realloc (__GPY_GLOBL_RR_STACK, size);
-  
-  __GPY_GLOBL_RR_STACK_POINTER = __GPY_GLOBL_RR_STACK;
-  __GPY_GLOBL_RR_STACK_POINTER += 3 + nslots;
+  // calculate the size of reallocation
+  size_t size = sizeof (gpy_object_t *) * (__GPY_INIT_LEN + nslots);
+  __GPY_MODULE_RR_STACK = gpy_realloc (__GPY_MODULE_RR_STACK, size);
+  __GPY_GLOBAL_STACK_LEN += nslots;
+
+  // update the stack pointer to the begining of all modules
+  __GPY_RR_STACK_PTR = __GPY_MODULE_RR_STACK;
+  __GPY_RR_STACK_PTR += __GPY_GLOBAL_STACK_LEN + (nslots - 1);
+}
+
+void gpy_rr_initRRStack (int slots,
+			 gpy_object_t ** sptr,
+			 const char * stack_id)
+{
+  /* Make sure it doesn't already exist! */
+  gpy_hashval_t h = gpy_dd_hash_string (stack_id);
+  gpy_hash_entry_t * e = gpy_dd_hash_lookup_table (&stack_table, h);
+  if (!e)
+    {
+      /* extend the stack and setup the stack pointer for the callee' */
+      gpy_rr_extend_runtime_stack (slots);
+      sptr = __GPY_RR_STACK_PTR;
+      gpy_dd_hash_insert (h, sptr, &stack_table);
+    }
+  else
+    fatal ("Stack id <%s> already exists!\n", stack_id);
 }
 
 void gpy_rr_init_runtime (void)
@@ -135,6 +165,13 @@ gpy_object_attrib_t ** gpy_rr_fold_attrib_list (int n, ...)
       /* sentinal */
       retval[idx] = NULL;
     }
+  return retval;
+}
+
+gpy_object_t * gpy_rr_fold_enclList (int n, ...)
+{
+  gpy_object_t * retval = NULL;
+  printf ("build up the list boyo!\n");
   return retval;
 }
 
@@ -257,14 +294,13 @@ gpy_object_t * gpy_rr_fold_classmethod_decl (const char * identifier,
   return retval;
 }
 
-
 gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   gpy_assert (decl->T == TYPE_OBJECT_DECL);
   gpy_typedef_t * type = decl->o.object_state->definition;
-  
+
   /* + 1 for sentinal */
   gpy_object_t ** args = calloc (nargs + 1, sizeof (gpy_object_t *));
   int idx = 0;
@@ -294,7 +330,7 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
   else
     fatal ("name is not callable!\n");
   gpy_free (args);
-    
+
   return retval;
 }
 
@@ -303,7 +339,7 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
 {
   unsigned char * retval = NULL;
   gpy_typedef_t * type = base->o.object_state->definition;
-  
+
   struct gpy_object_attrib_t ** members = type->members_defintion;
   gpy_object_state_t * objs = base->o.object_state;
 
@@ -412,6 +448,20 @@ void gpy_rr_decr_ref_count (gpy_object_t * x1)
   x->ref_count--;
 }
 
+bool gpy_rr_eval_boolean (gpy_object_t * x)
+{
+  bool retval = false;
+
+  gpy_assert (x->T == TYPE_OBJECT_STATE);
+  gpy_object_state_t * state = x->o.object_state;
+
+  struct gpy_typedef_t * def = state->definition;
+  if (def->tp_eval_boolean)
+    retval = def->tp_eval_boolean (x);
+
+  return retval;
+}
+
 gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
 				       gpy_object_t * y1,
 				       unsigned int op)
@@ -428,11 +478,26 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
   struct gpy_number_prot_t binops_l = (*binops);
 
   binary_op o = NULL;
-  switch( op )
+  switch (op)
     {
-      /* addition */
     case 1:
       o = binops_l.n_add;
+      break;
+
+    case 2:
+      o = binops_l.n_sub;
+      break;
+
+    case 4:
+      o = binops_l.n_let;
+      break;
+
+    case 5:
+      o = binops_l.n_get;
+      break;
+
+    case 6:
+      o = binops_l.n_eee;
       break;
 
       /* FINISH .... */
@@ -446,6 +511,5 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
     retval = o (x1,y1);
   else
     fatal ("no binary protocol!\n");
- 
   return retval;
 }
