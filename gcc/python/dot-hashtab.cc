@@ -99,7 +99,6 @@ void gpy_dd_hash_grow_table (gpy_hash_tab_t * tbl)
     free( prev_array );
 }
 
-inline
 void gpy_dd_hash_init_table (gpy_hash_tab_t * tbl)
 {
   gpy_hash_tab_t *tb= tbl;

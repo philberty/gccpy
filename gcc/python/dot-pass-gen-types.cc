@@ -252,22 +252,23 @@ void dot_pass_types_ToplevelGenStmt (gpy_dot_tree_t * node,
     }
 }
 
-VEC(tree,gc) * dot_pass_GenTypes (VEC(gpydot,gc) * decls)
+vec<tree, va_gc> * dot_pass_GenTypes (vec<gpydot,va_gc> * decls)
 {
-  VEC(tree,gc) * retval = VEC_alloc (tree, gc, 0);
+  vec<tree,va_gc> * retval;
+  vec_alloc (retval, 0);
 
   gpy_hash_tab_t main_module;
   gpy_dd_hash_init_table (&main_module);
 
   int idx;
   gpy_dot_tree_t * idtx = NULL_DOT;
-  for (idx = 0; VEC_iterate (gpydot, decls, idx, idtx); ++idx)
+  for (idx = 0; vec_safe_iterate (decls, idx, &idtx); ++idx)
     {
       if (DOT_TYPE (idtx) == D_STRUCT_CLASS)
 	{
 	  tree module = dot_pass_types_GenClassType (idtx);
 	  gcc_assert (module);
-	  VEC_safe_push (tree, gc, retval, module);
+	  vec_safe_push (retval, module);
 
 	  const char * mid = IDENTIFIER_POINTER (TYPE_NAME (module));
 	  void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (mid),
@@ -293,10 +294,8 @@ VEC(tree,gc) * dot_pass_GenTypes (VEC(gpydot,gc) * decls)
 				   dot_build_identifier (module_entry),
 				   &main_module)
 	      );
-  VEC_safe_push (tree, gc, retval,
-		 dot_pass_types_FinalizeType (&main_module,
-					      GPY_current_module_name));
+  vec_safe_push (retval, dot_pass_types_FinalizeType (&main_module,
+						      GPY_current_module_name));
   free (main_module.array);
-
   return retval;
 }

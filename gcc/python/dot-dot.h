@@ -64,7 +64,7 @@ typedef struct GTY(()) gpy_tree_common_dot_t {
   union {
     int integer;
     unsigned char c;
-    char * string;
+    const char * string;
   } o;
 } gpy_dot_tree_common ;
 
@@ -83,13 +83,6 @@ typedef struct GTY(()) gpy_tree_dot_t {
   struct gpy_tree_dot_t * next;
 } gpy_dot_tree_t ;
 typedef gpy_dot_tree_t * gpydot;
-
-typedef int gpy_int;
-DEF_VEC_I (gpy_int);
-DEF_VEC_ALLOC_I (gpy_int,gc);
-
-DEF_VEC_P (gpydot);
-DEF_VEC_ALLOC_P (gpydot,gc);
 
 #define DOT_TYPE(x)      x->T
 #define DOT_CHAIN(x)     x->next
@@ -122,6 +115,6 @@ extern gpy_dot_tree_t * dot_build_decl2 (opcode_t, gpy_dot_tree_t *, gpy_dot_tre
 
 extern gpy_dot_tree_t * dot_build_integer (int);
 extern gpy_dot_tree_t * dot_build_string (char *);
-extern gpy_dot_tree_t * dot_build_identifier (char *);
+extern gpy_dot_tree_t * dot_build_identifier (const char *);
 
 #endif /* __GCC_PY_DOTIL_H_ */

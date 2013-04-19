@@ -17,9 +17,7 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef __GCC_RUNTIME_H__
 #define __GCC_RUNTIME_H__
 
-/*
-  accesors to the internal types...
- */
+/* to the internal types... */
 #define __gpy_integer_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[0]
 #define __gpy_staticmethod_type_node			\
@@ -28,6 +26,8 @@ along with GCC; see the file COPYING3.  If not see
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[2]
 #define __gpy_classmethod_type_node			\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[3]
+#define __gpy_list_type_node				\
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[4]
 
 extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
 extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);

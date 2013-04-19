@@ -44,8 +44,8 @@ py-runtime = { code = GPY_RR_fold_attrib;
 	       build_call_args = "fndecl, 4, ident, addr, offset, nargs";
              };
 py-runtime = { code = GPY_RR_fold_attrib_list;
-	       arguments = "VEC(tree,gc) * attribs";
-	       proto = "VEC(tree,gc) *";
+	       arguments = "vec<tree,va_gc> * attribs";
+	       proto = "vec<tree,va_gc> *";
 	       comment = "/* Requires the first tree in the arguments to be an integer_type_node of the number of arguments */";
 	       function_identifier = "gpy_rr_fold_attrib_list";
                fntype = "gpy_attrib_type_ptr_ptr,
@@ -106,8 +106,8 @@ py-runtime = { code = GPY_RR_fold_integer;
 	       build_call_args = "fndecl, 1, integer";
              };
 py-runtime = { code = GPY_RR_fold_encList;
-	       arguments = "VEC(tree,gc) * elms";
-	       proto = "VEC(tree,gc) *";
+	       arguments = "vec<tree,va_gc> * elms";
+	       proto = "vec<tree,va_gc> *";
 	       comment = "/* Fold enclosure list via List (1,2,3,...) */";
                function_identifier = "gpy_rr_fold_encList";
                fntype = "gpy_object_type_ptr,
@@ -140,8 +140,8 @@ py-runtime = { code = GPY_RR_decr_ref_count;
 	       build_call_args = "fndecl, 1, obj";
              };
 py-runtime = { code = GPY_RR_eval_print;
-	       arguments = "VEC(tree,gc) * arguments";
-	       proto = "VEC(tree,gc) *";
+	       arguments = "vec<tree,va_gc> * arguments";
+	       proto = "vec<tree,va_gc> *";
 	       comment = "/* first index is the fd (1/0) 2nd idx is number of elements and finaly va_list of args */";
 	       function_identifier = "gpy_rr_eval_print";
                fntype = "void_type_node,
@@ -177,8 +177,8 @@ py-runtime = { code = GPY_RR_fold_attrib_ref;
 	       build_call_args = "fndecl, 2, base, attrib";
              };
 py-runtime = { code = GPY_RR_fold_call;
-	       arguments = "VEC(tree,gc) * arguments";
-	       proto = "VEC(tree,gc) *";
+	       arguments = "vec<tree,va_gc> * arguments";
+	       proto = "vec<tree,va_gc> *";
 	       comment = "/* Eval call */";
                function_identifier = "gpy_rr_fold_call";
                fntype = "gpy_object_type_ptr,

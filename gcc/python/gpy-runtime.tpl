@@ -1,5 +1,5 @@
 [+ AutoGen5 template -*- Mode: C -*-
-h c
+h cc
 +]
 
 /* This file is part of GCC.
@@ -41,10 +41,10 @@ extern tree [+ (get "code") +] ([+ (get "proto") +]);
 [+ ENDFOR py-runtime +]
 #endif //__GCC_GPY_RUNTIME_H__
 
-[+ == c +]
+[+ == cc +]
 #include <gpython.h>
 
-VEC(tree,gc) * gpy_builtin_types_vec;
+vec<tree,va_gc> * gpy_builtin_types_vec;
 static tree gpy_build_py_object_type (void);
 static tree gpy_build_py_vector_type (void);
 
@@ -255,45 +255,35 @@ tree gpy_dot_type_const_string_tree (const char * str)
 
 void gpy_dot_types_init (void)
 {
-  gpy_builtin_types_vec = VEC_alloc (tree,gc,0);
-
   tree const_char_type = build_qualified_type (unsigned_char_type_node,
 					       TYPE_QUAL_CONST);
   tree ctype = build_pointer_type (const_char_type);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 gpy_build_py_object_type ());
+  vec_safe_push (gpy_builtin_types_vec, gpy_build_py_object_type ());
   gpy_preserve_from_gc (gpy_object_type_ptr);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 build_pointer_type (gpy_object_type_ptr));
+  vec_safe_push (gpy_builtin_types_vec, build_pointer_type (gpy_object_type_ptr));
   gpy_preserve_from_gc (gpy_object_type_ptr_ptr);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec, ctype);
+  vec_safe_push (gpy_builtin_types_vec, ctype);
   gpy_preserve_from_gc (gpy_const_char_ptr);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 gpy_build_py_vector_type ());
+  vec_safe_push (gpy_builtin_types_vec, gpy_build_py_vector_type ());
   gpy_preserve_from_gc (gpy_vector_type);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 build_pointer_type (gpy_vector_type));
+  vec_safe_push (gpy_builtin_types_vec, build_pointer_type (gpy_vector_type));
   gpy_preserve_from_gc (gpy_vector_type_ptr);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 build_pointer_type (gpy_vector_type_ptr));
+  vec_safe_push (gpy_builtin_types_vec, build_pointer_type (gpy_vector_type_ptr));
   gpy_preserve_from_gc (gpy_vector_type_ptr_ptr);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 gpy_build_py_attrib_type ());
+  vec_safe_push (gpy_builtin_types_vec, gpy_build_py_attrib_type ());
   gpy_preserve_from_gc (gpy_attrib_type);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 build_pointer_type (gpy_attrib_type));
+  vec_safe_push (gpy_builtin_types_vec, build_pointer_type (gpy_attrib_type));
   gpy_preserve_from_gc (gpy_attrib_type_ptr);
 
-  VEC_safe_push (tree, gc, gpy_builtin_types_vec,
-		 build_pointer_type (gpy_attrib_type_ptr));
+  vec_safe_push (gpy_builtin_types_vec, build_pointer_type (gpy_attrib_type_ptr));
   gpy_preserve_from_gc (gpy_attrib_type_ptr_ptr);
 }
 

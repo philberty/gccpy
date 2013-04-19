@@ -34,8 +34,7 @@ GCCPY_TARGET_INSTALL_NAME := $(target_noncanonical)-$(shell echo gccpy|sed '$(pr
 
 python: gccpy$(exeext) gpy1$(exeext)
 
-GPY_CFLAGS := -std=gnu99 -g -O2 -I${srcdir}/python -fomit-frame-pointer -W -Wall \
-	-pedantic -DHAVE_CONFIG_H
+GPY_CFLAGS := -g -O2 -I${srcdir}/python -fomit-frame-pointer -W -Wall -pedantic -DHAVE_CONFIG_H
 
 py-lexer.o: $(srcdir)/python/py-lexer.l py-parser.o
 	$(FLEX) --outfile=lex.py.c $(srcdir)/python/py-lexer.l
@@ -54,77 +53,77 @@ py-lang.o: $(srcdir)/python/py-lang.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
 	$(LDFLAGS) -c -o $@ $(srcdir)/python/py-lang.c
 
-dot-hashtab.o: $(srcdir)/python/dot-hashtab.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-hashtab.o: $(srcdir)/python/dot-hashtab.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-hashtab.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-hashtab.cc
 
-gpy-runtime.o: $(srcdir)/python/gpy-runtime.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+gpy-runtime.o: $(srcdir)/python/gpy-runtime.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/gpy-runtime.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/gpy-runtime.cc
 
-dot.o: $(srcdir)/python/dot.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot.o: $(srcdir)/python/dot.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot.cc
 
-dot-pass-manager.o: $(srcdir)/python/dot-pass-manager.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-manager.o: $(srcdir)/python/dot-pass-manager.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-manager.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-manager.cc
 
-dot-pass-gen-types.o: $(srcdir)/python/dot-pass-gen-types.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-gen-types.o: $(srcdir)/python/dot-pass-gen-types.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-gen-types.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-gen-types.cc
 
-dot-pass-generic.o: $(srcdir)/python/dot-pass-generic.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-generic.o: $(srcdir)/python/dot-pass-generic.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-generic.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-generic.cc
 
-dot-pass-translate.o: $(srcdir)/python/dot-pass-translate.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-translate.o: $(srcdir)/python/dot-pass-translate.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-translate.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-translate.cc
 
-dot-pass-check1.o: $(srcdir)/python/dot-pass-check1.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-check1.o: $(srcdir)/python/dot-pass-check1.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-check1.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-check1.cc
 
-dot-pass-const_fold.o: $(srcdir)/python/dot-pass-const_fold.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-const_fold.o: $(srcdir)/python/dot-pass-const_fold.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-const_fold.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-const_fold.cc
 
-dot-pass-dot-PrettyPrint.o: $(srcdir)/python/dot-pass-dot-PrettyPrint.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-dot-PrettyPrint.o: $(srcdir)/python/dot-pass-dot-PrettyPrint.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-dot-PrettyPrint.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-dot-PrettyPrint.cc
 
-dot-pass-types-PrettyPrint.o: $(srcdir)/python/dot-pass-types-PrettyPrint.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+dot-pass-types-PrettyPrint.o: $(srcdir)/python/dot-pass-types-PrettyPrint.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-types-PrettyPrint.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/dot-pass-types-PrettyPrint.cc
 
-gpy-data-export.o: $(srcdir)/python/gpy-data-export.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+gpy-data-export.o: $(srcdir)/python/gpy-data-export.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
-	$(LDFLAGS) -c -o $@ $(srcdir)/python/gpy-data-export.c
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/gpy-data-export.cc
 
 GPY_OBJS = \
 	py-parser.o \
@@ -147,11 +146,11 @@ gpy1$(exeext): $(GPY_OBJS) attribs.o $(BACKEND) $(LIBDEPS)
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_CFLAGS) $(LDFLAGS) -o $@ \
 	$(GPY_OBJS) attribs.o $(BACKEND) $(LIBS) $(BACKENDLIBS)
 
-pyspec.o: $(srcdir)/python/pyspec.c $(SYSTEM_H) coretypes.h $(TM_H) $(GCC_H) \
+pyspec.o: $(srcdir)/python/pyspec.cc $(SYSTEM_H) coretypes.h $(TM_H) $(GCC_H) \
     $(CONFIG_H) opts.h
 	(SHLIB='$(SHLIB)'; \
 	$(COMPILER) -c $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(DRIVER_DEFINES) \
-		$(INCLUDES) $(srcdir)/python/pyspec.c)
+		$(INCLUDES) $(srcdir)/python/pyspec.cc)
 
 GCCPY_D_OBJS = $(GCC_OBJS) pyspec.o
 gccpy$(exeext): $(GCCPY_D_OBJS) $(EXTRA_GCC_OBJS) libcommon-target.a $(LIBDEPS)
@@ -173,7 +172,7 @@ python.mostlyclean:
 python.clean: python.mostlyclean
 
 python.tags: force
-	cd $(srcdir)/python; etags -o TAGS.sub *.y *.l *.c *.h; \
+	cd $(srcdir)/python; etags -o TAGS.sub *.y *.l *.cc *.h; \
 	etags --include TAGS.sub --include ../TAGS.sub
 
 python.info: 

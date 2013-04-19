@@ -46,7 +46,7 @@ for animal in animals:
 Also fix how control structres look and iterators etc..
 
 */
-VEC(gpydot,gc) * dot_pass_translate (VEC(gpydot,gc) * decls)
+vec<gpydot,va_gc> * dot_pass_translate (vec<gpydot,va_gc> * decls)
 {
   return decls;
 }

@@ -39,7 +39,7 @@ extern tree GPY_RR_initRRStack (tree, tree, tree);
 extern tree GPY_RR_fold_attrib (tree, tree, tree, tree);
 
 /* Requires the first tree in the arguments to be an integer_type_node of the number of arguments */
-extern tree GPY_RR_fold_attrib_list (VEC(tree,gc) *);
+extern tree GPY_RR_fold_attrib_list (vec<tree,va_gc> *);
 
 /* Fold class data into class object args = <attrib list><size><identifier> */
 extern tree GPY_RR_fold_class_decl (tree, tree, tree);
@@ -54,7 +54,7 @@ extern tree GPY_RR_fold_classmethod_decl (tree, tree, tree);
 extern tree GPY_RR_fold_integer (tree);
 
 /* Fold enclosure list via List (1,2,3,...) */
-extern tree GPY_RR_fold_encList (VEC(tree,gc) *);
+extern tree GPY_RR_fold_encList (vec<tree,va_gc> *);
 
 /* incr the refrence count on the object  */
 extern tree GPY_RR_incr_ref_count (tree);
@@ -63,7 +63,7 @@ extern tree GPY_RR_incr_ref_count (tree);
 extern tree GPY_RR_decr_ref_count (tree);
 
 /* first index is the fd (1/0) 2nd idx is number of elements and finaly va_list of args */
-extern tree GPY_RR_eval_print (VEC(tree,gc) *);
+extern tree GPY_RR_eval_print (vec<tree,va_gc> *);
 
 /* Evaluate the operation op of the 2 objects x and y and return result */
 extern tree GPY_RR_eval_expression (tree, tree, tree);
@@ -72,7 +72,7 @@ extern tree GPY_RR_eval_expression (tree, tree, tree);
 extern tree GPY_RR_fold_attrib_ref (tree, tree);
 
 /* Eval call */
-extern tree GPY_RR_fold_call (VEC(tree,gc) *);
+extern tree GPY_RR_fold_call (vec<tree,va_gc> *);
 
 /* Eval arg */
 extern tree GPY_RR_fold_argument (tree, tree);

@@ -18,11 +18,10 @@ along with GCC; see the file COPYING3.  If not see
 
 /*
   This pass should pass over the IL at its most basic form
-  stright from the parser and preform some constant folding
-  as expressions are folded out and evaluated at runtime due
-  to dynamic typing so we cant rely on gcc's constant folding
+  stright from the parser and preform sanity checks to make
+  sure everything looks correct before other pass's
 */
-VEC(gpydot,gc) * dot_pass_const_fold (VEC(gpydot,gc) * decls)
+vec<gpydot,va_gc> * dot_pass_check1 (vec<gpydot,va_gc> * decls)
 {
   return decls;
 }

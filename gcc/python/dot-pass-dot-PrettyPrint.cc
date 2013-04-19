@@ -16,7 +16,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "gpython.h"
 
-static void dot_pass_dump_IL (VEC(gpydot,gc) *, const char *);
+static void dot_pass_dump_IL (vec<gpydot,va_gc> *, const char *);
 static void dot_pass_dump_node (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_method (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_class (FILE *, gpy_dot_tree_t *, int);
@@ -32,12 +32,13 @@ void dot_pass_dump_class (FILE * fd, gpy_dot_tree_t * node,
     fprintf (fd, "  ");
   fprintf (fd, "class %s {\n", cid);
 
-  gpy_dot_tree_t * suite = DOT_lhs_TT (node);
-  do {
-    dot_pass_dump_node (fd, suite, indents + 1);
-    fprintf (fd, "\n");
-  }
-  while ((suite = DOT_CHAIN (suite)));
+  gpy_dot_tree_t * suite;
+  for (suite = DOT_lhs_TT (node); suite != NULL_DOT;
+       suite = DOT_CHAIN (suite))
+    {
+      dot_pass_dump_node (fd, suite, indents + 1);
+      fprintf (fd, "\n");
+    }
 
   for (i = 0; i < indents; ++i)
     fprintf (fd, "  ");
@@ -154,6 +155,7 @@ void dot_pass_dump_expr (FILE * fd, gpy_dot_tree_t * node)
     case D_PRIMITIVE:
     case D_IDENTIFIER:
     case D_ATTRIB_REF:
+    case D_T_LIST:
     case D_CALL_EXPR:
       dot_pass_dumpExprNode (fd, node);
       break;
@@ -235,7 +237,7 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 }
 
 static
-void dot_pass_dump_IL (VEC(gpydot,gc) * decls, const char * outfile)
+void dot_pass_dump_IL (vec<gpydot,va_gc> * decls, const char * outfile)
 {
   FILE * fd = fopen (outfile, "w");
   if (!fd)
@@ -245,7 +247,7 @@ void dot_pass_dump_IL (VEC(gpydot,gc) * decls, const char * outfile)
     }
   int idx;
   gpy_dot_tree_t * idtx = NULL_DOT;
-  for (idx = 0; VEC_iterate (gpydot, decls, idx, idtx); ++idx)
+  for (idx = 0; decls->iterate (idx, &idtx); ++idx)
     {
       dot_pass_dump_node (fd, idtx, 0);
       fprintf (fd, "\n");
@@ -256,7 +258,7 @@ void dot_pass_dump_IL (VEC(gpydot,gc) * decls, const char * outfile)
 /*
   A Pretty-printer to dump out the IL if -fpy-dump-dot was passed
 */
-VEC(gpydot,gc) * dot_pass_PrettyPrint (VEC(gpydot,gc) * decls)
+vec<gpydot,va_gc> * dot_pass_PrettyPrint (vec<gpydot,va_gc> * decls)
 {
   if (GPY_OPT_dump_dot)
     dot_pass_dump_IL (decls, "gccpy-il.dot");

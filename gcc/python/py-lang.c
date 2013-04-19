@@ -106,8 +106,6 @@ static
 bool gpy_langhook_post_options (const char **pfilename
 				ATTRIBUTE_UNUSED)
 {
-  gcc_assert (num_in_fnames > 0);
-
   if (flag_excess_precision_cmdline == EXCESS_PRECISION_DEFAULT)
     flag_excess_precision_cmdline = EXCESS_PRECISION_STANDARD;
 

@@ -77,6 +77,12 @@ bool gpy_args_check_fmt (gpy_object_t ** args, const char * fmt)
 	  }
 	  break;
 
+	case 'V':
+	  {
+	    GPY_ARG_LIT_CHECK (args, idx, TYPE_VEC);
+	  }
+	  break;
+
 	default:
 	  {
 	    error ("unhandled literal argument type <%c>!\n", *i);
@@ -129,6 +135,17 @@ gpy_object_attrib_t ** gpy_args_lit_parse_attrib_table (gpy_object_t * arg)
   gpy_assert (arg->o.literal->type == TYPE_ATTRIB_L);
 
   retval = arg->o.literal->literal.attribs;
+
+  return retval;
+}
+
+gpy_object_t ** gpy_args_lit_parse_vec (gpy_object_t * arg)
+{
+  gpy_object_t ** retval = NULL;
+  gpy_assert (arg->T == TYPE_OBJECT_LIT);
+  gpy_assert (arg->o.literal->type == TYPE_VEC);
+
+  retval = arg->o.literal->literal.vec;
 
   return retval;
 }

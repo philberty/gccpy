@@ -17,8 +17,12 @@
 \usepackage{courier}
 \usepackage{caption}
 \usepackage{etoolbox}
+\usepackage{hyperref}
+\usepackage{makeidx}
 %\usepackage{xcolor}‎
 \makenomenclature
+
+\makeindex
 
 \lstset{
          basicstyle=\footnotesize\ttfamily, % Standardschrift
@@ -74,24 +78,23 @@
 
 \title{GccPy - GCC Front-End for Python}
 \author{Philip Herron\\
-  \texttt{http://redbrain.co.uk}\\
+  \texttt{\url {http://gcc.gnu.org/wiki/PythonFrontEnd}}\\
   \texttt{redbrain@gcc.gnu.org} \\
-  \texttt{herron.philip@googlemail.com}\\
 \byncsa}
 \date{\today}
 \maketitle
 \begin{abstract}
 Gccpy is a new front-end to Gnu Compiler Collection which implements the
-very popular multi-paridigm dynamic language Python. In here i discuss the
+very popular multi-paridigm dynamic language Python. In here I discuss the
 ideas, techniques and aproachs taken to implment this as a staticaly compiled
 language.
 
-Creating statically compiled languages has
-been generally aimed for more 'low-level' languages such as C/C++/Fortran where the language requires
+Ahead of time compiled languages have
+been  aimed at 'lower-level' languages such as C/C++/Fortran where the language requires
 strong typing and other kinds declarative features; which brings about to some degree much less dynamic
-features which languages like Python/PHP/Perl take for granted. The reason these more 'high-level' 
-languages are able to do such things is due to the fact they are generaly implemented as interpreted
-languages and this allows for much of this dynamic logic to take place at runtime when a program is passed
+features which languages like Python/PHP/Perl take for granted. More 'high-level' 
+languages are able to take advantage of their implementation as interpreted
+languages and this allows for this dynamic logic to take place at runtime when a program is passed
 through their respective interpreters.
 
 This Paper is licensed under the Creative Commons Attribution Non Commercial Share Alike 2.0 UK: England \& Wales License.
@@ -114,18 +117,20 @@ languages are able to take advantage of the fact that they are implemented as in
 languages and this allows for much of this dynamic logic to take place at runtime when a program is passed
 through their respective implementations.
 
-Here i will explore how Gccpy works and the techniques used to implement this language in such a way,
+Here I will explore how Gccpy works and the techniques used to implement this language in such a way,
 showing the chalenges faced and solutions proposed.
 
 \subsection{Acknowledgements}
-My Family who have supported me in everyway and i owe them everything. Ian Lance Taylor for all the support
-he has given me with GCC and making me feel comfortable with this project. Andi Hellmund who
-has given so much towards the project in helping flesh out different areas of the compiler.
+My girl friend Kirsty Johnston for putting up with me late nights, talking about computers; dealing with me in general.
+Your an amazing woman!\\
+Ian Lance Taylor for all the support he has given me with GCC and making me feel comfortable
+with this project. Andi Hellmund who has given so much towards the project in helping flesh out different areas of the compiler.
 Linux Outlaws, Jezra, Nybill, Windigo, yaMatt, Fabsh, MethodDan for being great inspiration in the world
 of open source and community. Belfast Linux User Group Jonathan McDowel,
 Colin Turner, Geoff McCartney, Steve Wilken, comp.compilers, bison and flex community. 
-I would like it noted that i was very inspired by for Paul Biggars PhD work into PHC the AOT PHP (PHC) compiler,
-to take on this project.
+I would like it noted that I was very inspired by for Paul Biggars PhD work into PHC the AOT PHP (PHC) compiler,
+to take on this project. WANdisco who don't know but in my spare time I continue to work on this project nearly
+like a full time job, Trevor Thompson, Simon Hewitt, Gordon Hamilton, Gavin Shields, Anna Juerk and Trevor Lorimer.
 
 \subsection{Terminology}
 
@@ -156,13 +161,13 @@ we must first look at all these different styles of implementation which we will
 
 I feel its important to draw attention to the different ways of implementing a language and giving an overview of how they work
 and why they do so. Before compiling dynamic language as Python, working on a traditional compiler for a strongly-typed language gave much
-insight in addressing data and storage. Therefore i want to give an overview of two projects Cmod a compiler for a dialect of
+insight in addressing data and storage. Therefore I want to give an overview of two projects Cmod a compiler for a dialect of
 Modula targeted to i386 linux, aswell as an interepter for a basic dynamic language I called crules.
 
 \subsection{CMOD - Modula compiler target to i386 Linux}
 
 This is a traditional compiler where it accepts the input of Modula code and outputs assembler target code for i386 linux. 
-This process of producing the output requires alot of optimization and analysis before producing the ouput which i will
+This process of producing the output requires alot of optimization and analysis before producing the ouput which I will
 show the algorithms and the thought process of doing so.
 
 A compiler consists of three main parts Front-end, Middle-end and Back-end. The Front-end consists of a Lexical
@@ -331,7 +336,7 @@ This is the main driving code in a compiler calling parse is the front-end and c
 is the back-end. We will up the translation unit with our declarations from the parser and keep optimizing as we go.
 
 \subsubsection{Front-End - Parsing}
-In Cmod i use Flex which is a lexical analyser generator and Bison a LALR parser generator. We input a series of definitions
+In Cmod I use Flex which is a lexical analyser generator and Bison a LALR parser generator. We input a series of definitions
 for both and we get a parser which is very well suited a compiler and is very easy to maintain. The lexer which is generated
 works very similar to our example and follows the same kind of algorithm and idea. An LALR parser uses Stacks and States
 pushing tokens onto a stack and moving into new states and resolving and pop'ing tokens off the stack in each action illustrated
@@ -382,7 +387,7 @@ Everything can be broken down to 3 items, an operation with operands A and B; th
 much simpler since instruction sets generally consist of an instruction and operands.
 This can sometimes be referred to as a 3 address code, its similar to a static single assignment
 form SSA, which is used to make compiler optimizations simpler, but we don't do this here but there is room in the compiler
-for optimization passes which i will disccuss later.
+for optimization passes which I will disccuss later.
 
 Evaluation of expressions such as the listing \ref{Example1-IL-1} requires us to break down its Tree form shown in \ref{fig:DAG}. As
 each root of each contains an operation with 2 operands we can quite easily form an intermedite form shown in listing \ref{Example1-IL-2}
@@ -542,11 +547,11 @@ Loops can be handled in a similar manar tranform something like \ref{Loops}:
 \begin{lstlisting}
 for ( i=0; i<10; ++i ) { do_some stuff }
 into 3-address code instructions using a label something like:
-                      - i := 0;         ;; the initilizer
+                      - I := 0;         ;; the initilizer
                       - goto label_for_loop__checks;
  * label_for_loop__start:
                       - do_some_stuff
-                      - i := i + 1;     ;; the incrementor
+                      - I := I + 1;     ;; the incrementor
  * label_for_loop__checks:
                       - if (i<10) { goto label_for_loop__start; }  ;; the loop_conditional
                       - { continue on with rest of program }
@@ -635,7 +640,7 @@ which is the runtime library.
 
 \subsection{Compilation pipeline}
 Gccpy is quite a complicated compiler, it isn't simply a front-end to gcc in the traditional sense, such that we simply parse code
-into GENERIC and let GCC handle the rest for us. The first hurdle was parsing python into an un-typed IR which i designed called DOT.
+into GENERIC and let GCC handle the rest for us. The first hurdle was parsing python into an un-typed IR which I designed called DOT.
 This is a similar design pattern to gccgo for golang which Ian Taylor created for Google. Though gccpy requires several more steps of
 optimization before we can compile python. Gccpy has its own pass manager and we have several passes of optimization then the final
 two passes to pass the generated code to the GCC middle-end.
@@ -649,7 +654,7 @@ two passes to pass the generated code to the GCC middle-end.
   \item py-dot-pass-genericify.c
 \end{itemize}
 
-Each of these passes are called in this order and i will show in detail what and why each of these exist. The first things
+Each of these passes are called in this order and I will show in detail what and why each of these exist. The first things
 within the front-end we parse the code using Flex and Bison and then we are in the pass system with the DOT IL.
 
 \subsection{Parsing Python}

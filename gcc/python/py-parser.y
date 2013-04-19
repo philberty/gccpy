@@ -39,7 +39,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #define YYDEBUG 1
 
-static VEC(gpydot,gc) * gpy_symbol_stack;
+static vec<gpydot, va_gc> * gpy_symbol_stack;
 extern int yylineno;
 
 extern int yylex (void);
@@ -201,15 +201,14 @@ elif_list: elif_list elifstmt
 	 }
          | elifstmt
          {
-	   VEC_safe_push (gpydot, gc,
-			  gpy_symbol_stack, $1);
+	   vec_safe_push (gpy_symbol_stack, $1);
 	   $$ = $1;
 	 }
 
 elifblock:
          { $$ = NULL; }
          | elif_list
-         { $$ = VEC_pop (gpydot, gpy_symbol_stack); }
+         { $$ = gpy_symbol_stack->pop (); }
 
 if_stmt: ifblock elifblock elseblock
        { $$ = dot_build_conditional_struct ($1, $2, $3); }
@@ -238,7 +237,7 @@ funcname: IDENTIFIER
 parameter_list_stmt:
                    { $$ = NULL; }
                    | parameter_list
-                   { $$ = VEC_pop (gpydot, gpy_symbol_stack); }
+                   { $$ = gpy_symbol_stack->pop (); }
 		   ;
 
 parameter_list: parameter_list ',' ident
@@ -248,8 +247,7 @@ parameter_list: parameter_list ',' ident
 	      }
               | ident
               {
-		VEC_safe_push (gpydot, gc,
-			       gpy_symbol_stack, $1);
+		vec_safe_push (gpy_symbol_stack, $1);
 		$$ = $1;
 	      }
               ;
@@ -264,7 +262,7 @@ funcdef: DEF funcname '(' parameter_list_stmt ')' ':' suite
 suite: stmt_list NEWLINE
      | NEWLINE INDENT suite_statement_list DEDENT
      {
-       $$ = VEC_pop (gpydot, gpy_symbol_stack);
+       $$ = gpy_symbol_stack->pop ();
      }
      ;
 
@@ -275,8 +273,7 @@ suite_statement_list: suite_statement_list indent_stmt
 		   }
                    | indent_stmt
                    {
-		     VEC_safe_push (gpydot, gc,
-				    gpy_symbol_stack, $1);
+		     vec_safe_push (gpy_symbol_stack, $1);
 		     $$ = $1;
 		   }
                    ;
@@ -298,7 +295,7 @@ simple_stmt: expression
 argument_list_stmt:
                   { $$ = NULL; }
                   | argument_list
-                  { $$ = VEC_pop (gpydot, gpy_symbol_stack); }
+                  { $$ = gpy_symbol_stack->pop (); }
 		  ;
 
 argument_list: argument_list ',' expression
@@ -308,7 +305,7 @@ argument_list: argument_list ',' expression
 	     }
              | expression
              {
-	       VEC_safe_push (gpydot, gc, gpy_symbol_stack, $1);
+	       vec_safe_push ( gpy_symbol_stack, $1);
 	       $$ = $1;
 	     }
              ;

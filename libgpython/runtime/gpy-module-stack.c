@@ -64,6 +64,7 @@ void gpy_rr_init_primitives (void)
   gpy_obj_staticmethod_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_class_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_classmethod_mod_init (__GPY_GLOBL_PRIMITIVES);
+  gpy_obj_list_mod_init (__GPY_GLOBL_PRIMITIVES);
 }
 
 static
@@ -164,14 +165,55 @@ gpy_object_attrib_t ** gpy_rr_fold_attrib_list (int n, ...)
 	}
       /* sentinal */
       retval[idx] = NULL;
+      va_end (ap);
     }
   return retval;
 }
 
-gpy_object_t * gpy_rr_fold_enclList (int n, ...)
+gpy_object_t * gpy_rr_fold_encList (int n, ...)
 {
   gpy_object_t * retval = NULL;
-  printf ("build up the list boyo!\n");
+  va_list ap;
+  va_start (ap, n);
+
+  gpy_object_t ** elems = (gpy_object_t **)
+    gpy_calloc (n+1, sizeof (gpy_object_t *));
+
+  int i;
+  for (i = 0; i < n; ++i)
+    {
+      gpy_object_t * elem = va_arg (ap, gpy_object_t *);
+      elems [i] = elem;
+    }
+  elems [i] = NULL;
+  va_end (ap);
+
+  /* + 2 for first argument the length of elements and for sentinal */
+  gpy_object_t ** args = (gpy_object_t **)
+    gpy_calloc (3, sizeof (gpy_object_t *));
+
+  gpy_literal_t num;
+  num.type = TYPE_INTEGER;
+  num.literal.integer = n;
+
+  gpy_literal_t elements;
+  elements.type = TYPE_VEC;
+  elements.literal.vec = elems;
+
+  gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &num };
+  gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &elements };
+  gpy_object_t a3 = { .T = TYPE_NULL, .o.literal = NULL };
+  args [0] = &a1;
+  args [1] = &a2;
+  args [2] = &a3;
+
+  gpy_typedef_t * def = __gpy_list_type_node;
+  retval = def->tp_new (def, args);
+
+  gpy_free (args);
+  gpy_free (elems);
+
+  gpy_assert (retval->T == TYPE_OBJECT_STATE);
   return retval;
 }
 
@@ -210,7 +252,6 @@ gpy_object_t * gpy_rr_fold_class_decl (gpy_object_attrib_t ** attribs,
   gpy_free (args);
 
   gpy_assert (retval->T == TYPE_OBJECT_DECL);
-
   return retval;
 }
 

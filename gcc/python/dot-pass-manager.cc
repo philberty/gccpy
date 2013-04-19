@@ -16,8 +16,8 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "gpython.h"
 
-static VEC(gpydot,gc) * gpy_decls;
-typedef VEC(gpydot,gc) * (*dot_pass)(VEC(gpydot,gc) *);
+static vec<gpydot,va_gc> * gpy_decls;
+typedef vec<gpydot,va_gc> * (*dot_pass)(vec<gpydot,va_gc> *);
 static dot_pass dot_pass_mngr[] =
 {
   &dot_pass_check1,       /* sanity checks */
@@ -38,7 +38,7 @@ char * dot_pass_concat (const char * s1, const char * s2)
   size_t s2len = strlen (s2);
   size_t tlen = s1len + s2len;
 
-  char buffer[tlen+3];
+  char *buffer = new char[tlen + 3];
   char * p;
   for (p = buffer; *s1 != '\0'; ++s1)
     {
@@ -53,15 +53,14 @@ char * dot_pass_concat (const char * s1, const char * s2)
       ++p;
     }
   *p = '\0';
-
-  return xstrdup (buffer);
+  return buffer;
 }
 
 /* Pushes each decl from the parser onto the current translation unit */
 void dot_pass_manager_ProcessDecl (gpy_dot_tree_t * const dot)
 {
   /* Push the declaration! */
-  VEC_safe_push (gpydot, gc, gpy_decls, dot);
+  vec_safe_push (gpy_decls, dot);
 }
 
 /* Function to run over the pass manager hooks and
@@ -70,22 +69,21 @@ void dot_pass_manager_ProcessDecl (gpy_dot_tree_t * const dot)
 void dot_pass_manager_WriteGlobals (void)
 {
   dot_pass *p = NULL;
-  VEC(gpydot,gc) * dot_decls = gpy_decls;
+  vec<gpydot,va_gc> * dot_decls = gpy_decls;
 
   /* walk the passes */
   for (p = dot_pass_mngr; *p != NULL; ++p)
     dot_decls = (*p)(dot_decls);
 
   /* generate the types from the passed decls */
-  VEC(tree,gc) * module_types = dot_pass_GenTypes (dot_decls);
+  vec<tree,va_gc> * module_types = dot_pass_GenTypes (dot_decls);
   dot_pass_pretty_PrintTypes (module_types);
 
   /* lower the decls from DOT -> GENERIC */
-  VEC(tree,gc) * dot2gen_trees = dot_pass_genericify (module_types, dot_decls);
-  VEC(tree,gc) * globals = dot2gen_trees;
+  vec<tree,va_gc> * globals =  dot_pass_genericify (module_types, dot_decls);
 
-  int global_vec_len = VEC_length (tree, globals);
-  tree * global_vec = XNEWVEC (tree, global_vec_len);
+  int global_vec_len = vec_safe_length (globals);
+  tree * global_vec = new tree[global_vec_len];
   tree itx = NULL_TREE;
   int idx, idy = 0;
   /*
@@ -96,7 +94,7 @@ void dot_pass_manager_WriteGlobals (void)
      We also fill up the vector of tree's to be passed to the middle-end
    */
   FILE * tu_stream = dump_begin (TDI_tu, NULL);
-  for (idx = 0; VEC_iterate (tree, globals, idx, itx); ++idx)
+  for (idx = 0; vec_safe_iterate (globals, idx, &itx); ++idx)
     {
       if (tu_stream)
 	dump_node (itx, 0, tu_stream);
@@ -108,7 +106,9 @@ void dot_pass_manager_WriteGlobals (void)
 
   /* Passing control to GCC middle-end */
   wrapup_global_declarations (global_vec, global_vec_len);
-  cgraph_finalize_compilation_unit ();
+  finalize_compilation_unit ();
   check_global_declarations (global_vec, global_vec_len);
   emit_debug_global_declarations (global_vec, global_vec_len);
+
+  delete [] global_vec;
 }

@@ -36,7 +36,7 @@ void dot_pass_dump_type (FILE * fd, tree decl)
   fprintf (fd, "};\n\n");
 }
 
-void dot_pass_pretty_PrintTypes (VEC(tree,gc) * decls)
+void dot_pass_pretty_PrintTypes (vec<tree,va_gc> * decls)
 {
   if (GPY_OPT_dump_dot)
     {
@@ -45,7 +45,7 @@ void dot_pass_pretty_PrintTypes (VEC(tree,gc) * decls)
 
       int i;
       tree it;
-      for (i = 0; VEC_iterate (tree, decls, i, it); ++i)
+      for (i = 0; decls->iterate (i, &it); ++i)
 	dot_pass_dump_type (fd, it);
 
       fclose (fd);

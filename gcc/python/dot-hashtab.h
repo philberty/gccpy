@@ -32,10 +32,8 @@ typedef struct gpy_symbol_t {
   tree offset, field, type;
 } gpy_symbol_t;
 
-typedef gpy_hash_tab_t * dot_context;
-DEF_VEC_P (dot_context);
-DEF_VEC_ALLOC_P (dot_context, gc);
-typedef VEC(dot_context,gc) * dot_context_t;
+typedef gpy_hash_tab_t * dot_contextEntry_t;
+typedef vec<dot_contextEntry_t,va_gc> * dot_contextTable_t;
 
 extern gpy_hashval_t gpy_dd_hash_string (const char *);
 extern gpy_hash_entry_t * gpy_dd_hash_lookup_table (gpy_hash_tab_t *, gpy_hashval_t);

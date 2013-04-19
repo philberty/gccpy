@@ -29,29 +29,29 @@
   /* Stack required for INDENT and DEDENT tokens @see
    * - http://docs.python.org/reference/lexical_analysis.html
    */
-  static VEC(gpy_int,gc) * gpy_indent_stack;
+  static vec<int,va_gc> * gpy_indent_stack;
 
   /* Whenver we pass a [, { or (, we may not generate a
    * NEWLINE token unless we passed the closing ], } or ).
    * implicit_lining is a counter which keeps track of the
    * nesting levels.
    */
-  static unsigned int implicit_lining = 0;
+  static int implicit_lining = 0;
 
   /* The indentation level which is calculated according to
    * the python indentation rules at @see
    * - http://docs.python.org/reference/lexical_analysis.html
    */
-  static unsigned int indentation = 0;
+  static int indentation = 0;
 
   /* The top entry of the indendation stack gpy_indent_stack */
-  static unsigned int top_len = 0;
+  static int top_len = 0;
 
   /* We may not generate a NEWLINE token unless we saw a real
    * language token. Empty lines consisting soley of spaces,
    * tabs, formfeeds and comments must be ignored.
    */
-  static unsigned int token_count = 0;
+  static int token_count = 0;
 
   /* maybe_dedent is true if we must potentially generate dedent tokens
    * in lang_token_action. This is per default true once we start a
@@ -247,13 +247,13 @@ else                    { LANG_TOKEN_ACTION; return ELSE; }
     {
       /*fprintf(stdout, "DEBUG: determine INDENT: '%s' (%i) (%d)\n",
 	      yytext, yytext[0], strlen(yytext)); */
-      for (unsigned int i = 0; i < strlen(yytext); i++)
+      for (size_t i = 0; i < strlen (yytext); i++)
 	{
 	  if (yytext[i] == ' ')
 	    indentation++;
 	  else
 	    /* tabs fill up the indentation to a multiple of 8 chars */
-	    indentation = (indentation + 0x8) & ~((unsigned int)0x7);
+	    indentation = (indentation + 0x8) & ~((int)0x7);
 	}
       /* fprintf(stdout, "INDENTATION: %u\n", indentation); */
 
@@ -267,9 +267,8 @@ else                    { LANG_TOKEN_ACTION; return ELSE; }
 <<EOF>>                 {
   if( top_len != 0 )
     {
-      VEC_pop( gpy_int, gpy_indent_stack );
-      top_len = VEC_index( gpy_int, gpy_indent_stack,
-			   VEC_length( gpy_int, gpy_indent_stack )-1 );
+      gpy_indent_stack->pop ();
+      top_len =	(*gpy_indent_stack) [gpy_indent_stack->length () - 1];
       return DEDENT;
     }
   else
@@ -280,7 +279,7 @@ else                    { LANG_TOKEN_ACTION; return ELSE; }
 
 int gpy_do_compile (const char * in)
 {
-  VEC_safe_push (gpy_int, gc, gpy_indent_stack, 0);
+  vec_safe_push (gpy_indent_stack, 0);
   top_len = 0;
 
   int retval = 1;
@@ -316,9 +315,8 @@ int lang_token_action (char *yytext)
               UNPUT_TOKEN();
 
               // fprintf(stdout, "DEDENT: top(%u) - %u\n", top_len, indentation);
-              VEC_pop(gpy_int, gpy_indent_stack);
-              top_len = VEC_index( gpy_int, gpy_indent_stack,
-				   VEC_length( gpy_int, gpy_indent_stack )-1 );
+	      gpy_indent_stack->pop ();
+	      top_len = (*gpy_indent_stack) [gpy_indent_stack->length () - 1];
               gen_indentation = true;
 
               // fprintf(stdout, "DEBUG: DEDENT\n");
@@ -333,7 +331,7 @@ int lang_token_action (char *yytext)
 	{
 	  if (indentation > top_len)
 	    {
-              VEC_safe_push (gpy_int, gc, gpy_indent_stack, indentation);
+	      vec_safe_push (gpy_indent_stack, indentation);
               top_len = indentation;
               gen_indentation = false;
 

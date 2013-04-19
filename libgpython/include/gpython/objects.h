@@ -24,7 +24,7 @@ enum GPY_LIT_T {
   TYPE_FLOAT,
   TYPE_ADDR,
   TYPE_ATTRIB_L,
-  TYPE_VECTOR,
+  TYPE_VEC,
   TYPE_NONE,
 };
 
@@ -44,6 +44,7 @@ typedef struct gpy_rr_literal_t {
     bool boolean;
     unsigned char * addr;
     struct gpy_object_attrib_t ** attribs;
+    struct gpy_object_t ** vec;
   } literal ;
 } gpy_literal_t ;
 
@@ -118,6 +119,7 @@ extern int gpy_args_lit_parse_int (gpy_object_t *);
 extern char * gpy_args_lit_parse_string (gpy_object_t *);
 extern unsigned char * gpy_args_lit_parse_pointer (gpy_object_t *);
 extern gpy_object_attrib_t ** gpy_args_lit_parse_attrib_table (gpy_object_t *);
+extern gpy_object_t ** gpy_args_lit_parse_vec (gpy_object_t *);
 
 extern gpy_object_t * gpy_create_object_state (gpy_typedef_t *, void *);
 extern gpy_object_t * gpy_create_object_decl (gpy_typedef_t *, void *);
@@ -126,5 +128,6 @@ extern unsigned char * gpy_object_classmethod_getaddr (gpy_object_t *);
 
 extern void gpy_obj_integer_mod_init (gpy_vector_t * const);
 extern void gpy_obj_staticmethod_mod_init (gpy_vector_t * const);
+extern void gpy_obj_list_mod_init (gpy_vector_t * const);
 
 #endif //__GCC_OBJECTS_H__

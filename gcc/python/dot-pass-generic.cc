@@ -17,37 +17,36 @@
 #include "gpython.h"
 
 /* DEFINES */
-#define DOT_CURRENT_CONTEXT(x_)						\
-  VEC_index (dot_context, x_, (VEC_length (dot_context, x_) - 1))
+#define DOT_CURRENT_CONTEXT(x_) (*x_) [x_->length () - 1]
 /* ... ... ... */
 
 /* PROTOTYPES... */
 static tree dot_pass_genFndecl_Basic (tree, tree);
 
 static tree dot_pass_getModuleType (const char *, gpy_hash_tab_t *);
-static void dot_pass_setupContext (tree, dot_context_t, VEC(tree,gc) *, tree *);
-static void dot_pass_generic_TU (gpy_hash_tab_t *, VEC(gpydot,gc) *, VEC(tree,gc) *);
+static void dot_pass_setupContext (tree, dot_contextTable_t, vec<tree,va_gc> *, tree *);
+static void dot_pass_generic_TU (gpy_hash_tab_t *, vec<gpydot,va_gc> *, vec<tree,va_gc> *);
 
-static tree dot_pass_genFindAddr (const char *, const char *, VEC(tree,gc) *);
-static void dot_pass_genWalkClass (tree *, tree, tree, VEC(tree,gc) *);
-static void dot_pass_setupClassFieldContext (tree, tree, dot_context);
+static tree dot_pass_genFindAddr (const char *, const char *, vec<tree,va_gc> *);
+static void dot_pass_genWalkClass (tree *, tree, tree, vec<tree,va_gc> *);
+static void dot_pass_setupClassFieldContext (tree, tree, dot_contextEntry_t);
 
-static tree dot_pass_lookupDecl (dot_context_t, const char *);
-static int dot_pass_pushDecl (tree, const char *, dot_context);
+static tree dot_pass_lookupDecl (dot_contextTable_t, const char *);
+static int dot_pass_pushDecl (tree, const char *, dot_contextEntry_t);
 
-static tree dot_pass_genFunction (gpy_dot_tree_t *, VEC(dot_context, gc) *, const char *);
-static VEC(tree,gc) * dot_pass_genClass (gpy_dot_tree_t *, dot_context_t, tree, const char *);
+static tree dot_pass_genFunction (gpy_dot_tree_t *, dot_contextTable_t, const char *);
+static vec<tree,va_gc> * dot_pass_genClass (gpy_dot_tree_t *, dot_contextTable_t, tree, const char *);
 
 static tree dot_pass_genScalar (gpy_dot_tree_t *, tree *);
-static tree dot_pass_genEnclosure (gpy_dot_tree_t *, tree *, dot_context_t);
-static void dot_pass_genCBlock (gpy_dot_tree_t *, tree *, dot_context_t, tree, tree);
+static tree dot_pass_genEnclosure (gpy_dot_tree_t *, tree *, dot_contextTable_t);
+static void dot_pass_genCBlock (gpy_dot_tree_t *, tree *, dot_contextTable_t, tree, tree);
 
-static tree dot_pass_lowerExpr (gpy_dot_tree_t *, VEC(dot_context, gc) *, tree *);
-static void dot_pass_genPrintStmt (gpy_dot_tree_t * , tree *, dot_context_t);
-static tree dot_pass_genModifyExpr (gpy_dot_tree_t *, tree *, dot_context_t);
-static tree dot_pass_genBinExpr (gpy_dot_tree_t *, tree *, dot_context_t);
-static void dot_pass_genConditional (gpy_dot_tree_t *, tree *, dot_context_t);
-static void dot_pass_genSuite (gpy_dot_tree_t * , tree *, dot_context_t);
+static tree dot_pass_lowerExpr (gpy_dot_tree_t *, dot_contextTable_t, tree *);
+static void dot_pass_genPrintStmt (gpy_dot_tree_t * , tree *, dot_contextTable_t);
+static tree dot_pass_genModifyExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
+static tree dot_pass_genBinExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
+static void dot_pass_genConditional (gpy_dot_tree_t *, tree *, dot_contextTable_t);
+static void dot_pass_genSuite (gpy_dot_tree_t * , tree *, dot_contextTable_t);
 /* ... ... ... */
 
 static
@@ -70,6 +69,11 @@ tree dot_pass_genFndecl_Basic (tree ident, tree fntype)
   DECL_IGNORED_P (resdecl) = true;
   DECL_RESULT (fndecl) = resdecl;
 
+  if (DECL_STRUCT_FUNCTION(fndecl) == NULL)
+    push_struct_function(fndecl);
+  else
+    push_cfun(DECL_STRUCT_FUNCTION(fndecl));
+
   return fndecl;
 }
 
@@ -91,7 +95,7 @@ tree dot_pass_getModuleType (const char * s,
 
 static
 void dot_pass_setupClassFieldContext (tree type, tree self,
-				      dot_context context)
+				      dot_contextEntry_t context)
 {
   tree field = NULL_TREE;
   for (field = TYPE_FIELDS (type); field != NULL_TREE;
@@ -108,7 +112,7 @@ void dot_pass_setupClassFieldContext (tree type, tree self,
 static
 tree dot_pass_genFindAddr (const char * id,
 			   const char * parent_ident,
-			   VEC(tree,gc) * decls)
+			   vec<tree,va_gc> * decls)
 {
   tree retval = null_pointer_node;
   tree ident = dot_pass_concat_identifier (parent_ident, id);
@@ -116,7 +120,7 @@ tree dot_pass_genFindAddr (const char * id,
 
   int idx;
   tree decl = NULL_TREE;
-  for (idx = 0; VEC_iterate (tree, decls, idx, decl); ++idx)
+  for (idx = 0; decls->iterate (idx, &decl); ++idx)
     {
       tree decl_name = DECL_NAME (decl);
       if (!strcmp (search, IDENTIFIER_POINTER (decl_name)))
@@ -131,10 +135,11 @@ tree dot_pass_genFindAddr (const char * id,
 static
 void dot_pass_genWalkClass (tree * block, tree type,
 			    tree decl,
-			    VEC(tree,gc) * ldecls)
+			    vec<tree,va_gc> * ldecls)
 {
   const char * type_name = IDENTIFIER_POINTER (TYPE_NAME (type));
-  VEC(tree,gc) * attribs = VEC_alloc (tree,gc,0);
+  vec<tree,va_gc> * attribs;
+  vec_alloc (attribs, 0);
 
   tree field = NULL_TREE;
   int offset = 0;
@@ -183,12 +188,13 @@ void dot_pass_genWalkClass (tree * block, tree type,
       append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
 					atdecl, a),
 				block);
-      VEC_safe_push (tree, gc, attribs, atdecl);
+      vec_safe_push (attribs, atdecl);
       offset++;
     }
-  VEC(tree,gc) * args = VEC_alloc (tree,gc,0);
-  VEC_safe_push (tree, gc, args,
-		 build_int_cst (integer_type_node, VEC_length (tree, attribs)));
+  vec<tree,va_gc> * args;
+  vec_alloc (args, 0);
+  vec_safe_push (args, build_int_cst (integer_type_node,
+				      attribs->length ()));
   GPY_VEC_stmts_append (tree, args, attribs);
 
   tree attribs_decl = build_decl (UNKNOWN_LOCATION, VAR_DECL,
@@ -232,15 +238,15 @@ void dot_pass_genWalkClass (tree * block, tree type,
 
 static
 void dot_pass_setupContext (tree module,
-			    dot_context_t context,
-			    VEC(tree,gc) * generic,
+			    dot_contextTable_t context,
+			    vec<tree,va_gc> * generic,
 			    tree * block)
 {
   debug ("Setting up context %s for module %s\n",
 	 GPY_RR_stack_ptr,
 	 GPY_current_module_name);
-  dot_context globls = VEC_index (dot_context, context, 0);
-  dot_context globls_symbols = VEC_index (dot_context, context, 1);
+  dot_contextEntry_t globls = (*context) [0];
+  dot_contextEntry_t globls_symbols = (*context) [1];
 
   tree stack_pointer = build_decl (BUILTINS_LOCATION, VAR_DECL,
 				   get_identifier (GPY_RR_stack_ptr),
@@ -254,7 +260,7 @@ void dot_pass_setupContext (tree module,
   DECL_INITIAL (stack_pointer) = build_int_cst (integer_type_node, 0);
   rest_of_decl_compilation (stack_pointer, 1, 0);
   gpy_dd_hash_insert (gpy_dd_hash_string (GPY_RR_stack_ptr), stack_pointer, globls);
-  VEC_safe_push (tree, gc, generic, stack_pointer);
+  vec_safe_push (generic, stack_pointer);
 
   int offset = 0, field_count = 0;
   tree field;
@@ -304,7 +310,7 @@ void dot_pass_setupContext (tree module,
       DECL_INITIAL (addr_decl) = build_int_cst (integer_type_node, 0);
 
       rest_of_decl_compilation (addr_decl, 1, 0);
-      VEC_safe_push (tree, gc, generic, addr_decl);
+      vec_safe_push (generic, addr_decl);
 
       append_to_statement_list (build2 (MODIFY_EXPR,
 					gpy_object_type_ptr_ptr,
@@ -322,7 +328,7 @@ void dot_pass_setupContext (tree module,
 
 static
 int dot_pass_pushDecl (tree decl, const char * ident,
-		       dot_context context)
+		       dot_contextEntry_t context)
 {
   int retval = 1;
   gpy_hashval_t h = gpy_dd_hash_string (ident);
@@ -336,17 +342,17 @@ int dot_pass_pushDecl (tree decl, const char * ident,
 }
 
 static
-tree dot_pass_lookupDecl (dot_context_t context,
+tree dot_pass_lookupDecl (dot_contextTable_t context,
 			  const char * identifier)
 {
   tree retval = error_mark_node;
   gpy_hashval_t h = gpy_dd_hash_string (identifier);
-  int length = VEC_length (dot_context, context);
+  int length = context->length ();
 
   int i;
   for (i = length - 1; i >= 0; --i)
     {
-      dot_context ctx = VEC_index (dot_context, context, i);
+      dot_contextEntry_t ctx = (*context) [i];
       gpy_hash_entry_t * o = NULL;
       o = gpy_dd_hash_lookup_table (ctx, h);
 
@@ -395,7 +401,7 @@ tree dot_pass_genScalar (gpy_dot_tree_t * decl, tree * block)
 static
 tree dot_pass_genEnclosure (gpy_dot_tree_t * decl,
 			    tree * block,
-			    dot_context_t context)
+			    dot_contextTable_t context)
 {
   tree retval = error_mark_node;
   gcc_assert (DOT_TYPE (decl) == D_T_LIST);
@@ -406,13 +412,14 @@ tree dot_pass_genEnclosure (gpy_dot_tree_t * decl,
        node = DOT_CHAIN (node))
     length++;
 
-  VEC(tree,gc) * elms = VEC_alloc (tree, gc, 0);
-  VEC_safe_push (tree, gc, elms, build_int_cst (integer_type_node, length));
+  vec<tree,va_gc> * elms;
+  vec_alloc (elms, 0);
+  vec_safe_push (elms, build_int_cst (integer_type_node, length));
   for (node = DOT_lhs_TT (decl); node != NULL_DOT;
        node = DOT_CHAIN (node))
     {
       tree tmp = dot_pass_lowerExpr (node, context, block);
-      VEC_safe_push (tree, gc, elms, tmp);
+      vec_safe_push (elms, tmp);
     }
   retval = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 		       create_tmp_var_name ("PL"),
@@ -427,11 +434,11 @@ tree dot_pass_genEnclosure (gpy_dot_tree_t * decl,
 static
 void dot_pass_genSuite (gpy_dot_tree_t * decl,
 			tree * block,
-			dot_context_t context)
+			dot_contextTable_t context)
 {
   gpy_hash_tab_t suite;
   gpy_dd_hash_init_table (&suite);
-  VEC_safe_push (dot_context, gc, context, &suite);
+  vec_safe_push (context, &suite);
 
   gpy_dot_tree_t * node;
   for (node = decl; node != NULL_DOT;
@@ -453,13 +460,13 @@ void dot_pass_genSuite (gpy_dot_tree_t * decl,
 	  break;
 	}
     }
-  VEC_pop (dot_context, context);
+  context->pop ();
 }
 
 static
 void dot_pass_genCBlock (gpy_dot_tree_t * decl,
 			 tree * block,
-			 dot_context_t context,
+			 dot_contextTable_t context,
 			 tree cval, tree endif)
 {
   gpy_dot_tree_t * suite = NULL_DOT;
@@ -468,11 +475,21 @@ void dot_pass_genCBlock (gpy_dot_tree_t * decl,
     {
       gpy_dot_tree_t * expr = DOT_lhs_TT (decl);
       tree val = dot_pass_lowerExpr (expr, context, block);
+      tree lval = val;
+      if (TREE_TYPE (lval) == gpy_object_type_ptr_ptr)
+	{
+	  lval = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			     create_tmp_var_name ("CDRD"),
+			     gpy_object_type_ptr);
+	  append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+					    lval, build_fold_indirect_ref (val)),
+				    block);
+	}
       tree fold = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 			      create_tmp_var_name ("COND"),
 			      boolean_type_node);
       append_to_statement_list (build2 (MODIFY_EXPR, boolean_type_node,
-					fold, GPY_RR_eval_boolean (val)),
+					fold, GPY_RR_eval_boolean (lval)),
 				block);
       ifcval = fold;
       suite = DOT_rhs_TT (decl);
@@ -534,7 +551,7 @@ void dot_pass_genCBlock (gpy_dot_tree_t * decl,
 static
 void dot_pass_genConditional (gpy_dot_tree_t * decl,
 			      tree * block,
-			      dot_context_t context)
+			      dot_contextTable_t context)
 {
   tree cval = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 			  create_tmp_var_name ("CELSE"),
@@ -542,11 +559,15 @@ void dot_pass_genConditional (gpy_dot_tree_t * decl,
   DECL_INITIAL (cval) = boolean_false_node;
   append_to_statement_list (cval, block);
 
+  /*
+    Make each conditional block exit out of the whole thing properly
+   */
   tree endif_label_decl = build_decl (UNKNOWN_LOCATION, LABEL_DECL,
 				      create_tmp_var_name ("ENDIF"),
 				      void_type_node);
   tree endif_label_expr = fold_build1_loc (UNKNOWN_LOCATION, LABEL_EXPR,
 					   void_type_node, endif_label_decl);
+  DECL_CONTEXT (endif_label_decl) = current_function_decl;
 
   gpy_dot_tree_t * ifblock = DOT_FIELD (decl);
   gpy_dot_tree_t * elifchain = DOT_lhs_TT (decl);
@@ -568,7 +589,7 @@ void dot_pass_genConditional (gpy_dot_tree_t * decl,
 static
 tree dot_pass_genModifyExpr (gpy_dot_tree_t * decl,
 			     tree * block,
-			     dot_context_t context)
+			     dot_contextTable_t context)
 {
   tree retval = error_mark_node;
   gpy_dot_tree_t * lhs = DOT_lhs_TT (decl);
@@ -594,7 +615,7 @@ tree dot_pass_genModifyExpr (gpy_dot_tree_t * decl,
 	/* means id isn't previously declared and we can just make it locally. */
 	if (addr == error_mark_node)
 	  {
-	    dot_context current_context = DOT_CURRENT_CONTEXT (context);
+	    dot_contextEntry_t current_context = DOT_CURRENT_CONTEXT (context);
 	    addr = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 			       get_identifier (DOT_IDENTIFIER_POINTER (lhs)),
 			       gpy_object_type_ptr);
@@ -677,7 +698,7 @@ tree dot_pass_cleanRef (tree decl, tree * block)
 
 static
 tree dot_pass_genBinExpr (gpy_dot_tree_t * decl, tree * block,
-			  dot_context_t context)
+			  dot_contextTable_t context)
 {
   tree retval = error_mark_node;
   gcc_assert (DOT_T_FIELD (decl) == D_D_EXPR);
@@ -739,11 +760,13 @@ tree dot_pass_genBinExpr (gpy_dot_tree_t * decl, tree * block,
 
 static
 void dot_pass_genPrintStmt (gpy_dot_tree_t * decl, tree * block,
-			    dot_context_t context)
+			    dot_contextTable_t context)
 {
   gpy_dot_tree_t * arguments = decl->opa.t;
 
-  VEC(tree,gc) * callvec_tmp = VEC_alloc (tree,gc,0);
+  vec<tree,va_gc> * callvec_tmp;
+  vec_alloc (callvec_tmp, 0);
+
   gpy_dot_tree_t * it = NULL;
   for (it = arguments; it != NULL; it = DOT_CHAIN (it))
     {
@@ -760,12 +783,12 @@ void dot_pass_genPrintStmt (gpy_dot_tree_t * decl, tree * block,
 					    build_fold_indirect_ref (lexpr)),
 				    block);
 	}
-      VEC_safe_push (tree, gc, callvec_tmp, tmp);
+      vec_safe_push (callvec_tmp, tmp);
     }
-  VEC(tree,gc) * callvec = VEC_alloc (tree,gc,0);
-  VEC_safe_push (tree, gc, callvec, build_int_cst (integer_type_node, 1));
-  VEC_safe_push (tree, gc, callvec, build_int_cst (integer_type_node,
-						   VEC_length (tree, callvec_tmp)));
+  vec<tree,va_gc> * callvec;
+  vec_alloc (callvec, 0);
+  vec_safe_push (callvec, build_int_cst (integer_type_node, 1));
+  vec_safe_push (callvec, build_int_cst (integer_type_node, callvec_tmp->length ()));
 
   GPY_VEC_stmts_append (tree, callvec, callvec_tmp);
   append_to_statement_list (GPY_RR_eval_print (callvec), block);
@@ -773,7 +796,7 @@ void dot_pass_genPrintStmt (gpy_dot_tree_t * decl, tree * block,
 
 static
 tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
-			 VEC(dot_context, gc) * context,
+			 dot_contextTable_t context,
 			 tree * block)
 {
   tree retval = error_mark_node;
@@ -833,7 +856,7 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 
 	gcc_assert (DOT_TYPE (xrhs) == D_IDENTIFIER);
 	tree lhs_tree = dot_pass_lowerExpr (xlhs, context, block);
-	char * attrib_ident = DOT_IDENTIFIER_POINTER (xrhs);
+	const char * attrib_ident = DOT_IDENTIFIER_POINTER (xrhs);
 
 	tree str = gpy_dot_type_const_string_tree (attrib_ident);
 	tree lhs_tree_fold = lhs_tree;
@@ -875,7 +898,8 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 	  }
 
 	gpy_dot_tree_t * argslist;
-	VEC(tree,gc) * argsvec = VEC_alloc (tree,gc,0);
+	vec<tree,va_gc> * argsvec;
+	vec_alloc (argsvec, 0);
 	if (DOT_TYPE (callid) == D_ATTRIB_REF)
 	  {
 	    tree basetree = dot_pass_lowerExpr (DOT_lhs_TT (callid),
@@ -891,7 +915,7 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 						  build_fold_indirect_ref (basetree)),
 					  block);
 	      }
-	    VEC_safe_push (tree, gc, argsvec, basetree_fold);
+	    vec_safe_push (argsvec, basetree_fold);
 	  }
 
 	for (argslist = DOT_rhs_TT (dot); argslist != NULL_DOT;
@@ -909,12 +933,13 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 						  build_fold_indirect_ref (lexpr)),
 					  block);
 	      }
-	    VEC_safe_push (tree, gc, argsvec, argument);
+	    vec_safe_push (argsvec, argument);
 	  }
-	VEC(tree,gc) * args = VEC_alloc (tree,gc,0);
-	VEC_safe_push (tree, gc, args, call_decl);
-	VEC_safe_push (tree, gc, args, build_int_cst (integer_type_node,
-						      VEC_length (tree, argsvec)));
+	vec<tree,va_gc> * args;
+	vec_alloc (args, 0);
+	vec_safe_push (args, call_decl);
+	vec_safe_push (args, build_int_cst (integer_type_node,
+					    argsvec->length ()));
 	GPY_VEC_stmts_append (tree, args, argsvec);
 	tree retaddr = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 				   create_tmp_var_name ("RET"),
@@ -954,12 +979,13 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 }
 
 static
-VEC(tree,gc) * dot_pass_genClass (gpy_dot_tree_t * dot,
-				  dot_context_t context,
-				  tree class_type,
-				  const char * pid)
+vec<tree,va_gc> * dot_pass_genClass (gpy_dot_tree_t * dot,
+				     dot_contextTable_t context,
+				     tree class_type,
+				     const char * pid)
 {
-  VEC(tree,gc) * lowered_decls = VEC_alloc (tree,gc,0);
+  vec<tree,va_gc> * lowered_decls;
+  vec_alloc (lowered_decls, 0);
 
   tree class_type_ptr = build_pointer_type (class_type);
   tree fntype = build_function_type_list (void_type_node,
@@ -987,7 +1013,7 @@ VEC(tree,gc) * dot_pass_genClass (gpy_dot_tree_t * dot,
   gpy_dd_hash_init_table (&field_type_namespace);
   dot_pass_setupClassFieldContext (class_type, self_parm_decl, &field_type_namespace);
 
-  VEC_safe_push (dot_context, gc, context, &field_type_namespace);
+  vec_safe_push (context, &field_type_namespace);
 
   tree block = alloc_stmt_list ();
   gpy_dot_tree_t * node;
@@ -1007,10 +1033,10 @@ VEC(tree,gc) * dot_pass_genClass (gpy_dot_tree_t * dot,
 
 	case D_STRUCT_METHOD:
 	  {
-	    char * modID = DOT_IDENTIFIER_POINTER (DOT_FIELD (dot));
+	    const char * modID = DOT_IDENTIFIER_POINTER (DOT_FIELD (dot));
 	    const char * npid = dot_pass_concat (pid, modID);
 	    tree attrib = dot_pass_genFunction (node, context, npid);
-	    VEC_safe_push (tree, gc, lowered_decls, attrib);
+	    vec_safe_push (lowered_decls, attrib);
 	  }
 	  break;
 
@@ -1035,21 +1061,22 @@ VEC(tree,gc) * dot_pass_genClass (gpy_dot_tree_t * dot,
   gimplify_function_tree (fndecl);
   cgraph_finalize_function (fndecl, false);
 
-  VEC_safe_push (tree, gc, lowered_decls, fndecl);
+  vec_safe_push (lowered_decls, fndecl);
+  context->pop ();
+  pop_cfun ();
 
-  VEC_pop (dot_context, context);
   return lowered_decls;
 }
 
 static
 tree dot_pass_genFunction (gpy_dot_tree_t * dot,
-			   VEC(dot_context, gc) * context,
+			   dot_contextTable_t context,
 			   const char * parentID)
 {
   /* setup next context */
   gpy_hash_tab_t ctx;
   gpy_dd_hash_init_table (&ctx);
-  VEC_safe_push (dot_context, gc, context, &ctx);
+  vec_safe_push (context, &ctx);
 
   gpy_dot_tree_t * pnode;
   tree params = NULL_TREE;
@@ -1122,23 +1149,25 @@ tree dot_pass_genFunction (gpy_dot_tree_t * dot,
 
   gimplify_function_tree (fndecl);
   cgraph_finalize_function (fndecl, false);
+  pop_cfun ();
 
-  VEC_pop (dot_context, context);
+  context->pop ();
   return fndecl;
 }
 
 static
 void dot_pass_generic_TU (gpy_hash_tab_t * types,
-			  VEC(gpydot,gc) * decls,
-			  VEC(tree,gc) * generic)
+			  vec<gpydot,va_gc> * decls,
+			  vec<tree,va_gc> * generic)
 {
   gpy_hash_tab_t toplvl, topnxt;
   gpy_dd_hash_init_table (&toplvl);
   gpy_dd_hash_init_table (&topnxt);
 
-  dot_context_t context = VEC_alloc (dot_context, gc, 0);
-  VEC_safe_push (dot_context, gc, context, &toplvl);
-  VEC_safe_push (dot_context, gc, context, &topnxt);
+  dot_contextTable_t context;
+  vec_alloc (context, 0);
+  vec_safe_push (context, &toplvl);
+  vec_safe_push (context, &topnxt);
 
   tree block = alloc_stmt_list ();
   tree module = dot_pass_getModuleType (GPY_current_module_name, types);
@@ -1152,7 +1181,7 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 
   int i;
   gpy_dot_tree_t * dot = NULL_DOT;
-  for (i = 0; VEC_iterate (gpydot, decls, i, dot); ++i)
+  for (i = 0; decls->iterate (i, &dot); ++i)
     {
       if (DOT_T_FIELD (dot) ==  D_D_EXPR)
 	{
@@ -1195,7 +1224,7 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 					      build_fold_indirect_ref (funcdecl),
 					      decl_func),
 				      &block);
-	    VEC_safe_push (tree, gc, generic, func);
+	    vec_safe_push (generic, func);
 	  }
 	  break;
 
@@ -1204,8 +1233,8 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 	    char * classID =  dot_pass_concat (GPY_current_module_name,
 					       DOT_IDENTIFIER_POINTER (DOT_FIELD (dot)));
 	    tree classType = dot_pass_getModuleType (classID, types);
-	    VEC(tree,gc) * cdecls = dot_pass_genClass (dot, context, classType,
-						       GPY_current_module_name);
+	    vec<tree,va_gc> * cdecls = dot_pass_genClass (dot, context, classType,
+							  GPY_current_module_name);
 	    GPY_VEC_stmts_append (tree, generic, cdecls);
 	    tree class_decl_ptr = dot_pass_lookupDecl (context,
 						       DOT_IDENTIFIER_POINTER (DOT_FIELD (dot)));
@@ -1246,28 +1275,32 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
   gimplify_function_tree (fndecl);
   cgraph_finalize_function (fndecl, false);
 
-  /* Here we need to write out export data to object */
-  char main_HEADER[512];
-  snprintf (main_HEADER, 511, "GPY MODULE NAME %s",
-	    GPY_current_module_name );
-  const char * main_FNDECL = IDENTIFIER_POINTER (DECL_NAME (fndecl));
-  gpy_write_export_data (main_HEADER, strlen (main_HEADER));
-  gpy_write_export_data (main_FNDECL, strlen (main_FNDECL));
+  pop_cfun ();
 
-  VEC_safe_push (tree, gc, generic, fndecl);
-  VEC_safe_push (tree, gc, generic, entry_decl);
+  /* Here we need to write out export data to object */
+  // char main_HEADER[512];
+  // snprintf (main_HEADER, 511, "GPY MODULE NAME %s",
+  // 	    GPY_current_module_name);
+  // const char * main_FNDECL = IDENTIFIER_POINTER (DECL_NAME (fndecl)); 
+  // gpy_write_export_data (main_HEADER, strlen (main_HEADER));
+  // gpy_write_export_data (main_FNDECL, strlen (main_FNDECL));
+
+  vec_safe_push (generic, fndecl);
+  vec_safe_push (generic, entry_decl);
 }
 
-VEC(tree,gc) * dot_pass_genericify (VEC(tree,gc) * modules,
-				    VEC(gpydot,gc) * decls)
+vec<tree,va_gc> * dot_pass_genericify (vec<tree,va_gc> * modules,
+				       vec<gpydot,va_gc> * decls)
 {
-  VEC(tree,gc) * retval = VEC_alloc (tree, gc, 0);
+  vec<tree,va_gc> * retval;
+  vec_alloc (retval, 0);
+
   gpy_hash_tab_t types;
   gpy_dd_hash_init_table (&types);
 
   int i;
   tree type = NULL_TREE;
-  for (i = 0; VEC_iterate (tree, modules, i, type); ++i)
+  for (i = 0; modules->iterate (i, &type); ++i)
     {
       gpy_hashval_t h = gpy_dd_hash_string (IDENTIFIER_POINTER (TYPE_NAME(type)));
       void ** e = gpy_dd_hash_insert (h, type, &types);

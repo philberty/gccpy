@@ -89,40 +89,42 @@ void ** gpy_dd_hash_insert (const gpy_hashval_t h,
 
 void gpy_dd_hash_grow_table (gpy_hash_tab_t * tbl)
 {
-  unsigned int prev_size= tbl->size, size= 0, i= 0;
-  gpy_hash_entry_t *prev_array= tbl->array, *array;
+  unsigned int prev_size = tbl->size, size = 0, i;
+  gpy_hash_entry_t *prev_array = tbl->array, *array;
 
-  size = gpy_threshold_alloc( prev_size );
-  array = (gpy_hash_entry_t*)
-    gpy_calloc( size, sizeof(gpy_hash_entry_t) );
+  size = gpy_threshold_alloc (prev_size);
+  array = (gpy_hash_entry_t *)
+    gpy_calloc (size, sizeof (gpy_hash_entry_t));
 
-  tbl->length = 0; tbl->size= size;
-  tbl->array= array;
+  tbl->length = 0;
+  tbl->size = size;
+  tbl->array = array;
 
-  for ( ; i<prev_size; ++i )
+  for (i = 0; i < prev_size; ++i)
     {
-      gpy_hashval_t h= prev_array[i].hash;
-      void *s= prev_array[i].data;
+      gpy_hashval_t h = prev_array[i].hash;
+      void * s = prev_array[i].data;
 
-      if( s )
-        gpy_dd_hash_insert( h, s, tbl );
+      if (s)
+        gpy_dd_hash_insert (h, s, tbl);
     }
-  if( prev_array )
-    gpy_free( prev_array );
+  if (prev_array)
+    gpy_free (prev_array);
 }
 
 inline
 void gpy_dd_hash_init_table (gpy_hash_tab_t * tb)
 {
-  tb->size= 0; tb->length= 0;
-  tb->array= NULL;
+  tb->size = 0;
+  tb->length = 0;
+  tb->array = NULL;
 }
 
 inline
 void gpy_vec_init (gpy_vector_t * const v)
 {
-  v->size = gpy_threshold_alloc( 0 );
-  v->vector = (void **) gpy_calloc( v->size, sizeof(void *) );
+  v->size = gpy_threshold_alloc (0);
+  v->vector = (void **) gpy_calloc (v->size, sizeof (void *));
   v->length = 0;
 }
 

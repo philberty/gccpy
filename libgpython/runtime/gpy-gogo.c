@@ -34,12 +34,7 @@ extern unsigned char * __GPY_entry;
 
 /*
   This will end up working similar to the JAVA link/load model
-
-  Compiled Modules will register their __main_start__
-  entry points to a hashtab and when linked as an executable
-  user can specify what compiled module you want to run.
-
-  This is because python has no explicit _main_ method to start.
+  because python has no explicit _main_ method to start.
 */
 
 int main (int argc, char **argv)

@@ -1514,8 +1514,6 @@ outgoing_edges_match (int mode, basic_block bb1, basic_block bb2)
   edge fallthru1 = 0, fallthru2 = 0;
   edge e1, e2;
   edge_iterator ei;
-  rtx last1, last2;
-  bool nonfakeedges;
 
   /* If we performed shrink-wrapping, edges to the EXIT_BLOCK_PTR can
      only be distinguished for JUMP_INSNs.  The two paths may differ in

@@ -37399,7 +37399,7 @@ all-target-libgpython: configure-target-libgpython
 	s=`cd $(srcdir); ${PWD_COMMAND}`; export s; \
 	$(NORMAL_TARGET_EXPORTS)  \
 	(cd $(TARGET_SUBDIR)/libgpython && \
-	  $(MAKE) $(BASE_FLAGS_TO_PASS) $(EXTRA_TARGET_FLAGS)  \
+	  $(MAKE) $(BASE_FLAGS_TO_PASS) $(EXTRA_TARGET_FLAGS)   \
 		$(TARGET-target-libgpython))
 @endif target-libgpython
 
@@ -46665,6 +46665,11 @@ configure-target-libgo: maybe-all-target-libstdc++-v3
 all-target-libgo: maybe-all-target-libbacktrace
 all-target-libgo: maybe-all-target-libffi
 all-target-libgo: maybe-all-target-libatomic
+configure-target-libgpython: maybe-configure-target-libffi
+configure-target-libgpython: maybe-all-target-libstdc++-v3
+all-target-libgpython: maybe-all-target-libbacktrace
+all-target-libgpython: maybe-all-target-libffi
+all-target-libgpython: maybe-all-target-libatomic
 configure-target-libjava: maybe-configure-target-zlib
 configure-target-libjava: maybe-configure-target-boehm-gc
 configure-target-libjava: maybe-configure-target-libffi

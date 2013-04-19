@@ -156,7 +156,7 @@ gpy_dot_tree_t * dot_build_string (char * s ATTRIBUTE_UNUSED)
   return NULL_DOT;
 }
 
-gpy_dot_tree_t * dot_build_identifier (char * s)
+gpy_dot_tree_t * dot_build_identifier (const char * s)
 {
   gpy_dot_tree_t * decl = DOT_alloc;
 
@@ -167,7 +167,7 @@ gpy_dot_tree_t * dot_build_identifier (char * s)
   decl->opaT = D_TD_COM;
   decl->opa.tc = DOT_CM_alloc;
   decl->opa.tc->T = D_T_STRING;
-  decl->opa.tc->o.string = (char *) s;
+  decl->opa.tc->o.string = s;
 
   decl->opbT = D_TD_NULL;
 
