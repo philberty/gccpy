@@ -32,6 +32,7 @@ struct gimple_opt_pass one_pass =
   {
   GIMPLE_PASS,
   "cfg",                           /* name */
+  OPTGROUP_NONE,                         /* optinfo_flags */
   one_pass_gate,                         /* gate */
   one_pass_exec,       /* execute */
   NULL,                                 /* sub */
@@ -42,7 +43,7 @@ struct gimple_opt_pass one_pass =
   0,                                    /* properties_provided */
   0,                                    /* properties_destroyed */
   0,                                    /* todo_flags_start */
-  TODO_dump_func                        /* todo_flags_finish */
+  0					/* todo_flags_finish */
   }
 };
 

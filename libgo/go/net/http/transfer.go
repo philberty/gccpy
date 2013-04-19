@@ -87,10 +87,8 @@ func newTransferWriter(r interface{}) (t *transferWriter, err error) {
 	// Sanitize Body,ContentLength,TransferEncoding
 	if t.ResponseToHEAD {
 		t.Body = nil
-		t.TransferEncoding = nil
-		// ContentLength is expected to hold Content-Length
-		if t.ContentLength < 0 {
-			return nil, ErrMissingContentLength
+		if chunked(t.TransferEncoding) {
+			t.ContentLength = -1
 		}
 	} else {
 		if !atLeastHTTP11 || t.Body == nil {
@@ -120,9 +118,6 @@ func (t *transferWriter) shouldSendContentLength() bool {
 		return false
 	}
 	if t.ContentLength > 0 {
-		return true
-	}
-	if t.ResponseToHEAD {
 		return true
 	}
 	// Many servers expect a Content-Length for these methods
@@ -294,9 +289,18 @@ func readTransfer(msg interface{}, r *bufio.Reader) (err error) {
 		return err
 	}
 
-	t.ContentLength, err = fixLength(isResponse, t.StatusCode, t.RequestMethod, t.Header, t.TransferEncoding)
+	realLength, err := fixLength(isResponse, t.StatusCode, t.RequestMethod, t.Header, t.TransferEncoding)
 	if err != nil {
 		return err
+	}
+	if isResponse && t.RequestMethod == "HEAD" {
+		if n, err := parseContentLength(t.Header.get("Content-Length")); err != nil {
+			return err
+		} else {
+			t.ContentLength = n
+		}
+	} else {
+		t.ContentLength = realLength
 	}
 
 	// Trailer
@@ -310,7 +314,7 @@ func readTransfer(msg interface{}, r *bufio.Reader) (err error) {
 	// See RFC2616, section 4.4.
 	switch msg.(type) {
 	case *Response:
-		if t.ContentLength == -1 &&
+		if realLength == -1 &&
 			!chunked(t.TransferEncoding) &&
 			bodyAllowedForStatus(t.StatusCode) {
 			// Unbounded body.
@@ -323,11 +327,11 @@ func readTransfer(msg interface{}, r *bufio.Reader) (err error) {
 	switch {
 	case chunked(t.TransferEncoding):
 		t.Body = &body{Reader: newChunkedReader(r), hdr: msg, r: r, closing: t.Close}
-	case t.ContentLength >= 0:
+	case realLength >= 0:
 		// TODO: limit the Content-Length. This is an easy DoS vector.
-		t.Body = &body{Reader: io.LimitReader(r, t.ContentLength), closing: t.Close}
+		t.Body = &body{Reader: io.LimitReader(r, realLength), closing: t.Close}
 	default:
-		// t.ContentLength < 0, i.e. "Content-Length" not mentioned in header
+		// realLength < 0, i.e. "Content-Length" not mentioned in header
 		if t.Close {
 			// Close semantics (i.e. HTTP/1.0)
 			t.Body = &body{Reader: r, closing: t.Close}
@@ -370,12 +374,6 @@ func fixTransferEncoding(requestMethod string, header Header) ([]string, error) 
 	}
 
 	delete(header, "Transfer-Encoding")
-
-	// Head responses have no bodies, so the transfer encoding
-	// should be ignored.
-	if requestMethod == "HEAD" {
-		return nil, nil
-	}
 
 	encodings := strings.Split(raw[0], ",")
 	te := make([]string, 0, len(encodings))
@@ -432,11 +430,11 @@ func fixLength(isResponse bool, status int, requestMethod string, header Header,
 	}
 
 	// Logic based on Content-Length
-	cl := strings.TrimSpace(header.Get("Content-Length"))
+	cl := strings.TrimSpace(header.get("Content-Length"))
 	if cl != "" {
-		n, err := strconv.ParseInt(cl, 10, 64)
-		if err != nil || n < 0 {
-			return -1, &badStringError{"bad Content-Length", cl}
+		n, err := parseContentLength(cl)
+		if err != nil {
+			return -1, err
 		}
 		return n, nil
 	} else {
@@ -454,7 +452,7 @@ func fixLength(isResponse bool, status int, requestMethod string, header Header,
 	// Logic based on media type. The purpose of the following code is just
 	// to detect whether the unsupported "multipart/byteranges" is being
 	// used. A proper Content-Type parser is needed in the future.
-	if strings.Contains(strings.ToLower(header.Get("Content-Type")), "multipart/byteranges") {
+	if strings.Contains(strings.ToLower(header.get("Content-Type")), "multipart/byteranges") {
 		return -1, ErrNotSupported
 	}
 
@@ -469,14 +467,14 @@ func shouldClose(major, minor int, header Header) bool {
 	if major < 1 {
 		return true
 	} else if major == 1 && minor == 0 {
-		if !strings.Contains(strings.ToLower(header.Get("Connection")), "keep-alive") {
+		if !strings.Contains(strings.ToLower(header.get("Connection")), "keep-alive") {
 			return true
 		}
 		return false
 	} else {
 		// TODO: Should split on commas, toss surrounding white space,
 		// and check each field.
-		if strings.ToLower(header.Get("Connection")) == "close" {
+		if strings.ToLower(header.get("Connection")) == "close" {
 			header.Del("Connection")
 			return true
 		}
@@ -486,7 +484,7 @@ func shouldClose(major, minor int, header Header) bool {
 
 // Parse the trailer header
 func fixTrailer(header Header, te []string) (Header, error) {
-	raw := header.Get("Trailer")
+	raw := header.get("Trailer")
 	if raw == "" {
 		return nil, nil
 	}
@@ -525,11 +523,11 @@ type body struct {
 	res *response // response writer for server requests, else nil
 }
 
-// ErrBodyReadAfterClose is returned when reading a Request Body after
-// the body has been closed. This typically happens when the body is
+// ErrBodyReadAfterClose is returned when reading a Request or Response
+// Body after the body has been closed. This typically happens when the body is
 // read after an HTTP Handler calls WriteHeader or Write on its
 // ResponseWriter.
-var ErrBodyReadAfterClose = errors.New("http: invalid Read on closed request Body")
+var ErrBodyReadAfterClose = errors.New("http: invalid Read on closed Body")
 
 func (b *body) Read(p []byte) (n int, err error) {
 	if b.closed {
@@ -567,13 +565,21 @@ func seeUpcomingDoubleCRLF(r *bufio.Reader) bool {
 	return false
 }
 
+var errTrailerEOF = errors.New("http: unexpected EOF reading trailer")
+
 func (b *body) readTrailer() error {
 	// The common case, since nobody uses trailers.
-	buf, _ := b.r.Peek(2)
+	buf, err := b.r.Peek(2)
 	if bytes.Equal(buf, singleCRLF) {
 		b.r.ReadByte()
 		b.r.ReadByte()
 		return nil
+	}
+	if len(buf) < 2 {
+		return errTrailerEOF
+	}
+	if err != nil {
+		return err
 	}
 
 	// Make sure there's a header terminator coming up, to prevent
@@ -590,6 +596,9 @@ func (b *body) readTrailer() error {
 
 	hdr, err := textproto.NewReader(b.r).ReadMIMEHeader()
 	if err != nil {
+		if err == io.EOF {
+			return errTrailerEOF
+		}
 		return err
 	}
 	switch rr := b.hdr.(type) {
@@ -629,4 +638,19 @@ func (b *body) Close() error {
 		return err
 	}
 	return nil
+}
+
+// parseContentLength trims whitespace from s and returns -1 if no value
+// is set, or the value if it's >= 0.
+func parseContentLength(cl string) (int64, error) {
+	cl = strings.TrimSpace(cl)
+	if cl == "" {
+		return -1, nil
+	}
+	n, err := strconv.ParseInt(cl, 10, 64)
+	if err != nil || n < 0 {
+		return 0, &badStringError{"bad Content-Length", cl}
+	}
+	return n, nil
+
 }

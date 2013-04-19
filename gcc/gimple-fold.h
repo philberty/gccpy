@@ -1,6 +1,6 @@
 /* Gimple folding definitions.
 
-   Copyright 2011 Free Software Foundation, Inc.
+   Copyright (C) 2011-2013 Free Software Foundation, Inc.
    Contributed by Richard Guenther <rguenther@suse.de>
 
 This file is part of GCC.
@@ -21,8 +21,6 @@ along with GCC; see the file COPYING3.  If not see
 
 #ifndef GCC_GIMPLE_FOLD_H
 #define GCC_GIMPLE_FOLD_H
-
-#include "coretypes.h"
 
 tree fold_const_aggregate_ref_1 (tree, tree (*) (tree));
 tree fold_const_aggregate_ref (tree);

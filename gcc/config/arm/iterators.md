@@ -1,5 +1,5 @@
 ;; Code and mode itertator and attribute definitions for the ARM backend
-;; Copyright (C) 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2013 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 ;;
 ;; This file is part of GCC.
@@ -36,14 +36,19 @@
 ;; A list of integer modes that are less than a word
 (define_mode_iterator NARROW [QI HI])
 
-;; A list of all the integer modes upto 64bit
+;; A list of all the integer modes up to 64bit
 (define_mode_iterator QHSD [QI HI SI DI])
 
 ;; A list of the 32bit and 64bit integer modes
 (define_mode_iterator SIDI [SI DI])
 
+;; A list of modes which the VFP unit can handle
+(define_mode_iterator SDF [(SF "TARGET_VFP") (DF "TARGET_VFP_DOUBLE")])
+
 ;; Integer element sizes implemented by IWMMXT.
 (define_mode_iterator VMMX [V2SI V4HI V8QI])
+
+(define_mode_iterator VMMX2 [V4HI V2SI])
 
 ;; Integer element sizes for shifts.
 (define_mode_iterator VSHFT [V4HI V2SI DI])
@@ -183,6 +188,19 @@
 ;; A list of widening operators
 (define_code_iterator SE [sign_extend zero_extend])
 
+;; Right shifts
+(define_code_iterator rshifts [ashiftrt lshiftrt])
+
+;;----------------------------------------------------------------------------
+;; Int iterators
+;;----------------------------------------------------------------------------
+
+(define_int_iterator VRINT [UNSPEC_VRINTZ UNSPEC_VRINTP UNSPEC_VRINTM
+                            UNSPEC_VRINTR UNSPEC_VRINTX UNSPEC_VRINTA])
+
+(define_int_iterator NEON_VRINT [UNSPEC_NVRINTP UNSPEC_NVRINTZ UNSPEC_NVRINTM
+                              UNSPEC_NVRINTX UNSPEC_NVRINTA UNSPEC_NVRINTN])
+
 ;;----------------------------------------------------------------------------
 ;; Mode attributes
 ;;----------------------------------------------------------------------------
@@ -243,7 +261,8 @@
                          (V4HI "P") (V8HI  "q")
                          (V2SI "P") (V4SI  "q")
                          (V2SF "P") (V4SF  "q")
-                         (DI   "P") (V2DI  "q")])
+                         (DI   "P") (V2DI  "q")
+                         (SF   "")  (DF    "P")])
 
 ;; Wider modes with the same number of elements.
 (define_mode_attr V_widen [(V8QI "V8HI") (V4HI "V4SI") (V2SI "V2DI")])
@@ -301,7 +320,8 @@
                  (V4HI "i16") (V8HI  "i16")
                              (V2SI "i32") (V4SI  "i32")
                              (DI   "i64") (V2DI  "i64")
-                 (V2SF "f32") (V4SF  "f32")])
+                 (V2SF "f32") (V4SF  "f32")
+                 (SF "f32") (DF "f64")])
 
 ;; Same, but for operations which work on signed values.
 (define_mode_attr V_s_elem [(V8QI "s8")  (V16QI "s8")
@@ -409,8 +429,8 @@
 (define_mode_attr qhs_extenddi_op [(SI "s_register_operand")
 				   (HI "nonimmediate_operand")
 				   (QI "arm_reg_or_extendqisi_mem_op")])
-(define_mode_attr qhs_extenddi_cstr [(SI "r") (HI "rm") (QI "rUq")])
-(define_mode_attr qhs_zextenddi_cstr [(SI "r") (HI "rm") (QI "rm")])
+(define_mode_attr qhs_extenddi_cstr [(SI "r,0,r,r") (HI "r,0,rm,rm") (QI "r,0,rUq,rm")])
+(define_mode_attr qhs_zextenddi_cstr [(SI "r,0,r") (HI "r,0,rm") (QI "r,0,rm")])
 
 ;; Mode attributes used for fixed-point support.
 (define_mode_attr qaddsub_suf [(V4UQQ "8") (V2UHQ "16") (UQQ "8") (UHQ "16")
@@ -420,6 +440,11 @@
 
 ;; Mode attribute for vshll.
 (define_mode_attr V_innermode [(V8QI "QI") (V4HI "HI") (V2SI "SI")])
+
+;; Mode attributes used for VFP support.
+(define_mode_attr F_constraint [(SF "t") (DF "w")])
+(define_mode_attr vfp_type [(SF "s") (DF "d")])
+(define_mode_attr vfp_double_cond [(SF "") (DF "&& TARGET_VFP_DOUBLE")])
 
 ;;----------------------------------------------------------------------------
 ;; Code attributes
@@ -438,3 +463,30 @@
 
 ;; Assembler mnemonics for signedness of widening operations.
 (define_code_attr US [(sign_extend "s") (zero_extend "u")])
+
+;; Right shifts
+(define_code_attr shift [(ashiftrt "ashr") (lshiftrt "lshr")])
+(define_code_attr shifttype [(ashiftrt "signed") (lshiftrt "unsigned")])
+
+;;----------------------------------------------------------------------------
+;; Int attributes
+;;----------------------------------------------------------------------------
+
+;; Standard names for floating point to integral rounding instructions.
+(define_int_attr vrint_pattern [(UNSPEC_VRINTZ "btrunc") (UNSPEC_VRINTP "ceil")
+                         (UNSPEC_VRINTA "round") (UNSPEC_VRINTM "floor")
+                         (UNSPEC_VRINTR "nearbyint") (UNSPEC_VRINTX "rint")])
+
+;; Suffixes for vrint instructions specifying rounding modes.
+(define_int_attr vrint_variant [(UNSPEC_VRINTZ "z") (UNSPEC_VRINTP "p")
+                               (UNSPEC_VRINTA "a") (UNSPEC_VRINTM "m")
+                               (UNSPEC_VRINTR "r") (UNSPEC_VRINTX "x")])
+
+;; Some of the vrint instuctions are predicable.
+(define_int_attr vrint_predicable [(UNSPEC_VRINTZ "yes") (UNSPEC_VRINTP "no")
+                                  (UNSPEC_VRINTA "no") (UNSPEC_VRINTM "no")
+                                  (UNSPEC_VRINTR "yes") (UNSPEC_VRINTX "yes")])
+
+(define_int_attr nvrint_variant [(UNSPEC_NVRINTZ "z") (UNSPEC_NVRINTP "p")
+                                (UNSPEC_NVRINTA "a") (UNSPEC_NVRINTM "m")
+                                (UNSPEC_NVRINTX "x") (UNSPEC_NVRINTN "n")])

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -41,6 +41,34 @@
 --  so we can do the instantiation under control of Discard_Names to remove
 --  the tables.
 
+---------------------------------------------------
+-- Note On Compile/Run-Time Consistency Checking --
+---------------------------------------------------
+
+--  This unit is with'ed by the run-time (to make System.Restrictions which is
+--  used for run-time access to restriction information), by the compiler (to
+--  determine what restrictions are implemented and what their category is) and
+--  by the binder (in processing ali files, and generating the information used
+--  at run-time to access restriction information).
+
+--  Normally the version of System.Rident referenced in all three contexts
+--  should be the same. However, problems could arise in certain inconsistent
+--  builds that used inconsistent versions of the compiler and run-time. This
+--  sort of thing is not strictly correct, but it does arise when short-cuts
+--  are taken in build procedures.
+
+--  Previously, this kind of inconsistency could cause a significant problem.
+--  If versions of System.Rident accessed by the compiler and binder differed,
+--  then the binder could fail to recognize the R (restrictions line) in the
+--  ali file, leading to bind errors when restrictions were added or removed.
+
+--  The latest implementation avoids both this problem by using a named
+--  scheme for recording restrictions, rather than a positional scheme which
+--  fails completely if restrictions are added or subtracted. Now the worst
+--  that happens at bind time in incosistent builds is that unrecognized
+--  restrictions are ignored, and the consistency checking for restrictions
+--  might be incomplete, which is no big deal.
+
 pragma Compiler_Unit;
 
 generic
@@ -66,7 +94,7 @@ package System.Rident is
       No_Allocators,                           -- (RM H.4(7))
       No_Allocators_After_Elaboration,         -- Ada 2012 (RM D.7(19.1/2))
       No_Anonymous_Allocators,                 -- Ada 2012 (RM H.4(8/1))
-      No_Asynchronous_Control,                 -- (RM D.7(10))
+      No_Asynchronous_Control,                 -- (RM J.13(3/2)
       No_Calendar,                             -- GNAT
       No_Default_Stream_Attributes,            -- Ada 2012 (RM 13.12.1(4/2))
       No_Delay,                                -- (RM H.4(21))
@@ -114,8 +142,8 @@ package System.Rident is
       No_Tasking,                              -- GNAT
       No_Terminate_Alternatives,               -- (RM D.7(6))
       No_Unchecked_Access,                     -- (RM H.4(18))
-      No_Unchecked_Conversion,                 -- (RM H.4(16))
-      No_Unchecked_Deallocation,               -- (RM H.4(9))
+      No_Unchecked_Conversion,                 -- (RM J.13(4/2))
+      No_Unchecked_Deallocation,               -- (RM J.13(5/2))
       Static_Priorities,                       -- GNAT
       Static_Storage_Size,                     -- GNAT
 
@@ -354,10 +382,11 @@ package System.Rident is
       --  value of the parameter permitted by the profile.
    end record;
 
-   Profile_Info : constant array (Profile_Name_Actual) of Profile_Data :=
+   Profile_Info : constant array (Profile_Name_Actual) of Profile_Data := (
 
-                    (No_Implementation_Extensions =>
-                        --  Restrictions for Restricted profile
+                     --  No_Implementation_Extensions profile
+
+                     No_Implementation_Extensions =>
 
                        (Set   =>
                           (No_Implementation_Aspect_Specifications => True,

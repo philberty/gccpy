@@ -1,6 +1,7 @@
 /* { dg-do compile { target { ! { ia32 } } } } */
+/* { dg-require-effective-target maybe_x32 } */
 /* { dg-require-effective-target fpic } */
-/* { dg-options "-O3 -mx32 -fpic" } */
+/* { dg-options "-O3 -mx32 -maddress-mode=long -fpic" } */
 /* { dg-final { scan-assembler-not "movl\[\\t \]*%.*,\[\\t \]*-1073742592\\(%r(.x|.i|.p|\[1-9\]*)\\)" } } */
 
 typedef int int32_t;

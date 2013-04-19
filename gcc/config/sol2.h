@@ -1,7 +1,6 @@
 /* Operating system specific defines to be used when targeting GCC for any
    Solaris 2 system.
-   Copyright 2002, 2003, 2004, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -99,6 +98,12 @@ along with GCC; see the file COPYING3.  If not see
 	TARGET_SUB_OS_CPP_BUILTINS();			\
     } while (0)
 
+#define SUBTARGET_OVERRIDE_OPTIONS			\
+  do {							\
+    solaris_override_options ();			\
+  } while (0)
+
+
 /* It's safe to pass -s always, even if -g is not used.  Those options are
    handled by both Sun as and GNU as.  */
 #define ASM_SPEC_BASE \
@@ -173,7 +178,6 @@ along with GCC; see the file COPYING3.  If not see
    %{static:-dn -Bstatic} \
    %{shared:-G -dy %{!mimpure-text:-z text}} \
    %{symbolic:-Bsymbolic -G -dy -z text} \
-   %{pthreads|pthread|fprofile-generate*:" LIB_THREAD_LDFLAGS_SPEC "} \
    %(link_arch) \
    %{Qy:} %{!Qn:-Qy}"
 

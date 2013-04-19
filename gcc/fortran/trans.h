@@ -1,7 +1,5 @@
 /* Header for code translation functions
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Paul Brook
 
 This file is part of GCC.
@@ -109,7 +107,7 @@ typedef enum
 gfc_coarray_type;
 
 
-/* The array-specific scalarization informations.  The array members of
+/* The array-specific scalarization information.  The array members of
    this struct are indexed by actual array index, and thus can be sparse.  */
 
 typedef struct gfc_array_info
@@ -198,9 +196,6 @@ typedef struct gfc_ss_info
     struct
     {
       tree value;
-      /* Tells whether the reference can be null in the GFC_SS_REFERENCE case.
-	 Used to handle elemental procedures' optional arguments.  */
-      bool can_be_null_ref;
     }
     scalar;
 
@@ -223,6 +218,11 @@ typedef struct gfc_ss_info
 
   /* Suppresses precalculation of scalars in WHERE assignments.  */
   unsigned where:1;
+
+  /* Tells whether the SS is for an actual argument which can be a NULL
+     reference.  In other words, the associated dummy argument is OPTIONAL.
+     Used to handle elemental procedures.  */
+  bool can_be_null_ref;
 }
 gfc_ss_info;
 
@@ -346,9 +346,16 @@ tree gfc_vtable_size_get (tree);
 tree gfc_vtable_extends_get (tree);
 tree gfc_vtable_def_init_get (tree);
 tree gfc_vtable_copy_get (tree);
+tree gfc_vtable_final_get (tree);
+tree gfc_get_vptr_from_expr (tree);
 tree gfc_get_class_array_ref (tree, tree);
 tree gfc_copy_class_to_class (tree, tree, tree);
-void gfc_conv_class_to_class (gfc_se *, gfc_expr *, gfc_typespec, bool);
+tree gfc_build_final_call (gfc_typespec, gfc_expr *, gfc_expr *, bool,
+			   gfc_expr *);
+void gfc_conv_derived_to_class (gfc_se *, gfc_expr *, gfc_typespec, tree, bool,
+				bool);
+void gfc_conv_class_to_class (gfc_se *, gfc_expr *, gfc_typespec, bool, bool,
+			      bool, bool);
 
 /* Initialize an init/cleanup block.  */
 void gfc_start_wrapped_block (gfc_wrapped_block* block, tree code);
@@ -396,6 +403,9 @@ void gfc_conv_expr_lhs (gfc_se * se, gfc_expr * expr);
 void gfc_conv_expr_reference (gfc_se * se, gfc_expr *);
 void gfc_conv_expr_type (gfc_se * se, gfc_expr *, tree);
 
+tree gfc_conv_scalar_to_descriptor (gfc_se *, tree, symbol_attribute);
+
+
 /* trans-expr.c */
 void gfc_conv_scalar_char_value (gfc_symbol *sym, gfc_se *se, gfc_expr **expr);
 tree gfc_string_to_single_character (tree len, tree str, int kind);
@@ -421,11 +431,9 @@ int gfc_is_intrinsic_libcall (gfc_expr *);
 /* Used to call ordinary functions/subroutines
    and procedure pointer components.  */
 int gfc_conv_procedure_call (gfc_se *, gfc_symbol *, gfc_actual_arglist *,
-			     gfc_expr *, VEC(tree,gc) *);
+			     gfc_expr *, vec<tree, va_gc> *);
 
 void gfc_conv_subref_array_arg (gfc_se *, gfc_expr *, int, sym_intent, bool);
-
-/* gfc_trans_* shouldn't call push/poplevel, use gfc_push/pop_scope */
 
 /* Generate code for a scalar assignment.  */
 tree gfc_trans_scalar_assign (gfc_se *, gfc_se *, gfc_typespec, bool, bool,
@@ -630,11 +638,9 @@ void gfc_trans_deferred_vars (gfc_symbol*, gfc_wrapped_block *);
 /* In f95-lang.c.  */
 tree pushdecl (tree);
 tree pushdecl_top_level (tree);
-void pushlevel (int);
-tree poplevel (int, int, int);
+void pushlevel (void);
+tree poplevel (int, int);
 tree getdecls (void);
-tree gfc_truthvalue_conversion (tree);
-tree gfc_builtin_function (tree);
 
 /* In trans-types.c.  */
 struct array_descr_info;
@@ -765,6 +771,8 @@ enum gfc_array_kind
   GFC_ARRAY_UNKNOWN,
   GFC_ARRAY_ASSUMED_SHAPE,
   GFC_ARRAY_ASSUMED_SHAPE_CONT,
+  GFC_ARRAY_ASSUMED_RANK,
+  GFC_ARRAY_ASSUMED_RANK_CONT,
   GFC_ARRAY_ALLOCATABLE,
   GFC_ARRAY_POINTER,
   GFC_ARRAY_POINTER_CONT
@@ -820,7 +828,6 @@ struct GTY((variable_size)) lang_decl {
 #define GFC_DECL_CRAY_POINTEE(node) DECL_LANG_FLAG_4(node)
 #define GFC_DECL_RESULT(node) DECL_LANG_FLAG_5(node)
 #define GFC_DECL_SUBREF_ARRAY_P(node) DECL_LANG_FLAG_6(node)
-#define GFC_DECL_PUSH_TOPLEVEL(node) DECL_LANG_FLAG_7(node)
 #define GFC_DECL_CLASS(node) DECL_LANG_FLAG_8(node)
 
 /* An array descriptor.  */
@@ -829,6 +836,8 @@ struct GTY((variable_size)) lang_decl {
 #define GFC_ARRAY_TYPE_P(node) TYPE_LANG_FLAG_2(node)
 /* Fortran POINTER type.  */
 #define GFC_POINTER_TYPE_P(node) TYPE_LANG_FLAG_3(node)
+/* Fortran CLASS type.  */
+#define GFC_CLASS_TYPE_P(node) TYPE_LANG_FLAG_4(node)
 /* The GFC_TYPE_ARRAY_* members are present in both descriptor and
    descriptorless array types.  */
 #define GFC_TYPE_ARRAY_LBOUND(node, dim) \

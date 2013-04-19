@@ -1,6 +1,5 @@
 /* Dependency analysis
-   Copyright (C) 2000, 2001, 2002, 2005, 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
 
 This file is part of GCC.
@@ -26,6 +25,7 @@ along with GCC; see the file COPYING3.  If not see
    
 #include "config.h"
 #include "system.h"
+#include "coretypes.h"
 #include "gfortran.h"
 #include "dependency.h"
 #include "constructor.h"
@@ -260,6 +260,9 @@ gfc_dep_compare_expr (gfc_expr *e1, gfc_expr *e2)
   n1 = NULL;
   n2 = NULL;
 
+  if (e1 == NULL && e2 == NULL)
+    return 0;
+
   /* Remove any integer conversion functions to larger types.  */
   if (e1->expr_type == EXPR_FUNCTION && e1->value.function.isym
       && e1->value.function.isym->id == GFC_ISYM_CONVERSION
@@ -391,30 +394,21 @@ gfc_dep_compare_expr (gfc_expr *e1, gfc_expr *e2)
       l = gfc_dep_compare_expr (e1->value.op.op1, e2->value.op.op1);
       r = gfc_dep_compare_expr (e1->value.op.op2, e2->value.op.op2);
 
-      if (l <= -2)
+      if (l != 0)
 	return l;
 
-      if (l == 0)
-	{
-	  /* Watch out for 'A ' // x vs. 'A' // x.  */
-	  gfc_expr *e1_left = e1->value.op.op1;
-	  gfc_expr *e2_left = e2->value.op.op1;
+      /* Left expressions of // compare equal, but
+	 watch out for 'A ' // x vs. 'A' // x.  */
+      gfc_expr *e1_left = e1->value.op.op1;
+      gfc_expr *e2_left = e2->value.op.op1;
 
-	  if (e1_left->expr_type == EXPR_CONSTANT
-	      && e2_left->expr_type == EXPR_CONSTANT
-	      && e1_left->value.character.length
-		 != e2_left->value.character.length)
-	    return -2;
-	  else
-	    return r;
-	}
+      if (e1_left->expr_type == EXPR_CONSTANT
+	  && e2_left->expr_type == EXPR_CONSTANT
+	  && e1_left->value.character.length
+	  != e2_left->value.character.length)
+	return -2;
       else
-	{
-	  if (l != 0)
-	    return l;
-	  else
-	    return r;
-	}
+	return r;
     }
 
   /* Compare X vs. X-C, for INTEGER only.  */
@@ -828,7 +822,7 @@ gfc_check_fncall_dependency (gfc_expr *other, sym_intent intent,
   gfc_formal_arglist *formal;
   gfc_expr *expr;
 
-  formal = fnsym ? fnsym->formal : NULL;
+  formal = fnsym ? gfc_sym_get_dummy_args (fnsym) : NULL;
   for (; actual; actual = actual->next, formal = formal ? formal->next : NULL)
     {
       expr = actual->expr;
@@ -1216,7 +1210,7 @@ check_section_vs_section (gfc_array_ref *l_ar, gfc_array_ref *r_ar, int n)
   else
     start_comparison = -2;
       
-  free (one_expr);
+  gfc_free_expr (one_expr);
 
   /* Determine LHS upper and lower bounds.  */
   if (l_dir == 1)

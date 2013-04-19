@@ -1,6 +1,5 @@
 /* Definitions for SH running NetBSD using ELF
-   Copyright (C) 2002, 2003, 2004, 2005, 2007, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Wasabi Systems, Inc.
 
 This file is part of GCC.
@@ -42,7 +41,6 @@ along with GCC; see the file COPYING3.  If not see
    NetBSD ELF LINK_SPEC.  */
 
 /* LINK_EMUL_PREFIX from sh/elf.h */
-
 #undef SUBTARGET_LINK_EMUL_SUFFIX
 #define SUBTARGET_LINK_EMUL_SUFFIX "_nbsd"
 

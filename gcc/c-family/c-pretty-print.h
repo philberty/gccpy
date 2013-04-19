@@ -1,6 +1,5 @@
 /* Various declarations for the C and C++ pretty-printers.
-   Copyright (C) 2002, 2003, 2004, 2007, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Gabriel Dos Reis <gdr@integrable-solutions.net>
 
 This file is part of GCC.
@@ -30,7 +29,8 @@ along with GCC; see the file COPYING3.  If not see
 typedef enum
   {
      pp_c_flag_abstract = 1 << 1,
-     pp_c_flag_last_bit = 2
+     pp_c_flag_gnu_v3 = 1 << 2,
+     pp_c_flag_last_bit = 3
   } pp_c_pretty_print_flags;
 
 
@@ -197,7 +197,7 @@ void pp_c_statement (c_pretty_printer *, tree);
 void pp_c_expression (c_pretty_printer *, tree);
 void pp_c_logical_or_expression (c_pretty_printer *, tree);
 void pp_c_expression_list (c_pretty_printer *, tree);
-void pp_c_constructor_elts (c_pretty_printer *, VEC(constructor_elt,gc) *);
+void pp_c_constructor_elts (c_pretty_printer *, vec<constructor_elt, va_gc> *);
 void pp_c_call_argument_list (c_pretty_printer *, tree);
 void pp_c_unary_expression (c_pretty_printer *, tree);
 void pp_c_cast_expression (c_pretty_printer *, tree);

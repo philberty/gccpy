@@ -1,7 +1,7 @@
 /* Gengtype persistent state serialization & de-serialization.
    Useful for gengtype in plugin mode.
 
-   Copyright (C) 2010  Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -51,6 +51,8 @@ type_lineloc (const_type_p ty)
     case TYPE_STRUCT:
     case TYPE_UNION:
     case TYPE_LANG_STRUCT:
+    case TYPE_USER_STRUCT:
+    case TYPE_UNDEFINED:
       return CONST_CAST (struct fileloc*, &ty->u.s.line);
     case TYPE_PARAM_STRUCT:
       return CONST_CAST (struct fileloc*, &ty->u.param_struct.line);
@@ -65,7 +67,7 @@ type_lineloc (const_type_p ty)
 }
 
 /* The state file has simplistic lispy lexical tokens.  Its lexer gives
-   a linked list of struct state_token_st, thru the peek_state_token
+   a linked list of struct state_token_st, through the peek_state_token
    function.  Lexical tokens are consumed with next_state_tokens.  */
 
 
@@ -769,6 +771,23 @@ write_state_string_type (type_p current)
     fatal ("Unexpected type in write_state_string_type");
 }
 
+/* Write an undefined type.  */
+static void
+write_state_undefined_type (type_p current)
+{
+  DBGPRINTF ("undefined type @ %p #%d '%s'", (void *) current,
+	     current->state_number, current->u.s.tag);
+  fprintf (state_file, "undefined ");
+  gcc_assert (current->gc_used == GC_UNUSED);
+  write_state_common_type_content (current);
+  if (current->u.s.tag != NULL)
+    write_state_a_string (current->u.s.tag);
+  else
+    fprintf (state_file, "nil");
+
+  write_state_fileloc (type_lineloc (current));
+}
+
 
 /* Common code to write structure like types.  */
 static void
@@ -798,6 +817,22 @@ write_state_struct_type (type_p current)
   write_state_type (current->u.s.lang_struct);
 }
 
+/* Write a GTY user-defined struct type.  */
+static void
+write_state_user_struct_type (type_p current)
+{
+  DBGPRINTF ("user_struct type @ %p #%d '%s'", (void *) current,
+	     current->state_number, current->u.s.tag);
+  fprintf (state_file, "user_struct ");
+  write_state_common_type_content (current);
+  if (current->u.s.tag != NULL)
+    write_state_a_string (current->u.s.tag);
+  else
+    fprintf (state_file, "nil");
+  write_state_fileloc (type_lineloc (current));
+  write_state_fields (current->u.s.fields);
+}
+
 /* write a GTY union type.  */
 static void
 write_state_union_type (type_p current)
@@ -818,7 +853,7 @@ write_state_lang_struct_type (type_p current)
   type_p hty = NULL;
   const char *homoname = 0;
   write_state_struct_union_type (current, "lang_struct");
-  /* lang_struct-ures are particularily tricky, since their
+  /* lang_struct-ures are particularly tricky, since their
      u.s.lang_struct field gives a list of homonymous struct-s or
      union-s! */
   DBGPRINTF ("lang_struct @ %p #%d", (void *) current, current->state_number);
@@ -828,7 +863,7 @@ write_state_lang_struct_type (type_p current)
       DBGPRINTF ("homonymous #%d hty @ %p #%d '%s'", nbhomontype,
 		 (void *) hty, hty->state_number, hty->u.s.tag);
       /* Every member of the homonymous list should have the same tag.  */
-      gcc_assert (UNION_OR_STRUCT_P (hty));
+      gcc_assert (union_or_struct_p (hty));
       gcc_assert (hty->u.s.lang_struct == current);
       if (!homoname)
 	homoname = hty->u.s.tag;
@@ -944,8 +979,16 @@ write_state_type (type_p current)
       current->state_number = state_written_type_count;
       switch (current->kind)
 	{
+	case TYPE_NONE:
+	  gcc_unreachable ();
+	case TYPE_UNDEFINED:
+	  write_state_undefined_type (current);
+	  break;
 	case TYPE_STRUCT:
 	  write_state_struct_type (current);
+	  break;
+	case TYPE_USER_STRUCT:
+	  write_state_user_struct_type (current);
 	  break;
 	case TYPE_UNION:
 	  write_state_union_type (current);
@@ -968,9 +1011,6 @@ write_state_type (type_p current)
 	case TYPE_STRING:
 	  write_state_string_type (current);
 	  break;
-
-	default:
-	  fatal ("Unexpected type...");
 	}
     }
 
@@ -1298,7 +1338,6 @@ read_state_scalar_char_type (type_p *type)
   read_state_common_type_content (*type);
 }
 
-
 /* Read the string_type.  */
 static void
 read_state_string_type (type_p *type)
@@ -1323,6 +1362,40 @@ read_state_lang_bitmap (lang_bitmap *bitmap)
   else
     {
       fatal_reading_state (t, "Bad syntax for bitmap");
+    }
+}
+
+
+/* Read an undefined type.  */
+static void
+read_state_undefined_type (type_p type)
+{
+  struct state_token_st *t0;
+
+  type->kind = TYPE_UNDEFINED;
+  read_state_common_type_content (type);
+  t0 = peek_state_token (0);
+  if (state_token_kind (t0) == STOK_STRING)
+    {
+      if (state_token_is_name (t0, "nil"))
+	{
+	  type->u.s.tag = NULL;
+	  DBGPRINTF ("read anonymous undefined type @%p #%d",
+		     (void *) type, type->state_number);
+	}
+      else
+	{
+	  type->u.s.tag = xstrdup (t0->stok_un.stok_string);
+	  DBGPRINTF ("read undefined type @%p #%d '%s'",
+		     (void *) type, type->state_number, type->u.s.tag);
+	}
+
+      next_state_tokens (1);
+      read_state_fileloc (&(type->u.s.line));
+    }
+  else
+    {
+      fatal_reading_state (t0, "Bad tag in undefined type");
     }
 }
 
@@ -1361,6 +1434,42 @@ read_state_struct_type (type_p type)
   else
     {
       fatal_reading_state (t0, "Bad tag in struct type");
+    }
+}
+
+
+/* Read a GTY-ed user-provided struct TYPE.  */
+
+static void
+read_state_user_struct_type (type_p type)
+{
+  struct state_token_st *t0;
+
+  type->kind = TYPE_USER_STRUCT;
+  read_state_common_type_content (type);
+  t0 = peek_state_token (0);
+  if (state_token_kind (t0) == STOK_STRING)
+    {
+      if (state_token_is_name (t0, "nil"))
+	{
+	  type->u.s.tag = NULL;
+	  DBGPRINTF ("read anonymous struct type @%p #%d",
+		     (void *) type, type->state_number);
+	}
+      else
+	{
+	  type->u.s.tag = xstrdup (t0->stok_un.stok_string);
+	  DBGPRINTF ("read struct type @%p #%d '%s'",
+		     (void *) type, type->state_number, type->u.s.tag);
+	}
+
+      next_state_tokens (1);
+      read_state_fileloc (&(type->u.s.line));
+      read_state_fields (&(type->u.s.fields));
+    }
+  else
+    {
+      fatal_reading_state (t0, "Bad tag in user-struct type");
     }
 }
 
@@ -1619,6 +1728,12 @@ read_state_type (type_p *current)
 	      next_state_tokens (1);
 	      read_state_string_type (current);
 	    }
+	  else if (state_token_is_name (t0, "undefined"))
+	    {
+	      *current = XCNEW (struct type);
+	      next_state_tokens (1);
+	      read_state_undefined_type (*current);
+	    }
 	  else if (state_token_is_name (t0, "struct"))
 	    {
 	      *current = XCNEW (struct type);
@@ -1654,6 +1769,12 @@ read_state_type (type_p *current)
 	      *current = XCNEW (struct type);
 	      next_state_tokens (1);
 	      read_state_array_type (*current);
+	    }
+	  else if (state_token_is_name (t0, "user_struct"))
+	    {
+	      *current = XCNEW (struct type);
+	      next_state_tokens (1);
+	      read_state_user_struct_type (*current);
 	    }
 	  else
 	    fatal_reading_state (t0, "bad type in (!type");

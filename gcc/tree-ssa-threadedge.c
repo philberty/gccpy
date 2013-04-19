@@ -1,6 +1,5 @@
 /* SSA Jump Threading
-   Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2005-2013 Free Software Foundation, Inc.
    Contributed by Jeff Law  <law@redhat.com>
 
 This file is part of GCC.
@@ -28,12 +27,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm_p.h"
 #include "basic-block.h"
 #include "cfgloop.h"
-#include "output.h"
 #include "function.h"
 #include "timevar.h"
-#include "tree-dump.h"
+#include "dumpfile.h"
 #include "tree-flow.h"
-#include "tree-pass.h"
 #include "tree-ssa-propagate.h"
 #include "langhooks.h"
 #include "params.h"
@@ -45,32 +42,31 @@ along with GCC; see the file COPYING3.  If not see
 static int stmt_count;
 
 /* Array to record value-handles per SSA_NAME.  */
-VEC(tree,heap) *ssa_name_values;
+vec<tree> ssa_name_values;
 
 /* Set the value for the SSA name NAME to VALUE.  */
 
 void
 set_ssa_name_value (tree name, tree value)
 {
-  if (SSA_NAME_VERSION (name) >= VEC_length (tree, ssa_name_values))
-    VEC_safe_grow_cleared (tree, heap, ssa_name_values,
-			   SSA_NAME_VERSION (name) + 1);
-  VEC_replace (tree, ssa_name_values, SSA_NAME_VERSION (name), value);
+  if (SSA_NAME_VERSION (name) >= ssa_name_values.length ())
+    ssa_name_values.safe_grow_cleared (SSA_NAME_VERSION (name) + 1);
+  ssa_name_values[SSA_NAME_VERSION (name)] = value;
 }
 
 /* Initialize the per SSA_NAME value-handles array.  Returns it.  */
 void
 threadedge_initialize_values (void)
 {
-  gcc_assert (ssa_name_values == NULL);
-  ssa_name_values = VEC_alloc(tree, heap, num_ssa_names);
+  gcc_assert (!ssa_name_values.exists ());
+  ssa_name_values.create (num_ssa_names);
 }
 
 /* Free the per SSA_NAME value-handle array.  */
 void
 threadedge_finalize_values (void)
 {
-  VEC_free(tree, heap, ssa_name_values);
+  ssa_name_values.release ();
 }
 
 /* Return TRUE if we may be able to thread an incoming edge into
@@ -136,20 +132,20 @@ lhs_of_dominating_assert (tree op, basic_block bb, gimple stmt)
    structures.  */
 
 static void
-remove_temporary_equivalences (VEC(tree, heap) **stack)
+remove_temporary_equivalences (vec<tree> *stack)
 {
-  while (VEC_length (tree, *stack) > 0)
+  while (stack->length () > 0)
     {
       tree prev_value, dest;
 
-      dest = VEC_pop (tree, *stack);
+      dest = stack->pop ();
 
       /* A NULL value indicates we should stop unwinding, otherwise
 	 pop off the next entry as they're recorded in pairs.  */
       if (dest == NULL)
 	break;
 
-      prev_value = VEC_pop (tree, *stack);
+      prev_value = stack->pop ();
       set_ssa_name_value (dest, prev_value);
     }
 }
@@ -159,7 +155,7 @@ remove_temporary_equivalences (VEC(tree, heap) **stack)
    done processing the current edge.  */
 
 static void
-record_temporary_equivalence (tree x, tree y, VEC(tree, heap) **stack)
+record_temporary_equivalence (tree x, tree y, vec<tree> *stack)
 {
   tree prev_x = SSA_NAME_VALUE (x);
 
@@ -170,9 +166,9 @@ record_temporary_equivalence (tree x, tree y, VEC(tree, heap) **stack)
     }
 
   set_ssa_name_value (x, y);
-  VEC_reserve (tree, heap, *stack, 2);
-  VEC_quick_push (tree, *stack, prev_x);
-  VEC_quick_push (tree, *stack, x);
+  stack->reserve (2);
+  stack->quick_push (prev_x);
+  stack->quick_push (x);
 }
 
 /* Record temporary equivalences created by PHIs at the target of the
@@ -182,7 +178,7 @@ record_temporary_equivalence (tree x, tree y, VEC(tree, heap) **stack)
    indicating we should not thread this edge, else return TRUE.  */
 
 static bool
-record_temporary_equivalences_from_phis (edge e, VEC(tree, heap) **stack)
+record_temporary_equivalences_from_phis (edge e, vec<tree> *stack)
 {
   gimple_stmt_iterator gsi;
 
@@ -206,7 +202,7 @@ record_temporary_equivalences_from_phis (edge e, VEC(tree, heap) **stack)
 
       /* We consider any non-virtual PHI as a statement since it
 	 count result in a constant assignment or copy operation.  */
-      if (is_gimple_reg (dst))
+      if (!virtual_operand_p (dst))
 	stmt_count++;
 
       record_temporary_equivalence (dst, src, stack);
@@ -283,7 +279,7 @@ fold_assignment_stmt (gimple stmt)
 
 static gimple
 record_temporary_equivalences_from_stmts_at_dest (edge e,
-						  VEC(tree, heap) **stack,
+						  vec<tree> *stack,
 						  tree (*simplify) (gimple,
 								    gimple))
 {
@@ -612,6 +608,136 @@ cond_arg_set_in_bb (edge e, basic_block bb)
   return false;
 }
 
+/* Copy debug stmts from DEST's chain of single predecessors up to
+   SRC, so that we don't lose the bindings as PHI nodes are introduced
+   when DEST gains new predecessors.  */
+void
+propagate_threaded_block_debug_into (basic_block dest, basic_block src)
+{
+  if (!MAY_HAVE_DEBUG_STMTS)
+    return;
+
+  if (!single_pred_p (dest))
+    return;
+
+  gcc_checking_assert (dest != src);
+
+  gimple_stmt_iterator gsi = gsi_after_labels (dest);
+  int i = 0;
+  const int alloc_count = 16; // ?? Should this be a PARAM?
+
+  /* Estimate the number of debug vars overridden in the beginning of
+     DEST, to tell how many we're going to need to begin with.  */
+  for (gimple_stmt_iterator si = gsi;
+       i * 4 <= alloc_count * 3 && !gsi_end_p (si); gsi_next (&si))
+    {
+      gimple stmt = gsi_stmt (si);
+      if (!is_gimple_debug (stmt))
+	break;
+      i++;
+    }
+
+  vec<tree, va_stack> fewvars = vNULL;
+  pointer_set_t *vars = NULL;
+
+  /* If we're already starting with 3/4 of alloc_count, go for a
+     pointer_set, otherwise start with an unordered stack-allocated
+     VEC.  */
+  if (i * 4 > alloc_count * 3)
+    vars = pointer_set_create ();
+  else if (alloc_count)
+    vec_stack_alloc (tree, fewvars, alloc_count);
+
+  /* Now go through the initial debug stmts in DEST again, this time
+     actually inserting in VARS or FEWVARS.  Don't bother checking for
+     duplicates in FEWVARS.  */
+  for (gimple_stmt_iterator si = gsi; !gsi_end_p (si); gsi_next (&si))
+    {
+      gimple stmt = gsi_stmt (si);
+      if (!is_gimple_debug (stmt))
+	break;
+
+      tree var;
+
+      if (gimple_debug_bind_p (stmt))
+	var = gimple_debug_bind_get_var (stmt);
+      else if (gimple_debug_source_bind_p (stmt))
+	var = gimple_debug_source_bind_get_var (stmt);
+      else
+	gcc_unreachable ();
+
+      if (vars)
+	pointer_set_insert (vars, var);
+      else
+	fewvars.quick_push (var);
+    }
+
+  basic_block bb = dest;
+
+  do
+    {
+      bb = single_pred (bb);
+      for (gimple_stmt_iterator si = gsi_last_bb (bb);
+	   !gsi_end_p (si); gsi_prev (&si))
+	{
+	  gimple stmt = gsi_stmt (si);
+	  if (!is_gimple_debug (stmt))
+	    continue;
+
+	  tree var;
+
+	  if (gimple_debug_bind_p (stmt))
+	    var = gimple_debug_bind_get_var (stmt);
+	  else if (gimple_debug_source_bind_p (stmt))
+	    var = gimple_debug_source_bind_get_var (stmt);
+	  else
+	    gcc_unreachable ();
+
+	  /* Discard debug bind overlaps.  ??? Unlike stmts from src,
+	     copied into a new block that will precede BB, debug bind
+	     stmts in bypassed BBs may actually be discarded if
+	     they're overwritten by subsequent debug bind stmts, which
+	     might be a problem once we introduce stmt frontier notes
+	     or somesuch.  Adding `&& bb == src' to the condition
+	     below will preserve all potentially relevant debug
+	     notes.  */
+	  if (vars && pointer_set_insert (vars, var))
+	    continue;
+	  else if (!vars)
+	    {
+	      int i = fewvars.length ();
+	      while (i--)
+		if (fewvars[i] == var)
+		  break;
+	      if (i >= 0)
+		continue;
+
+	      if (fewvars.length () < (unsigned) alloc_count)
+		fewvars.quick_push (var);
+	      else
+		{
+		  vars = pointer_set_create ();
+		  for (i = 0; i < alloc_count; i++)
+		    pointer_set_insert (vars, fewvars[i]);
+		  fewvars.release ();
+		  pointer_set_insert (vars, var);
+		}
+	    }
+
+	  stmt = gimple_copy (stmt);
+	  /* ??? Should we drop the location of the copy to denote
+	     they're artificial bindings?  */
+	  gsi_insert_before (&gsi, stmt, GSI_NEW_STMT);
+	}
+    }
+  while (bb != src && single_pred_p (bb));
+
+  if (vars)
+    pointer_set_destroy (vars);
+  else if (fewvars.exists ())
+    fewvars.release ();
+}
+
 /* TAKEN_EDGE represents the an edge taken as a result of jump threading.
    See if we can thread around TAKEN_EDGE->dest as well.  If so, return
    the edge out of TAKEN_EDGE->dest that we can statically compute will be
@@ -734,7 +860,7 @@ void
 thread_across_edge (gimple dummy_cond,
 		    edge e,
 		    bool handle_dominating_asserts,
-		    VEC(tree, heap) **stack,
+		    vec<tree> *stack,
 		    tree (*simplify) (gimple, gimple))
 {
   gimple stmt;
@@ -811,6 +937,9 @@ thread_across_edge (gimple dummy_cond,
 	    }
 
 	  remove_temporary_equivalences (stack);
+	  if (!taken_edge)
+	    return;
+	  propagate_threaded_block_debug_into (taken_edge->dest, e->dest);
 	  register_jump_thread (e, taken_edge, NULL);
 	  return;
 	}
@@ -876,7 +1005,11 @@ thread_across_edge (gimple dummy_cond,
 	       same.  */
 	    tmp = find_edge (taken_edge->src, e3->dest);
 	    if (!tmp || phi_args_equal_on_edges (tmp, e3))
-	      register_jump_thread (e, taken_edge, e3);
+	      {
+		propagate_threaded_block_debug_into (e3->dest,
+						     taken_edge->dest);
+		register_jump_thread (e, taken_edge, e3);
+	      }
 	  }
 
       }

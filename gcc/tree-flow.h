@@ -1,6 +1,5 @@
 /* Data and Control Flow Analysis for Trees.
-   Copyright (C) 2001, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2001-2013 Free Software Foundation, Inc.
    Contributed by Diego Novillo <dnovillo@redhat.com>
 
 This file is part of GCC.
@@ -45,18 +44,15 @@ struct GTY(()) tm_restart_node {
    gimple_ accessor defined in tree-flow-inline.h, all publicly modifiable
    fields should have gimple_set accessor.  */
 struct GTY(()) gimple_df {
-  /* Array of all variables referenced in the function.  */
-  htab_t GTY((param_is (union tree_node))) referenced_vars;
-
   /* A vector of all the noreturn calls passed to modify_stmt.
      cleanup_control_flow uses it to detect cases where a mid-block
      indirect call has been turned into a noreturn call.  When this
      happens, all the instructions after the call are no longer
      reachable and must be deleted as dead.  */
-  VEC(gimple,gc) *modified_noreturn_calls;
+  vec<gimple, va_gc> *modified_noreturn_calls;
 
   /* Array of all SSA_NAMEs used in the function.  */
-  VEC(tree,gc) *ssa_names;
+  vec<tree, va_gc> *ssa_names;
 
   /* Artificial variable used for the virtual operand FUD chain.  */
   tree vop;
@@ -69,7 +65,7 @@ struct GTY(()) gimple_df {
   struct pointer_map_t * GTY((skip(""))) decls_to_pointers;
 
   /* Free list of SSA_NAMEs.  */
-  VEC(tree,gc) *free_ssanames;
+  vec<tree, va_gc> *free_ssanames;
 
   /* Hashtable holding definition for symbol.  If this field is not NULL, it
      means that the first reference to this variable in the function is a
@@ -77,9 +73,11 @@ struct GTY(()) gimple_df {
      for this variable with an empty defining statement.  */
   htab_t GTY((param_is (union tree_node))) default_defs;
 
-  /* Symbols whose SSA form needs to be updated or created for the first
-     time.  */
-  bitmap syms_to_rename;
+  /* True if there are any symbols that need to be renamed.  */
+  unsigned int ssa_renaming_needed : 1;
+
+  /* True if all virtual operands need to be renamed.  */
+  unsigned int rename_vops : 1;
 
   /* True if the code is in ssa form.  */
   unsigned int in_ssa_p : 1;
@@ -100,7 +98,6 @@ struct GTY(()) gimple_df {
 #define SSANAMES(fun) (fun)->gimple_df->ssa_names
 #define MODIFIED_NORETURN_CALLS(fun) (fun)->gimple_df->modified_noreturn_calls
 #define DEFAULT_DEFS(fun) (fun)->gimple_df->default_defs
-#define SYMS_TO_RENAME(fun) (fun)->gimple_df->syms_to_rename
 
 typedef struct
 {
@@ -136,12 +133,17 @@ struct GTY(()) ptr_info_def
      align and misalign specify low known bits of the pointer.
      ptr & (align - 1) == misalign.  */
 
-  /* The power-of-two byte alignment of the object this pointer
-     points into.  This is usually DECL_ALIGN_UNIT for decls and
-     MALLOC_ABI_ALIGNMENT for allocated storage.  */
+  /* When known, this is the power-of-two byte alignment of the object this
+     pointer points into.  This is usually DECL_ALIGN_UNIT for decls and
+     MALLOC_ABI_ALIGNMENT for allocated storage.  When the alignment is not
+     known, it is zero.  Do not access directly but use functions
+     get_ptr_info_alignment, set_ptr_info_alignment,
+     mark_ptr_info_alignment_unknown and similar.  */
   unsigned int align;
 
-  /* The byte offset this pointer differs from the above alignment.  */
+  /* When alignment is known, the byte offset this pointer differs from the
+     above alignment.  Access only through the same helper functions as align
+     above.  */
   unsigned int misalign;
 };
 
@@ -168,28 +170,6 @@ enum need_phi_state {
      block that was not dominated by the block containing the set(s) of
      this variable.  This variable is assumed to need PHI nodes.  */
   NEED_PHI_STATE_MAYBE
-};
-
-
-struct GTY(()) var_ann_d {
-  /* Used when building base variable structures in a var_map.  */
-  unsigned base_var_processed : 1;
-
-  /* Nonzero if this variable was used after SSA optimizations were
-     applied.  We set this when translating out of SSA form.  */
-  unsigned used : 1;
-
-  /* This field indicates whether or not the variable may need PHI nodes.
-     See the enum's definition for more detailed information about the
-     states.  */
-  ENUM_BITFIELD (need_phi_state) need_phi_state : 2;
-
-  /* Used by var_map for the base index of ssa base variables.  */
-  unsigned base_index;
-
-  /* During into-ssa and the dominator optimizer, this field holds the
-     current version of this variable (an SSA_NAME).  */
-  tree current_def;
 };
 
 
@@ -287,9 +267,6 @@ typedef struct immediate_use_iterator_d
 
 
 
-typedef struct var_ann_d *var_ann_t;
-
-static inline var_ann_t var_ann (const_tree);
 static inline void update_stmt (gimple);
 static inline int get_lineno (const_gimple);
 
@@ -311,27 +288,8 @@ extern int int_tree_map_eq (const void *, const void *);
 extern unsigned int uid_decl_map_hash (const void *);
 extern int uid_decl_map_eq (const void *, const void *);
 
-typedef struct
-{
-  htab_iterator hti;
-} referenced_var_iterator;
-
-/* This macro loops over all the referenced vars, one at a time, putting the
-   current var in VAR.  Note:  You are not allowed to add referenced variables
-   to the hashtable while using this macro.  Doing so may cause it to behave
-   erratically.  */
-
-#define FOR_EACH_REFERENCED_VAR(FN, VAR, ITER)		\
-  for ((VAR) = first_referenced_var ((FN), &(ITER));	\
-       !end_referenced_vars_p (&(ITER));		\
-       (VAR) = next_referenced_var (&(ITER)))
-
-extern tree referenced_var_lookup (struct function *, unsigned int);
-extern bool referenced_var_check_and_insert (tree);
-#define num_referenced_vars htab_elements (gimple_referenced_vars (cfun))
-
-#define num_ssa_names (VEC_length (tree, cfun->gimple_df->ssa_names))
-#define ssa_name(i) (VEC_index (tree, cfun->gimple_df->ssa_names, (i)))
+#define num_ssa_names (vec_safe_length (cfun->gimple_df->ssa_names))
+#define ssa_name(i) ((*cfun->gimple_df->ssa_names)[(i)])
 
 /* Macros for showing usage statistics.  */
 #define SCALE(x) ((unsigned long) ((x) < 1024*10	\
@@ -375,7 +333,7 @@ struct omp_region
   /* If this is a combined parallel+workshare region, this is a list
      of additional arguments needed by the combined parallel+workshare
      library call.  */
-  VEC(tree,gc) *ws_args;
+  vec<tree, va_gc> *ws_args;
 
   /* The code for the omp directive of this region.  */
   enum gimple_code type;
@@ -410,7 +368,7 @@ extern bool is_ctrl_altering_stmt (gimple);
 extern bool simple_goto_p (gimple);
 extern bool stmt_can_make_abnormal_goto (gimple);
 extern basic_block single_noncomplex_succ (basic_block bb);
-extern void gimple_dump_bb (basic_block, FILE *, int, int);
+extern void gimple_dump_bb (FILE *, basic_block, int, int);
 extern void gimple_debug_bb (basic_block);
 extern basic_block gimple_debug_bb_n (int);
 extern void gimple_dump_cfg (FILE *, int);
@@ -424,6 +382,7 @@ extern void debug_loop_num (unsigned, int);
 extern void print_loops (FILE *, int);
 extern void print_loops_bb (FILE *, basic_block, int, int);
 extern void cleanup_dead_labels (void);
+extern void group_case_labels_stmt (gimple);
 extern void group_case_labels (void);
 extern gimple first_stmt (basic_block);
 extern gimple last_stmt (basic_block);
@@ -442,7 +401,7 @@ extern bool gimple_duplicate_sese_region (edge, edge, basic_block *, unsigned,
 extern bool gimple_duplicate_sese_tail (edge, edge, basic_block *, unsigned,
 				      basic_block *);
 extern void gather_blocks_in_sese_region (basic_block entry, basic_block exit,
-					  VEC(basic_block,heap) **bbs_p);
+					  vec<basic_block> *bbs_p);
 extern void add_phi_args_after_copy_bb (basic_block);
 extern void add_phi_args_after_copy (basic_block *, unsigned, edge);
 extern bool gimple_purge_dead_eh_edges (basic_block);
@@ -478,28 +437,18 @@ extern int op_prio (const_tree);
 extern const char *op_symbol_code (enum tree_code);
 
 /* In tree-dfa.c  */
-extern var_ann_t create_var_ann (tree);
 extern void renumber_gimple_stmt_uids (void);
 extern void renumber_gimple_stmt_uids_in_blocks (basic_block *, int);
 extern void dump_dfa_stats (FILE *);
 extern void debug_dfa_stats (void);
-extern void debug_referenced_vars (void);
-extern void dump_referenced_vars (FILE *);
 extern void dump_variable (FILE *, tree);
 extern void debug_variable (tree);
-extern tree get_virtual_var (tree);
-extern bool add_referenced_var (tree);
-extern void remove_referenced_var (tree);
-extern void mark_symbols_for_renaming (gimple);
-extern void find_new_referenced_vars (gimple);
-extern tree make_rename_temp (tree, const char *);
-extern void set_default_def (tree, tree);
-extern tree gimple_default_def (struct function *, tree);
+extern void set_ssa_default_def (struct function *, tree, tree);
+extern tree ssa_default_def (struct function *, tree);
+extern tree get_or_create_ssa_default_def (struct function *, tree);
 extern bool stmt_references_abnormal_ssa_name (gimple);
-extern tree get_ref_base_and_extent (tree, HOST_WIDE_INT *,
-				     HOST_WIDE_INT *, HOST_WIDE_INT *);
 extern tree get_addr_base_and_unit_offset (tree, HOST_WIDE_INT *);
-extern void find_referenced_vars_in (gimple);
+extern void dump_enumerated_decls (FILE *, int);
 
 /* In tree-phinodes.c  */
 extern void reserve_phi_args_for_new_edge (basic_block);
@@ -509,12 +458,8 @@ extern void add_phi_arg (gimple, tree, edge, source_location);
 extern void remove_phi_args (edge);
 extern void remove_phi_node (gimple_stmt_iterator *, bool);
 extern void remove_phi_nodes (basic_block);
-extern void init_phinodes (void);
-extern void fini_phinodes (void);
 extern void release_phi_node (gimple);
-#ifdef GATHER_STATISTICS
 extern void phinodes_print_statistics (void);
-#endif
 
 /* In gimple-low.c  */
 extern void record_vars_into (tree, tree);
@@ -534,17 +479,15 @@ struct _edge_var_map {
 };
 typedef struct _edge_var_map edge_var_map;
 
-DEF_VEC_O(edge_var_map);
-DEF_VEC_ALLOC_O(edge_var_map, heap);
 
 /* A vector of var maps.  */
-typedef VEC(edge_var_map, heap) *edge_var_map_vector;
+typedef vec<edge_var_map> edge_var_map_vector;
 
 extern void init_tree_ssa (struct function *);
 extern void redirect_edge_var_map_add (edge, tree, tree, source_location);
 extern void redirect_edge_var_map_clear (edge);
 extern void redirect_edge_var_map_dup (edge, edge);
-extern edge_var_map_vector redirect_edge_var_map_vector (edge);
+extern edge_var_map_vector *redirect_edge_var_map_vector (edge);
 extern void redirect_edge_var_map_destroy (void);
 
 extern edge ssa_redirect_edge (edge, basic_block);
@@ -570,17 +513,11 @@ void release_defs_bitset (bitmap toremove);
 /* In tree-into-ssa.c  */
 void update_ssa (unsigned);
 void delete_update_ssa (void);
-void register_new_name_mapping (tree, tree);
 tree create_new_def_for (tree, gimple, def_operand_p);
 bool need_ssa_update_p (struct function *);
-bool name_mappings_registered_p (void);
 bool name_registered_for_update_p (tree);
-bitmap ssa_names_to_replace (void);
 void release_ssa_name_after_update_ssa (tree);
-void compute_global_livein (bitmap, bitmap);
-void mark_sym_for_renaming (tree);
-void mark_set_for_renaming (bitmap);
-bool symbol_marked_for_renaming (tree);
+void mark_virtual_operands_for_renaming (struct function *);
 tree get_current_def (tree);
 void set_current_def (tree, tree);
 
@@ -588,15 +525,21 @@ void set_current_def (tree, tree);
 extern void init_ssanames (struct function *, int);
 extern void fini_ssanames (void);
 extern tree make_ssa_name_fn (struct function *, tree, gimple);
-extern tree duplicate_ssa_name (tree, gimple);
+extern tree copy_ssa_name_fn (struct function *, tree, gimple);
+extern tree duplicate_ssa_name_fn (struct function *, tree, gimple);
 extern void duplicate_ssa_name_ptr_info (tree, struct ptr_info_def *);
 extern void release_ssa_name (tree);
 extern void release_defs (gimple);
 extern void replace_ssa_name_symbol (tree, tree);
+extern bool get_ptr_info_alignment (struct ptr_info_def *, unsigned int *,
+				    unsigned int *);
+extern void mark_ptr_info_alignment_unknown (struct ptr_info_def *);
+extern void set_ptr_info_alignment (struct ptr_info_def *, unsigned int,
+				    unsigned int);
+extern void adjust_ptr_info_misalignment (struct ptr_info_def *,
+					  unsigned int);
 
-#ifdef GATHER_STATISTICS
 extern void ssanames_print_statistics (void);
-#endif
 
 /* In tree-ssa-ccp.c  */
 tree fold_const_aggregate_ref (tree);
@@ -681,12 +624,12 @@ bool parallelize_loops (void);
 
 bool loop_only_exit_p (const struct loop *, const_edge);
 bool number_of_iterations_exit (struct loop *, edge,
-				struct tree_niter_desc *niter, bool);
+				struct tree_niter_desc *niter, bool,
+				bool every_iteration = true);
 tree find_loop_niter (struct loop *, edge *);
 tree loop_niter_by_eval (struct loop *, edge);
 tree find_loop_niter_by_eval (struct loop *, edge *);
-void estimate_numbers_of_iterations (bool);
-bool array_at_struct_end_p (tree);
+void estimate_numbers_of_iterations (void);
 bool scev_probably_wraps_p (tree, tree, gimple, struct loop *, bool);
 bool convert_affine_scev (struct loop *, tree, tree *, tree *, gimple, bool);
 
@@ -708,11 +651,9 @@ basic_block ip_end_pos (struct loop *);
 basic_block ip_normal_pos (struct loop *);
 bool gimple_duplicate_loop_to_header_edge (struct loop *, edge,
 					 unsigned int, sbitmap,
-					 edge, VEC (edge, heap) **,
+					 edge, vec<edge> *,
 					 int);
 struct loop *slpeel_tree_duplicate_loop_to_edge_cfg (struct loop *, edge);
-void rename_variables_in_loop (struct loop *);
-void rename_variables_in_bb (basic_block bb);
 tree expand_simple_operations (tree);
 void substitute_in_loop_info (struct loop *, tree, tree);
 edge single_dom_exit (struct loop *);
@@ -726,7 +667,6 @@ void tree_transform_and_unroll_loop (struct loop *, unsigned,
 				     transform_callback, void *);
 bool contains_abnormal_ssa_name_p (tree);
 bool stmt_dominates_stmt_p (gimple, gimple);
-void mark_virtual_ops_for_renaming (gimple);
 
 /* In tree-ssa-dce.c */
 void mark_virtual_operand_for_renaming (tree);
@@ -735,15 +675,16 @@ void mark_virtual_phi_result_for_renaming (gimple);
 /* In tree-ssa-threadedge.c */
 extern void threadedge_initialize_values (void);
 extern void threadedge_finalize_values (void);
-extern VEC(tree,heap) *ssa_name_values;
+extern vec<tree> ssa_name_values;
 #define SSA_NAME_VALUE(x) \
-    (SSA_NAME_VERSION(x) < VEC_length(tree, ssa_name_values) \
-     ? VEC_index(tree, ssa_name_values, SSA_NAME_VERSION(x)) \
+    (SSA_NAME_VERSION(x) < ssa_name_values.length () \
+     ? ssa_name_values[SSA_NAME_VERSION(x)] \
      : NULL_TREE)
 extern void set_ssa_name_value (tree, tree);
 extern bool potentially_threadable_block (basic_block);
 extern void thread_across_edge (gimple, edge, bool,
-				VEC(tree, heap) **, tree (*) (gimple, gimple));
+				vec<tree> *, tree (*) (gimple, gimple));
+extern void propagate_threaded_block_debug_into (basic_block, basic_block);
 
 /* In tree-ssa-loop-im.c  */
 /* The possibilities of statement movement.  */
@@ -759,7 +700,6 @@ extern enum move_pos movement_possibility (gimple);
 char *get_lsm_tmp_name (tree, unsigned);
 
 /* In tree-flow-inline.h  */
-static inline void set_is_used (tree);
 static inline bool unmodifiable_var_p (const_tree);
 static inline bool ref_contains_array_ref (const_tree);
 
@@ -768,12 +708,7 @@ extern void make_eh_edges (gimple);
 extern bool make_eh_dispatch_edges (gimple);
 extern edge redirect_eh_edge (edge, basic_block);
 extern void redirect_eh_dispatch_edge (gimple, edge, basic_block);
-extern bool tree_could_trap_p (tree);
-extern bool operation_could_trap_helper_p (enum tree_code, bool, bool, bool,
-					   bool, tree, bool *);
-extern bool operation_could_trap_p (enum tree_code, bool, bool, tree);
 extern bool stmt_could_throw_p (gimple);
-extern bool tree_could_throw_p (tree);
 extern bool stmt_can_throw_internal (gimple);
 extern bool stmt_can_throw_external (gimple);
 extern void add_stmt_to_eh_lp_fn (struct function *, gimple, int);
@@ -794,13 +729,7 @@ extern bool verify_eh_dispatch_edge (gimple);
 extern void maybe_remove_unreachable_handlers (void);
 
 /* In tree-ssa-pre.c  */
-struct pre_expr_d;
-void add_to_value (unsigned int, struct pre_expr_d *);
 void debug_value_expressions (unsigned int);
-void print_value_expressions (FILE *, unsigned int);
-
-/* In tree-ssa-sink.c  */
-bool is_hidden_global_store (gimple);
 
 /* In tree-loop-linear.c  */
 extern void linear_transform_loops (void);
@@ -817,7 +746,6 @@ bool expr_invariant_in_loop_p (struct loop *, tree);
 bool stmt_invariant_in_loop_p (struct loop *, gimple);
 bool multiplier_allowed_in_address_p (HOST_WIDE_INT, enum machine_mode,
 				      addr_space_t);
-unsigned multiply_by_cost (HOST_WIDE_INT, enum machine_mode, bool);
 bool may_be_nonaddressable_p (tree expr);
 
 /* In tree-ssa-threadupdate.c.  */
@@ -856,7 +784,6 @@ rtx addr_for_mem_ref (struct mem_address *, addr_space_t, bool);
 void get_address_description (tree, struct mem_address *);
 tree maybe_fold_tmr (tree);
 
-unsigned int execute_free_datastructures (void);
 unsigned int execute_fixup_cfg (void);
 bool fixup_noreturn_call (gimple stmt);
 
@@ -865,6 +792,9 @@ void warn_function_noreturn (tree);
 
 /* In tree-ssa-ter.c  */
 bool stmt_is_replaceable_p (gimple);
+
+/* In tree-parloops.c  */
+bool parallelized_function_p (tree);
 
 #include "tree-flow-inline.h"
 

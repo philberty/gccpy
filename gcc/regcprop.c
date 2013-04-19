@@ -1,6 +1,5 @@
 /* Copy propagation on hard registers for the GNU compiler.
-   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010  Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -30,13 +29,11 @@
 #include "hard-reg-set.h"
 #include "basic-block.h"
 #include "reload.h"
-#include "output.h"
 #include "function.h"
 #include "recog.h"
 #include "flags.h"
 #include "diagnostic-core.h"
 #include "obstack.h"
-#include "timevar.h"
 #include "tree-pass.h"
 #include "df.h"
 
@@ -254,18 +251,27 @@ kill_clobbered_value (rtx x, const_rtx set, void *data)
     kill_value (x, vd);
 }
 
+/* A structure passed as data to kill_set_value through note_stores.  */
+struct kill_set_value_data
+{
+  struct value_data *vd;
+  rtx ignore_set_reg;
+};
+  
 /* Called through note_stores.  If X is set, not clobbered, kill its
    current value and install it as the root of its own value list.  */
 
 static void
 kill_set_value (rtx x, const_rtx set, void *data)
 {
-  struct value_data *const vd = (struct value_data *) data;
+  struct kill_set_value_data *ksvd = (struct kill_set_value_data *) data;
+  if (rtx_equal_p (x, ksvd->ignore_set_reg))
+    return;
   if (GET_CODE (set) != CLOBBER)
     {
-      kill_value (x, vd);
+      kill_value (x, ksvd->vd);
       if (REG_P (x))
-	set_value_regno (REGNO (x), GET_MODE (x), vd);
+	set_value_regno (REGNO (x), GET_MODE (x), ksvd->vd);
     }
 }
 
@@ -743,6 +749,7 @@ copyprop_hardreg_forward_1 (basic_block bb, struct value_data *vd)
       rtx set;
       bool replaced[MAX_RECOG_OPERANDS];
       bool changed = false;
+      struct kill_set_value_data ksvd;
 
       if (!NONDEBUG_INSN_P (insn))
 	{
@@ -976,14 +983,42 @@ copyprop_hardreg_forward_1 (basic_block bb, struct value_data *vd)
 	    note_uses (&PATTERN (insn), cprop_find_used_regs, vd);
 	}
 
+      ksvd.vd = vd;
+      ksvd.ignore_set_reg = NULL_RTX;
+
       /* Clobber call-clobbered registers.  */
       if (CALL_P (insn))
-	for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-	  if (TEST_HARD_REG_BIT (regs_invalidated_by_call, i))
-	    kill_value_regno (i, 1, vd);
+	{
+	  unsigned int set_regno = INVALID_REGNUM;
+	  unsigned int set_nregs = 0;
+	  unsigned int regno;
+	  rtx exp;
+	  hard_reg_set_iterator hrsi;
+
+	  for (exp = CALL_INSN_FUNCTION_USAGE (insn); exp; exp = XEXP (exp, 1))
+	    {
+	      rtx x = XEXP (exp, 0);
+	      if (GET_CODE (x) == SET)
+		{
+		  rtx dest = SET_DEST (x);
+		  kill_value (dest, vd);
+		  set_value_regno (REGNO (dest), GET_MODE (dest), vd);
+		  copy_value (dest, SET_SRC (x), vd);
+		  ksvd.ignore_set_reg = dest;
+		  set_regno = REGNO (dest);
+		  set_nregs
+		    = hard_regno_nregs[set_regno][GET_MODE (dest)];
+		  break;
+		}
+	    }
+
+	  EXECUTE_IF_SET_IN_HARD_REG_SET (regs_invalidated_by_call, 0, regno, hrsi)
+	    if (regno < set_regno || regno >= set_regno + set_nregs)
+	      kill_value_regno (regno, 1, vd);
+	}
 
       /* Notice stores.  */
-      note_stores (PATTERN (insn), kill_set_value, vd);
+      note_stores (PATTERN (insn), kill_set_value, &ksvd);
 
       /* Notice copies.  */
       if (set && REG_P (SET_DEST (set)) && REG_P (SET_SRC (set)))
@@ -1009,7 +1044,7 @@ copyprop_hardreg_forward (void)
   all_vd = XNEWVEC (struct value_data, last_basic_block);
 
   visited = sbitmap_alloc (last_basic_block);
-  sbitmap_zero (visited);
+  bitmap_clear (visited);
 
   if (MAY_HAVE_DEBUG_INSNS)
     debug_insn_changes_pool
@@ -1018,14 +1053,14 @@ copyprop_hardreg_forward (void)
 
   FOR_EACH_BB (bb)
     {
-      SET_BIT (visited, bb->index);
+      bitmap_set_bit (visited, bb->index);
 
       /* If a block has a single predecessor, that we've already
 	 processed, begin with the value data that was live at
 	 the end of the predecessor block.  */
       /* ??? Ought to use more intelligent queuing of blocks.  */
       if (single_pred_p (bb)
-	  && TEST_BIT (visited, single_pred (bb)->index)
+	  && bitmap_bit_p (visited, single_pred (bb)->index)
 	  && ! (single_pred_edge (bb)->flags & (EDGE_ABNORMAL_CALL | EDGE_EH)))
 	{
 	  all_vd[bb->index] = all_vd[single_pred (bb)->index];
@@ -1053,7 +1088,7 @@ copyprop_hardreg_forward (void)
   if (MAY_HAVE_DEBUG_INSNS)
     {
       FOR_EACH_BB (bb)
-	if (TEST_BIT (visited, bb->index)
+	if (bitmap_bit_p (visited, bb->index)
 	    && all_vd[bb->index].n_debug_insn_changes)
 	  {
 	    unsigned int regno;
@@ -1199,6 +1234,7 @@ struct rtl_opt_pass pass_cprop_hardreg =
  {
   RTL_PASS,
   "cprop_hardreg",                      /* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_handle_cprop,                    /* gate */
   copyprop_hardreg_forward,             /* execute */
   NULL,                                 /* sub */

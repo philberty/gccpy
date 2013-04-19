@@ -1,7 +1,5 @@
 /* Print RTL for GCC.
-   Copyright (C) 1987, 1988, 1992, 1997, 1998, 1999, 2000, 2002, 2003,
-   2004, 2005, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -42,7 +40,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "diagnostic.h"
 #include "tree-pretty-print.h"
 #include "cselib.h"
-#include "tree-pass.h"
+#include "dumpfile.h"	/* for dump_flags */
 #include "dwarf2out.h"
 #endif
 
@@ -76,9 +74,6 @@ int flag_dump_unnumbered_links = 0;
 
 /* Nonzero means use simplified format without flags, modes, etc.  */
 int flag_simple = 0;
-
-/* Nonzero if we are dumping graphical description.  */
-int dump_for_graph;
 
 #ifndef GENERATOR_FILE
 void
@@ -124,78 +119,66 @@ print_rtx (const_rtx in_rtx)
 
   is_insn = INSN_P (in_rtx);
 
-  /* When printing in VCG format we write INSNs, NOTE, LABEL, and BARRIER
-     in separate nodes and therefore have to handle them special here.  */
-  if (dump_for_graph
-      && (is_insn || NOTE_P (in_rtx)
-	  || LABEL_P (in_rtx) || BARRIER_P (in_rtx)))
-    {
-      i = 3;
-      indent = 0;
-    }
+  /* Print name of expression code.  */
+  if (flag_simple && CONST_INT_P (in_rtx))
+    fputc ('(', outfile);
   else
+    fprintf (outfile, "(%s", GET_RTX_NAME (GET_CODE (in_rtx)));
+
+  if (! flag_simple)
     {
-      /* Print name of expression code.  */
-      if (flag_simple && CONST_INT_P (in_rtx))
-	fputc ('(', outfile);
-      else
-	fprintf (outfile, "(%s", GET_RTX_NAME (GET_CODE (in_rtx)));
+      if (RTX_FLAG (in_rtx, in_struct))
+	fputs ("/s", outfile);
 
-      if (! flag_simple)
-	{
-	  if (RTX_FLAG (in_rtx, in_struct))
-	    fputs ("/s", outfile);
+      if (RTX_FLAG (in_rtx, volatil))
+	fputs ("/v", outfile);
 
-	  if (RTX_FLAG (in_rtx, volatil))
-	    fputs ("/v", outfile);
+      if (RTX_FLAG (in_rtx, unchanging))
+	fputs ("/u", outfile);
 
-	  if (RTX_FLAG (in_rtx, unchanging))
-	    fputs ("/u", outfile);
+      if (RTX_FLAG (in_rtx, frame_related))
+	fputs ("/f", outfile);
 
-	  if (RTX_FLAG (in_rtx, frame_related))
-	    fputs ("/f", outfile);
+      if (RTX_FLAG (in_rtx, jump))
+	fputs ("/j", outfile);
 
-	  if (RTX_FLAG (in_rtx, jump))
-	    fputs ("/j", outfile);
+      if (RTX_FLAG (in_rtx, call))
+	fputs ("/c", outfile);
 
-	  if (RTX_FLAG (in_rtx, call))
-	    fputs ("/c", outfile);
+      if (RTX_FLAG (in_rtx, return_val))
+	fputs ("/i", outfile);
 
-	  if (RTX_FLAG (in_rtx, return_val))
-	    fputs ("/i", outfile);
+      /* Print REG_NOTE names for EXPR_LIST and INSN_LIST.  */
+      if ((GET_CODE (in_rtx) == EXPR_LIST
+	   || GET_CODE (in_rtx) == INSN_LIST)
+	  && (int)GET_MODE (in_rtx) < REG_NOTE_MAX)
+	fprintf (outfile, ":%s",
+		 GET_REG_NOTE_NAME (GET_MODE (in_rtx)));
 
-	  /* Print REG_NOTE names for EXPR_LIST and INSN_LIST.  */
-	  if ((GET_CODE (in_rtx) == EXPR_LIST
-	       || GET_CODE (in_rtx) == INSN_LIST)
-	      && (int)GET_MODE (in_rtx) < REG_NOTE_MAX)
-	    fprintf (outfile, ":%s",
-		     GET_REG_NOTE_NAME (GET_MODE (in_rtx)));
-
-	  /* For other rtl, print the mode if it's not VOID.  */
-	  else if (GET_MODE (in_rtx) != VOIDmode)
-	    fprintf (outfile, ":%s", GET_MODE_NAME (GET_MODE (in_rtx)));
+      /* For other rtl, print the mode if it's not VOID.  */
+      else if (GET_MODE (in_rtx) != VOIDmode)
+	fprintf (outfile, ":%s", GET_MODE_NAME (GET_MODE (in_rtx)));
 
 #ifndef GENERATOR_FILE
-	  if (GET_CODE (in_rtx) == VAR_LOCATION)
-	    {
-	      if (TREE_CODE (PAT_VAR_LOCATION_DECL (in_rtx)) == STRING_CST)
-		fputs (" <debug string placeholder>", outfile);
-	      else
-		print_mem_expr (outfile, PAT_VAR_LOCATION_DECL (in_rtx));
-	      fputc (' ', outfile);
-	      print_rtx (PAT_VAR_LOCATION_LOC (in_rtx));
-	      if (PAT_VAR_LOCATION_STATUS (in_rtx)
-		  == VAR_INIT_STATUS_UNINITIALIZED)
-		fprintf (outfile, " [uninit]");
-	      sawclose = 1;
-	      i = GET_RTX_LENGTH (VAR_LOCATION);
-	    }
-#endif
+      if (GET_CODE (in_rtx) == VAR_LOCATION)
+	{
+	  if (TREE_CODE (PAT_VAR_LOCATION_DECL (in_rtx)) == STRING_CST)
+	    fputs (" <debug string placeholder>", outfile);
+	  else
+	    print_mem_expr (outfile, PAT_VAR_LOCATION_DECL (in_rtx));
+	  fputc (' ', outfile);
+	  print_rtx (PAT_VAR_LOCATION_LOC (in_rtx));
+	  if (PAT_VAR_LOCATION_STATUS (in_rtx)
+	      == VAR_INIT_STATUS_UNINITIALIZED)
+	    fprintf (outfile, " [uninit]");
+	  sawclose = 1;
+	  i = GET_RTX_LENGTH (VAR_LOCATION);
 	}
+#endif
     }
 
 #ifndef GENERATOR_FILE
-  if (GET_CODE (in_rtx) == CONST_DOUBLE && FLOAT_MODE_P (GET_MODE (in_rtx)))
+  if (CONST_DOUBLE_AS_FLOAT_P (in_rtx))
     i = 5;
 #endif
 
@@ -217,14 +200,9 @@ print_rtx (const_rtx in_rtx)
       string:
 
 	if (str == 0)
-	  fputs (dump_for_graph ? " \\\"\\\"" : " \"\"", outfile);
+	  fputs (" \"\"", outfile);
 	else
-	  {
-	    if (dump_for_graph)
-	      fprintf (outfile, " (\\\"%s\\\")", str);
-	    else
-	      fprintf (outfile, " (\"%s\")", str);
-	  }
+	  fprintf (outfile, " (\"%s\")", str);
 	sawclose = 1;
 	break;
 
@@ -416,10 +394,10 @@ print_rtx (const_rtx in_rtx)
 	if (i == 5 && INSN_P (in_rtx))
 	  {
 #ifndef GENERATOR_FILE
-	    /*  Pretty-print insn locators.  Ignore scoping as it is mostly
+	    /*  Pretty-print insn locations.  Ignore scoping as it is mostly
 		redundant with line number information and do not print anything
 		when there is no location information available.  */
-	    if (INSN_LOCATOR (in_rtx) && insn_file (in_rtx))
+	    if (INSN_LOCATION (in_rtx) && insn_file (in_rtx))
 	      fprintf(outfile, " %s:%i", insn_file (in_rtx), insn_line (in_rtx));
 #endif
 	  }
@@ -427,16 +405,16 @@ print_rtx (const_rtx in_rtx)
 	  {
 #ifndef GENERATOR_FILE
 	    fprintf (outfile, " %s:%i",
-		     locator_file (ASM_OPERANDS_SOURCE_LOCATION (in_rtx)),
-		     locator_line (ASM_OPERANDS_SOURCE_LOCATION (in_rtx)));
+		     LOCATION_FILE (ASM_OPERANDS_SOURCE_LOCATION (in_rtx)),
+		     LOCATION_LINE (ASM_OPERANDS_SOURCE_LOCATION (in_rtx)));
 #endif
 	  }
 	else if (i == 1 && GET_CODE (in_rtx) == ASM_INPUT)
 	  {
 #ifndef GENERATOR_FILE
 	    fprintf (outfile, " %s:%i",
-		     locator_file (ASM_INPUT_SOURCE_LOCATION (in_rtx)),
-		     locator_line (ASM_INPUT_SOURCE_LOCATION (in_rtx)));
+		     LOCATION_FILE (ASM_INPUT_SOURCE_LOCATION (in_rtx)),
+		     LOCATION_LINE (ASM_INPUT_SOURCE_LOCATION (in_rtx)));
 #endif
 	  }
 	else if (i == 6 && NOTE_P (in_rtx))
@@ -652,15 +630,8 @@ print_rtx (const_rtx in_rtx)
       break;
     }
 
-  if (dump_for_graph
-      && (is_insn || NOTE_P (in_rtx)
-	  || LABEL_P (in_rtx) || BARRIER_P (in_rtx)))
-    sawclose = 0;
-  else
-    {
-      fputc (')', outfile);
-      sawclose = 1;
-    }
+  fputc (')', outfile);
+  sawclose = 1;
 }
 
 /* Print an rtx on the current line of FILE.  Initially indent IND
@@ -811,11 +782,27 @@ print_rtl (FILE *outf, const_rtx rtx_first)
 int
 print_rtl_single (FILE *outf, const_rtx x)
 {
+  return print_rtl_single_with_indent (outf, x, 0);
+}
+
+/* Like print_rtl_single, except specify a file and indentation.  */
+
+int
+print_rtl_single_with_indent (FILE *outf, const_rtx x, int ind)
+{
+  int old_indent = indent;
+  char *s_indent = (char *) alloca ((size_t) ind + 1);
+  memset ((void *) s_indent, ' ', (size_t) ind);
+  s_indent[ind] = '\0';
+
+  indent = ind;
   outfile = outf;
   sawclose = 0;
+  fputs (s_indent, outfile);
   fputs (print_rtx_head, outfile);
   print_rtx (x);
   putc ('\n', outf);
+  indent = old_indent;
   return 1;
 }
 

@@ -1,5 +1,5 @@
 /* GCC backend definitions for the Renesas RL78 processor.
-   Copyright (C) 2011 Free Software Foundation, Inc.
+   Copyright (C) 2011-2013 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -455,8 +455,5 @@ typedef unsigned int CUMULATIVE_ARGS;
 
 /* NOTE: defined but zero means dwarf2 debugging, but sjlj EH.  */
 #define DWARF2_UNWIND_INFO 0
-/*#define DONT_USE_BUILTIN_SETJMP 1*/
-#undef DONT_USE_BUILTIN_SETJMP
-#define JMP_BUF_SIZE (8*3+8)
 
 #define REGISTER_TARGET_PRAGMAS() rl78_register_pragmas()

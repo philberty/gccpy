@@ -7,6 +7,7 @@
 package http_test
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -219,6 +220,9 @@ func TestRedirects(t *testing.T) {
 		return checkErr
 	}}
 	res, err := c.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	finalUrl := res.Request.URL.String()
 	if e, g := "<nil>", fmt.Sprintf("%v", err); e != g {
 		t.Errorf("with custom client, expected error %q, got %q", e, g)
@@ -234,6 +238,58 @@ func TestRedirects(t *testing.T) {
 	res, err = c.Get(ts.URL)
 	if urlError, ok := err.(*url.Error); !ok || urlError.Err != checkErr {
 		t.Errorf("with redirects forbidden, expected a *url.Error with our 'no redirects allowed' error inside; got %#v (%q)", err, err)
+	}
+	if res == nil {
+		t.Fatalf("Expected a non-nil Response on CheckRedirect failure (http://golang.org/issue/3795)")
+	}
+	if res.Header.Get("Location") == "" {
+		t.Errorf("no Location header in Response")
+	}
+}
+
+func TestPostRedirects(t *testing.T) {
+	var log struct {
+		sync.Mutex
+		bytes.Buffer
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+		log.Lock()
+		fmt.Fprintf(&log.Buffer, "%s %s ", r.Method, r.RequestURI)
+		log.Unlock()
+		if v := r.URL.Query().Get("code"); v != "" {
+			code, _ := strconv.Atoi(v)
+			if code/100 == 3 {
+				w.Header().Set("Location", ts.URL)
+			}
+			w.WriteHeader(code)
+		}
+	}))
+	tests := []struct {
+		suffix string
+		want   int // response code
+	}{
+		{"/", 200},
+		{"/?code=301", 301},
+		{"/?code=302", 200},
+		{"/?code=303", 200},
+		{"/?code=404", 404},
+	}
+	for _, tt := range tests {
+		res, err := Post(ts.URL+tt.suffix, "text/plain", strings.NewReader("Some content"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != tt.want {
+			t.Errorf("POST %s: status code = %d; want %d", tt.suffix, res.StatusCode, tt.want)
+		}
+	}
+	log.Lock()
+	got := log.String()
+	log.Unlock()
+	want := "POST / POST /?code=301 POST /?code=302 GET / POST /?code=303 GET / POST /?code=404 "
+	if got != want {
+		t.Errorf("Log differs.\n Got: %q\nWant: %q", got, want)
 	}
 }
 
@@ -279,6 +335,10 @@ func TestClientSendsCookieFromJar(t *testing.T) {
 	req, _ := NewRequest("GET", us, nil)
 	client.Do(req) // Note: doesn't hit network
 	matchReturnedCookies(t, expectedCookies, tr.req.Cookies())
+
+	req, _ = NewRequest("POST", us, nil)
+	client.Do(req) // Note: doesn't hit network
+	matchReturnedCookies(t, expectedCookies, tr.req.Cookies())
 }
 
 // Just enough correctness for our redirect tests. Uses the URL.Host as the
@@ -291,6 +351,9 @@ type TestJar struct {
 func (j *TestJar) SetCookies(u *url.URL, cookies []*Cookie) {
 	j.m.Lock()
 	defer j.m.Unlock()
+	if j.perURL == nil {
+		j.perURL = make(map[string][]*Cookie)
+	}
 	j.perURL[u.Host] = cookies
 }
 
@@ -321,11 +384,15 @@ func TestRedirectCookiesJar(t *testing.T) {
 	var ts *httptest.Server
 	ts = httptest.NewServer(echoCookiesRedirectHandler)
 	defer ts.Close()
-	c := &Client{}
-	c.Jar = &TestJar{perURL: make(map[string][]*Cookie)}
+	c := &Client{
+		Jar: new(TestJar),
+	}
 	u, _ := url.Parse(ts.URL)
 	c.Jar.SetCookies(u, []*Cookie{expectedCookies[0]})
-	resp, _ := c.Get(ts.URL)
+	resp, err := c.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 	matchReturnedCookies(t, expectedCookies, resp.Cookies())
 }
 
@@ -346,6 +413,69 @@ func matchReturnedCookies(t *testing.T, expected, given []*Cookie) {
 			t.Errorf("Missing cookie %v", ec)
 		}
 	}
+}
+
+func TestJarCalls(t *testing.T) {
+	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+		pathSuffix := r.RequestURI[1:]
+		if r.RequestURI == "/nosetcookie" {
+			return // dont set cookies for this path
+		}
+		SetCookie(w, &Cookie{Name: "name" + pathSuffix, Value: "val" + pathSuffix})
+		if r.RequestURI == "/" {
+			Redirect(w, r, "http://secondhost.fake/secondpath", 302)
+		}
+	}))
+	defer ts.Close()
+	jar := new(RecordingJar)
+	c := &Client{
+		Jar: jar,
+		Transport: &Transport{
+			Dial: func(_ string, _ string) (net.Conn, error) {
+				return net.Dial("tcp", ts.Listener.Addr().String())
+			},
+		},
+	}
+	_, err := c.Get("http://firsthost.fake/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Get("http://firsthost.fake/nosetcookie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := jar.log.String()
+	want := `Cookies("http://firsthost.fake/")
+SetCookie("http://firsthost.fake/", [name=val])
+Cookies("http://secondhost.fake/secondpath")
+SetCookie("http://secondhost.fake/secondpath", [namesecondpath=valsecondpath])
+Cookies("http://firsthost.fake/nosetcookie")
+`
+	if got != want {
+		t.Errorf("Got Jar calls:\n%s\nWant:\n%s", got, want)
+	}
+}
+
+// RecordingJar keeps a log of calls made to it, without
+// tracking any cookies.
+type RecordingJar struct {
+	mu  sync.Mutex
+	log bytes.Buffer
+}
+
+func (j *RecordingJar) SetCookies(u *url.URL, cookies []*Cookie) {
+	j.logf("SetCookie(%q, %v)\n", u, cookies)
+}
+
+func (j *RecordingJar) Cookies(u *url.URL) []*Cookie {
+	j.logf("Cookies(%q)\n", u)
+	return nil
+}
+
+func (j *RecordingJar) logf(format string, args ...interface{}) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	fmt.Fprintf(&j.log, format, args...)
 }
 
 func TestStreamingGet(t *testing.T) {
@@ -509,5 +639,40 @@ func TestClientWithIncorrectTLSServerName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "127.0.0.1") || !strings.Contains(err.Error(), "badserver") {
 		t.Errorf("wanted error mentioning 127.0.0.1 and badserver; got error: %v", err)
+	}
+}
+
+// Verify Response.ContentLength is populated. http://golang.org/issue/4126
+func TestClientHeadContentLength(t *testing.T) {
+	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+		if v := r.FormValue("cl"); v != "" {
+			w.Header().Set("Content-Length", v)
+		}
+	}))
+	defer ts.Close()
+	tests := []struct {
+		suffix string
+		want   int64
+	}{
+		{"/?cl=1234", 1234},
+		{"/?cl=0", 0},
+		{"", -1},
+	}
+	for _, tt := range tests {
+		req, _ := NewRequest("HEAD", ts.URL+tt.suffix, nil)
+		res, err := DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.ContentLength != tt.want {
+			t.Errorf("Content-Length = %d; want %d", res.ContentLength, tt.want)
+		}
+		bs, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bs) != 0 {
+			t.Errorf("Unexpected content: %q", bs)
+		}
 	}
 }

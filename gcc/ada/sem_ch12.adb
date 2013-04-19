@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -25,6 +25,7 @@
 
 with Aspects;  use Aspects;
 with Atree;    use Atree;
+with Debug;    use Debug;
 with Einfo;    use Einfo;
 with Elists;   use Elists;
 with Errout;   use Errout;
@@ -33,7 +34,6 @@ with Exp_Disp; use Exp_Disp;
 with Fname;    use Fname;
 with Fname.UF; use Fname.UF;
 with Freeze;   use Freeze;
-with Hostparm;
 with Itypes;   use Itypes;
 with Lib;      use Lib;
 with Lib.Load; use Lib.Load;
@@ -2669,6 +2669,14 @@ package body Sem_Ch12 is
                Error_Msg_N
                  ("abstract formal subprogram must have a controlling type",
                   N);
+
+            elsif Ada_Version >= Ada_2012
+              and then Is_Incomplete_Type (Ctrl_Type)
+            then
+               Error_Msg_NE
+                 ("controlling type of abstract formal subprogram cannot " &
+                     "be incomplete type", N, Ctrl_Type);
+
             else
                Check_Controlling_Formals (Ctrl_Type, Nam);
             end if;
@@ -3299,6 +3307,11 @@ package body Sem_Ch12 is
       --  but it is simpler than detecting the need for the body at the point
       --  of inlining, when the context of the instance is not available.
 
+      function Must_Inline_Subp return Boolean;
+      --  If inlining is active and the generic contains inlined subprograms,
+      --  return True if some of the inlined subprograms must be inlined by
+      --  the frontend.
+
       -----------------------
       -- Delay_Descriptors --
       -----------------------
@@ -3337,6 +3350,34 @@ package body Sem_Ch12 is
 
          return False;
       end Might_Inline_Subp;
+
+      ----------------------
+      -- Must_Inline_Subp --
+      ----------------------
+
+      function Must_Inline_Subp return Boolean is
+         E : Entity_Id;
+
+      begin
+         if not Inline_Processing_Required then
+            return False;
+
+         else
+            E := First_Entity (Gen_Unit);
+            while Present (E) loop
+               if Is_Subprogram (E)
+                 and then Is_Inlined (E)
+                 and then Must_Inline (E)
+               then
+                  return True;
+               end if;
+
+               Next_Entity (E);
+            end loop;
+         end if;
+
+         return False;
+      end Must_Inline_Subp;
 
       --  Local declarations
 
@@ -3618,7 +3659,16 @@ package body Sem_Ch12 is
               and then Might_Inline_Subp
               and then not Is_Actual_Pack
             then
-               if Front_End_Inlining
+               if not Debug_Flag_Dot_K
+                 and then Front_End_Inlining
+                 and then (Is_In_Main_Unit (N)
+                            or else In_Main_Context (Current_Scope))
+                 and then Nkind (Parent (N)) /= N_Compilation_Unit
+               then
+                  Inline_Now := True;
+
+               elsif Debug_Flag_Dot_K
+                 and then Must_Inline_Subp
                  and then (Is_In_Main_Unit (N)
                             or else In_Main_Context (Current_Scope))
                  and then Nkind (Parent (N)) /= N_Compilation_Unit
@@ -3667,7 +3717,6 @@ package body Sem_Ch12 is
                            or else Might_Inline_Subp)
                 and then not Is_Actual_Pack
                 and then not Inline_Now
-                and then not Alfa_Mode
                 and then (Operating_Mode = Generate_Code
                            or else (Operating_Mode = Check_Semantics
                                      and then ASIS_Mode));
@@ -3746,8 +3795,10 @@ package body Sem_Ch12 is
             --  Here is a defence against a ludicrous number of instantiations
             --  caused by a circular set of instantiation attempts.
 
-            if Pending_Instantiations.Last > Hostparm.Max_Instantiations then
-               Error_Msg_N ("too many instantiations", N);
+            if Pending_Instantiations.Last > Maximum_Instantiations then
+               Error_Msg_Uint_1 := UI_From_Int (Maximum_Instantiations);
+               Error_Msg_N ("too many instantiations, exceeds max of^", N);
+               Error_Msg_N ("\limit can be changed using -gnateinn switch", N);
                raise Unrecoverable_Error;
             end if;
 
@@ -4366,9 +4417,6 @@ package body Sem_Ch12 is
       Parent_Installed : Boolean := False;
       Renaming_List    : List_Id;
 
-      Save_Style_Check : constant Boolean := Style_Check;
-      --  Save style check mode for restore on exit
-
       procedure Analyze_Instance_And_Renamings;
       --  The instance must be analyzed in a context that includes the mappings
       --  of generic parameters into actuals. We create a package declaration
@@ -4549,11 +4597,13 @@ package body Sem_Ch12 is
 
       Instantiation_Node := N;
 
-      --  Turn off style checking in instances. If the check is enabled on the
-      --  generic unit, a warning in an instance would just be noise. If not
-      --  enabled on the generic, then a warning in an instance is just wrong.
+      --  For package instantiations we turn off style checks, because they
+      --  will have been emitted in the generic. For subprogram instantiations
+      --  we want to apply at least the check on overriding indicators so we
+      --  do not modify the style check status.
 
-      Style_Check := False;
+      --  The renaming declarations for the actuals do not come from source and
+      --  will not generate spurious warnings.
 
       Preanalyze_Actuals (N);
 
@@ -4821,8 +4871,6 @@ package body Sem_Ch12 is
          Generic_Renamings_HTable.Reset;
       end if;
 
-      Style_Check := Save_Style_Check;
-
    <<Leave>>
       if Has_Aspects (N) then
          Analyze_Aspect_Specifications (N, Act_Decl_Id);
@@ -4837,8 +4885,6 @@ package body Sem_Ch12 is
          if Env_Installed then
             Restore_Env;
          end if;
-
-         Style_Check := Save_Style_Check;
    end Analyze_Subprogram_Instantiation;
 
    -------------------------
@@ -4881,6 +4927,17 @@ package body Sem_Ch12 is
                                                         N_String_Literal))
          then
             Assoc := Associated_Node (Assoc);
+         end if;
+
+         --  An additional special case: an unconstrained type in an object
+         --  declaration may have been rewritten as a local subtype constrained
+         --  by the expression in the declaration. We need to recover the
+         --  original entity which may be global.
+
+         if Present (Original_Node (Assoc))
+           and then Nkind (Parent (N)) = N_Object_Declaration
+         then
+            Assoc := Original_Node (Assoc);
          end if;
 
          return Assoc;
@@ -5662,7 +5719,7 @@ package body Sem_Ch12 is
                  and then Is_Child_Unit (E)
                then
                   if Is_Child_Unit (E)
-                    and then not Is_Visible_Child_Unit (E)
+                    and then not Is_Visible_Lib_Unit (E)
                   then
                      Error_Msg_NE
                        ("generic child unit& is not visible", Gen_Id, E);
@@ -6095,8 +6152,9 @@ package body Sem_Ch12 is
 
             begin
                Indx := First_Index (T);
-               Typ  := Base_Type (Etype (Indx));
                while Present (Indx) loop
+                  Typ := Base_Type (Etype (Indx));
+
                   if Is_Private_Type (Typ)
                     and then Present (Full_View (Typ))
                   then
@@ -7026,6 +7084,8 @@ package body Sem_Ch12 is
       D2 : Integer := 0;
       P1 : Node_Id := N1;
       P2 : Node_Id := N2;
+      T1 : Source_Ptr;
+      T2 : Source_Ptr;
 
    --  Start of processing for Earlier
 
@@ -7164,12 +7224,24 @@ package body Sem_Ch12 is
       end if;
 
       --  At this point either both nodes came from source or we approximated
-      --  their source locations through neighbouring source statements. There
-      --  is no need to look at the top level locations of P1 and P2 because
-      --  both nodes are in the same list and whether the enclosing context is
-      --  instantiated is irrelevant.
+      --  their source locations through neighbouring source statements.
 
-      return Sloc (P1) < Sloc (P2);
+      T1 := Top_Level_Location (Sloc (P1));
+      T2 := Top_Level_Location (Sloc (P2));
+
+      --  When two nodes come from the same instance, they have identical top
+      --  level locations. To determine proper relation within the tree, check
+      --  their locations within the template.
+
+      if T1 = T2 then
+         return Sloc (P1) < Sloc (P2);
+
+      --  The two nodes either come from unrelated instances or do not come
+      --  from instantiated code at all.
+
+      else
+         return T1 < T2;
+      end if;
    end Earlier;
 
    ----------------------
@@ -7718,6 +7790,10 @@ package body Sem_Ch12 is
       Item            : Node_Id;
       New_I           : Node_Id;
 
+      Clause   : Node_Id;
+      OK       : Boolean;
+      Lib_Unit : Node_Id;
+
    begin
       if Nkind (Parent (Gen_Decl)) = N_Compilation_Unit then
 
@@ -7738,18 +7814,33 @@ package body Sem_Ch12 is
          Item := First (Context_Items (Parent (Gen_Decl)));
          while Present (Item) loop
             if Nkind (Item) = N_With_Clause then
+               Lib_Unit := Library_Unit (Item);
 
-               --  Take care to prevent direct cyclic with's, which can happen
-               --  if the generic body with's the current unit. Such a case
-               --  would result in binder errors (or run-time errors if the
-               --  -gnatE switch is in effect), but we want to prevent it here,
-               --  because Sem.Walk_Library_Items doesn't like cycles. Note
-               --  that we don't bother to detect indirect cycles.
+               --  Take care to prevent direct cyclic with's
 
-               if Library_Unit (Item) /= Current_Unit then
-                  New_I := New_Copy (Item);
-                  Set_Implicit_With (New_I, True);
-                  Append (New_I, Current_Context);
+               if Lib_Unit /= Current_Unit then
+
+                  --  Do not add a unit if it is already in the context
+
+                  Clause := First (Current_Context);
+                  OK := True;
+                  while Present (Clause) loop
+                     if Nkind (Clause) = N_With_Clause and then
+                       Library_Unit (Clause) = Lib_Unit
+                     then
+                        OK := False;
+                        exit;
+                     end if;
+
+                     Next (Clause);
+                  end loop;
+
+                  if OK then
+                     New_I := New_Copy (Item);
+                     Set_Implicit_With (New_I, True);
+                     Set_Implicit_With_From_Instantiation (New_I, True);
+                     Append (New_I, Current_Context);
+                  end if;
                end if;
             end if;
 
@@ -7781,9 +7872,9 @@ package body Sem_Ch12 is
      (N      : Node_Id;
       F_Node : Node_Id)
    is
-      Inst  : constant Entity_Id := Entity (F_Node);
       Decl  : Node_Id;
       Decls : List_Id;
+      Inst  : Entity_Id;
       Par_N : Node_Id;
 
       function Enclosing_Body (N : Node_Id) return Node_Id;
@@ -7850,9 +7941,18 @@ package body Sem_Ch12 is
 
    begin
       if not Is_List_Member (F_Node) then
-         Decls := List_Containing (N);
-         Par_N := Parent (Decls);
          Decl  := N;
+         Decls := List_Containing (N);
+         Inst  := Entity (F_Node);
+         Par_N := Parent (Decls);
+
+         --  When processing a subprogram instantiation, utilize the actual
+         --  subprogram instantiation rather than its package wrapper as it
+         --  carries all the context information.
+
+         if Is_Wrapper_Package (Inst) then
+            Inst := Related_Instance (Inst);
+         end if;
 
          --  If this is a package instance, check whether the generic is
          --  declared in a previous instance and the current instance is
@@ -10352,23 +10452,24 @@ package body Sem_Ch12 is
          T : constant Entity_Id := Get_Instance_Of (Gen_T);
 
       begin
-         return (Base_Type (T) = Base_Type (Act_T)
+         --  Some detailed comments would be useful here ???
+
+         return ((Base_Type (T) = Act_T
+                   or else Base_Type (T) = Base_Type (Act_T))
                   and then Subtypes_Statically_Match (T, Act_T))
 
            or else (Is_Class_Wide_Type (Gen_T)
                      and then Is_Class_Wide_Type (Act_T)
-                     and then
-                       Subtypes_Match
-                        (Get_Instance_Of (Root_Type (Gen_T)),
-                         Root_Type (Act_T)))
+                     and then Subtypes_Match
+                                (Get_Instance_Of (Root_Type (Gen_T)),
+                                 Root_Type (Act_T)))
 
            or else
-             ((Ekind (Gen_T) = E_Anonymous_Access_Subprogram_Type
-                 or else Ekind (Gen_T) = E_Anonymous_Access_Type)
+             (Ekind_In (Gen_T, E_Anonymous_Access_Subprogram_Type,
+                               E_Anonymous_Access_Type)
                and then Ekind (Act_T) = Ekind (Gen_T)
-               and then
-                 Subtypes_Statically_Match
-                   (Designated_Type (Gen_T), Designated_Type (Act_T)));
+               and then Subtypes_Statically_Match
+                          (Designated_Type (Gen_T), Designated_Type (Act_T)));
       end Subtypes_Match;
 
       -----------------------------------------
@@ -10385,11 +10486,28 @@ package body Sem_Ch12 is
             Abandon_Instantiation (Actual);
          end if;
 
-         Check_Mode_Conformant
-           (Designated_Type (Act_T),
-            Designated_Type (A_Gen_T),
-            Actual,
-            Get_Inst => True);
+         --  According to AI05-288, actuals for access_to_subprograms must be
+         --  subtype conformant with the generic formal. Previous to AI05-288
+         --  only mode conformance was required.
+
+         --  This is a binding interpretation that applies to previous versions
+         --  of the language, but for now we retain the milder check in order
+         --  to preserve ACATS tests. These will be protested eventually ???
+
+         if Ada_Version < Ada_2012 then
+            Check_Mode_Conformant
+              (Designated_Type (Act_T),
+               Designated_Type (A_Gen_T),
+               Actual,
+               Get_Inst => True);
+
+         else
+            Check_Subtype_Conformant
+              (Designated_Type (Act_T),
+               Designated_Type (A_Gen_T),
+               Actual,
+               Get_Inst => True);
+         end if;
 
          if Ekind (Base_Type (Act_T)) = E_Access_Protected_Subprogram_Type then
             if Ekind (A_Gen_T) = E_Access_Subprogram_Type then
@@ -10582,13 +10700,16 @@ package body Sem_Ch12 is
          --  issues when the generic is a child unit and some aspect of the
          --  generic type is declared in a parent unit of the generic. We do
          --  the test to handle this special case only after a direct check
-         --  for static matching has failed.
+         --  for static matching has failed. The case where both the component
+         --  type and the array type are separate formals, and the component
+         --  type is a private view may also require special checking in
+         --  Subtypes_Match.
 
          if Subtypes_Match
            (Component_Type (A_Gen_T), Component_Type (Act_T))
              or else Subtypes_Match
-                      (Find_Actual_Type (Component_Type (A_Gen_T), A_Gen_T),
-                       Component_Type (Act_T))
+               (Find_Actual_Type (Component_Type (A_Gen_T), A_Gen_T),
+               Component_Type (Act_T))
          then
             null;
          else
@@ -10722,10 +10843,26 @@ package body Sem_Ch12 is
 
                pragma Assert (Present (Ancestor));
 
+               --  The ancestor itself may be a previous formal that has been
+               --  instantiated.
+
+               Ancestor := Get_Instance_Of (Ancestor);
+
             else
                Ancestor :=
                  Get_Instance_Of (Base_Type (Get_Instance_Of (A_Gen_T)));
             end if;
+
+         --  An unusual case: the actual is a type declared in a parent unit,
+         --  but is not a formal type so there is no instance_of for it.
+         --  Retrieve it by analyzing the record extension.
+
+         elsif Is_Child_Unit (Scope (A_Gen_T))
+           and then In_Open_Scopes (Scope (Act_T))
+           and then Is_Generic_Instance (Scope (Act_T))
+         then
+            Analyze (Subtype_Mark (Def));
+            Ancestor := Entity (Subtype_Mark (Def));
 
          else
             Ancestor := Get_Instance_Of (Etype (Base_Type (A_Gen_T)));
@@ -11361,7 +11498,7 @@ package body Sem_Ch12 is
             then
                null;
             else
-               Error_Msg_N ("Unchecked_Union cannot be the actual for a" &
+               Error_Msg_N ("unchecked union cannot be the actual for a" &
                  " discriminated formal type", Act_T);
 
             end if;
@@ -12021,8 +12158,8 @@ package body Sem_Ch12 is
       E1 := First_Entity (Form);
       E2 := First_Entity (Act);
       while Present (E1) and then E1 /= First_Private_Entity (Form) loop
-         --  Could this test be a single condition???
-         --  Seems like it could, and isn't FPE (Form) a constant anyway???
+         --  Could this test be a single condition??? Seems like it could, and
+         --  isn't FPE (Form) a constant anyway???
 
          if not Is_Internal (E1)
            and then Present (Parent (E1))
@@ -12288,7 +12425,7 @@ package body Sem_Ch12 is
                   --  provide additional warning which might explain the error.
 
                   Set_Is_Immediately_Visible (Cur, Vis);
-                  Error_Msg_NE ("& hides outer unit with the same name?",
+                  Error_Msg_NE ("& hides outer unit with the same name??",
                     N, Defining_Unit_Name (N));
                end if;
 
@@ -12544,7 +12681,20 @@ package body Sem_Ch12 is
          if Is_Type (E)
            and then Nkind (Parent (E)) = N_Subtype_Declaration
          then
-            Set_Is_Generic_Actual_Type (E, False);
+            --  If the actual for E is itself a generic actual type from
+            --  an enclosing instance, E is still a generic actual type
+            --  outside of the current instance. This matter when resolving
+            --  an overloaded call that may be ambiguous in the enclosing
+            --  instance, when two of its actuals coincide.
+
+            if Is_Entity_Name (Subtype_Indication (Parent (E)))
+              and then Is_Generic_Actual_Type
+                         (Entity (Subtype_Indication (Parent (E))))
+            then
+               null;
+            else
+               Set_Is_Generic_Actual_Type (E, False);
+            end if;
 
             --  An unusual case of aliasing: the actual may also be directly
             --  visible in the generic, and be private there, while it is fully
@@ -12863,7 +13013,36 @@ package body Sem_Ch12 is
             end if;
 
             if Is_Global (E) then
-               Set_Global_Type (N, N2);
+
+               --  If the entity is a package renaming that is the prefix of
+               --  an expanded name, it has been rewritten as the renamed
+               --  package, which is necessary semantically but complicates
+               --  ASIS tree traversal, so we recover the original entity to
+               --  expose the renaming. Take into account that the context may
+               --  be a nested generic and that the original node may itself
+               --  have an associated node.
+
+               if Ekind (E) = E_Package
+                 and then Nkind (Parent (N)) = N_Expanded_Name
+                 and then Present (Original_Node (N2))
+                 and then Present (Entity (Original_Node (N2)))
+                 and then Is_Entity_Name (Entity (Original_Node (N2)))
+               then
+                  if Is_Global (Entity (Original_Node (N2))) then
+                     N2 := Original_Node (N2);
+                     Set_Associated_Node (N, N2);
+                     Set_Global_Type (N, N2);
+
+                  else
+                     --  Renaming is local, and will be resolved in instance
+
+                     Set_Associated_Node (N, Empty);
+                     Set_Etype  (N, Empty);
+                  end if;
+
+               else
+                  Set_Global_Type (N, N2);
+               end if;
 
             elsif Nkind (N) = N_Op_Concat
               and then Is_Generic_Type (Etype (N2))
@@ -13436,9 +13615,7 @@ package body Sem_Ch12 is
                      --  information on aggregates in instances.
 
                      if Nkind (N2) = Nkind (N)
-                       and then
-                         Nkind_In (Parent (N2), N_Procedure_Call_Statement,
-                                                N_Function_Call)
+                       and then Nkind (Parent (N2)) in N_Subprogram_Call
                        and then Comes_From_Source (Typ)
                      then
                         if Is_Immediately_Visible (Scope (Typ)) then

@@ -1,7 +1,5 @@
 ;;- Machine description for HP PA-RISC architecture for GCC compiler
-;;   Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-;;   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2010
-;;   Free Software Foundation, Inc.
+;;   Copyright (C) 1992-2013 Free Software Foundation, Inc.
 ;;   Contributed by the Center for Software Science at the University
 ;;   of Utah.
 
@@ -21,38 +19,82 @@
 ;; along with GCC; see the file COPYING3.  If not see
 ;; <http://www.gnu.org/licenses/>.
 
-;; This gcc Version 2 machine description is inspired by sparc.md and
-;; mips.md.
+;; This machine description is inspired by sparc.md and to a lesser
+;; extent mips.md.
+
+;; Possible improvements:
+;;
+;; * With PA1.1, most computational instructions can conditionally nullify
+;;   the execution of the following instruction.  A nullified instruction
+;;   does not cause the instruction pipeline to stall, making it a very
+;;   efficient alternative to e.g. branching or conditional moves.
+;;
+;;   Nullification is performed conditionally based on the outcome of a
+;;   test specified in the opcode.  The test result is stored in PSW[N]
+;;   and can only be used to nullify the instruction following immediately
+;;   after the test.  For example:
+;;
+;;	ldi 10,%r26
+;;	ldi 5,%r25
+;;	sub,< %r26,%r25,%r28
+;;	sub   %r28,%r25,%r28	; %r28 == 0
+;;	sub,> %r26,%r25,%r29
+;;	sub   %r29,%r25,%r29	; %r29 == 5
+;;
+;;   This could be tricky to implement because the result of the test has
+;;   to be propagated one instruction forward, which, in the worst case,
+;;   would involve (1) adding a fake register for PSW[N]; (2) adding the
+;;   variants of the computational instructions that set or consume this
+;;   fake register.  The cond_exec infrastructure is probably not helpful
+;;   for this.
+;;
+;; * PA-RISC includes a set of conventions for branch instruction usage
+;;   to indicate whether a particular branch is more likely to be taken
+;;   or not taken.  For example, the prediction for CMPB instructions
+;;   (CMPB,cond,n r1,r2,target) depends on the direction of the branch
+;;   (forward or backward) and on the order of the operands:
+;;
+;;     | branch    | operand  | branch     |
+;;     | direction | compare  | prediction |
+;;     +-----------+----------+------------+
+;;     | backward  | r1 < r2  | taken      |
+;;     | backward  | r1 >= r2 | not taken  |
+;;     | forward   | r1 < r2  | not taken  |
+;;     | forward   | r1 >= r2 | taken      |
+;;    
+;;   By choosing instructions and operand order carefully, the compiler
+;;   could give the CPU branch predictor some help.
+;;   
 
 ;;- See file "rtl.def" for documentation on define_insn, match_*, et. al.
 
 ;; Uses of UNSPEC in this file:
 
-(define_constants
-  [(UNSPEC_CFFC		0)	; canonicalize_funcptr_for_compare
-   (UNSPEC_GOTO		1)	; indirect_goto
-   (UNSPEC_DLTIND14R	2)	; 
-   (UNSPEC_TP		3)
-   (UNSPEC_TLSGD	4)
-   (UNSPEC_TLSLDM	5)
-   (UNSPEC_TLSLDO	6)
-   (UNSPEC_TLSLDBASE	7)
-   (UNSPEC_TLSIE	8)
-   (UNSPEC_TLSLE 	9)
-   (UNSPEC_TLSGD_PIC   10)
-   (UNSPEC_TLSLDM_PIC  11)
-   (UNSPEC_TLSIE_PIC   12)
+(define_c_enum "unspec"
+  [UNSPEC_CFFC		; canonicalize_funcptr_for_compare
+   UNSPEC_GOTO		; indirect_goto
+   UNSPEC_DLTIND14R
+   UNSPEC_TP
+   UNSPEC_TLSGD
+   UNSPEC_TLSLDM
+   UNSPEC_TLSLDO
+   UNSPEC_TLSLDBASE
+   UNSPEC_TLSIE
+   UNSPEC_TLSLE 
+   UNSPEC_TLSGD_PIC
+   UNSPEC_TLSLDM_PIC
+   UNSPEC_TLSIE_PIC
   ])
 
 ;; UNSPEC_VOLATILE:
 
-(define_constants
-  [(UNSPECV_BLOCKAGE	0)	; blockage
-   (UNSPECV_DCACHE	1)	; dcacheflush
-   (UNSPECV_ICACHE	2)	; icacheflush
-   (UNSPECV_OPC		3)	; outline_prologue_call
-   (UNSPECV_OEC		4)	; outline_epilogue_call
-   (UNSPECV_LONGJMP	5)	; builtin_longjmp
+(define_c_enum "unspecv"
+  [UNSPECV_BLOCKAGE	; blockage
+   UNSPECV_DCACHE	; dcacheflush
+   UNSPECV_ICACHE	; icacheflush
+   UNSPECV_OPC		; outline_prologue_call
+   UNSPECV_OEC		; outline_epilogue_call
+   UNSPECV_LONGJMP	; builtin_longjmp
   ])
 
 ;; Maximum pc-relative branch offsets.
@@ -657,6 +699,67 @@
 (include "predicates.md")
 (include "constraints.md")
 
+;; Atomic instructions
+
+;; All memory loads and stores access storage atomically except
+;; for one exception.  The STORE BYTES, STORE DOUBLE BYTES, and
+;; doubleword loads and stores are not guaranteed to be atomic
+;; when referencing the I/O address space.
+
+;; Implement atomic DImode load using 64-bit floating point load and copy.
+
+(define_expand "atomic_loaddi"
+  [(match_operand:DI 0 "register_operand")              ;; val out
+   (match_operand:DI 1 "memory_operand")                ;; memory
+   (match_operand:SI 2 "const_int_operand")]            ;; model
+  "!TARGET_64BIT && !TARGET_SOFT_FLOAT"
+{
+  enum memmodel model = (enum memmodel) INTVAL (operands[2]);
+  operands[1] = force_reg (SImode, XEXP (operands[1], 0));
+  operands[2] = gen_reg_rtx (DImode);
+  expand_mem_thread_fence (model);
+  emit_insn (gen_atomic_loaddi_1 (operands[0], operands[1], operands[2]));
+  if ((model & MEMMODEL_MASK) == MEMMODEL_SEQ_CST)
+    expand_mem_thread_fence (model);
+  DONE;
+})
+
+(define_insn "atomic_loaddi_1"
+  [(set (match_operand:DI 0 "register_operand" "=r")
+        (mem:DI (match_operand:SI 1 "register_operand" "r")))
+   (clobber (match_operand:DI 2 "register_operand" "=&f"))]
+  "!TARGET_64BIT && !TARGET_SOFT_FLOAT"
+  "{fldds|fldd} 0(%1),%2\;{fstds|fstd} %2,-16(%%sp)\;{ldws|ldw} -16(%%sp),%0\;{ldws|ldw} -12(%%sp),%R0"
+  [(set_attr "type" "move")
+   (set_attr "length" "16")])
+
+;; Implement atomic DImode store using copy and 64-bit floating point store.
+
+(define_expand "atomic_storedi"
+  [(match_operand:DI 0 "memory_operand")                ;; memory
+   (match_operand:DI 1 "register_operand")              ;; val out
+   (match_operand:SI 2 "const_int_operand")]            ;; model
+  "!TARGET_64BIT && !TARGET_SOFT_FLOAT"
+{
+  enum memmodel model = (enum memmodel) INTVAL (operands[2]);
+  operands[0] = force_reg (SImode, XEXP (operands[0], 0));
+  operands[2] = gen_reg_rtx (DImode);
+  expand_mem_thread_fence (model);
+  emit_insn (gen_atomic_storedi_1 (operands[0], operands[1], operands[2]));
+  if ((model & MEMMODEL_MASK) == MEMMODEL_SEQ_CST)
+    expand_mem_thread_fence (model);
+  DONE;
+})
+
+(define_insn "atomic_storedi_1"
+  [(set (mem:DI (match_operand:SI 0 "register_operand" "r"))
+        (match_operand:DI 1 "register_operand" "r"))
+   (clobber (match_operand:DI 2 "register_operand" "=&f"))]
+  "!TARGET_64BIT && !TARGET_SOFT_FLOAT"
+  "{stws|stw} %1,-16(%%sp)\;{stws|stw} %R1,-12(%%sp)\;{fldds|fldd} -16(%%sp),%2\;{fstds|fstd} %2,0(%0)"
+  [(set_attr "type" "move")
+   (set_attr "length" "16")])
+
 ;; Compare instructions.
 ;; This controls RTL generation and register allocation.
 
@@ -3669,50 +3772,30 @@
 
 ;; Floating point move insns
 
-;; This pattern forces (set (reg:DF ...) (const_double ...))
-;; to be reloaded by putting the constant into memory when
-;; reg is a floating point register.
-;;
-;; For integer registers we use ldil;ldo to set the appropriate
-;; value.
-;;
-;; This must come before the movdf pattern, and it must be present
-;; to handle obscure reloading cases.
-(define_insn ""
-  [(set (match_operand:DF 0 "register_operand" "=?r,f")
-	(match_operand:DF 1 "" "?F,m"))]
-  "GET_CODE (operands[1]) == CONST_DOUBLE
-   && operands[1] != CONST0_RTX (DFmode)
-   && !TARGET_64BIT
-   && !TARGET_SOFT_FLOAT"
-  "* return (which_alternative == 0 ? pa_output_move_double (operands)
-				    : \"fldd%F1 %1,%0\");"
-  [(set_attr "type" "move,fpload")
-   (set_attr "length" "16,4")])
-
 (define_expand "movdf"
   [(set (match_operand:DF 0 "general_operand" "")
 	(match_operand:DF 1 "general_operand" ""))]
   ""
   "
 {
-  if (GET_CODE (operands[1]) == CONST_DOUBLE
-      && operands[1] != CONST0_RTX (DFmode))
-    {
-      /* Reject CONST_DOUBLE loads to all hard registers when
-	 generating 64-bit code and to floating point registers
-	 when generating 32-bit code.  */
-      if (REG_P (operands[0])
-	  && HARD_REGISTER_P (operands[0])
-	  && (TARGET_64BIT || REGNO (operands[0]) >= 32))
-	FAIL;
-
-      if (TARGET_64BIT)
-	operands[1] = force_const_mem (DFmode, operands[1]);
-    }
-
   if (pa_emit_move_sequence (operands, DFmode, 0))
     DONE;
+}")
+
+;; Handle DFmode input reloads requiring %r1 as a scratch register.
+(define_expand "reload_indf_r1"
+  [(set (match_operand:DF 0 "register_operand" "=Z")
+	(match_operand:DF 1 "non_hard_reg_operand" ""))
+   (clobber (match_operand:SI 2 "register_operand" "=&a"))]
+  ""
+  "
+{
+  if (pa_emit_move_sequence (operands, DFmode, operands[2]))
+    DONE;
+
+  /* We don't want the clobber emitted, so handle this ourselves.  */
+  emit_insn (gen_rtx_SET (VOIDmode, operands[0], operands[1]));
+  DONE;
 }")
 
 ;; Handle DFmode input reloads requiring a general register as a
@@ -3751,9 +3834,9 @@
 
 (define_insn ""
   [(set (match_operand:DF 0 "move_dest_operand"
-			  "=f,*r,Q,?o,?Q,f,*r,*r,?*r,?f")
+			  "=f,*r,T,?o,?Q,f,*r,*r,?*r,?f")
 	(match_operand:DF 1 "reg_or_0_or_nonsymb_mem_operand"
-			  "fG,*rG,f,*r,*r,RQ,o,RQ,f,*r"))]
+			  "fG,*rG,f,*r,*r,RT,o,RQ,f,*r"))]
   "(register_operand (operands[0], DFmode)
     || reg_or_0_operand (operands[1], DFmode))
    && !(GET_CODE (operands[1]) == CONST_DOUBLE
@@ -3968,18 +4051,6 @@
   ""
   "
 {
-  /* Except for zero, we don't support loading a CONST_INT directly
-     to a hard floating-point register since a scratch register is
-     needed for the operation.  While the operation could be handled
-     before register allocation, the simplest solution is to fail.  */
-  if (TARGET_64BIT
-      && GET_CODE (operands[1]) == CONST_INT
-      && operands[1] != CONST0_RTX (DImode)
-      && REG_P (operands[0])
-      && HARD_REGISTER_P (operands[0])
-      && REGNO (operands[0]) >= 32)
-    FAIL;
-
   if (pa_emit_move_sequence (operands, DImode, 0))
     DONE;
 }")
@@ -4087,7 +4158,7 @@
 (define_insn ""
   [(set (match_operand:DI 0 "move_dest_operand"
 			  "=r,o,Q,r,r,r,*f,*f,T,?r,?*f")
-	(match_operand:DI 1 "general_operand"
+	(match_operand:DI 1 "move_src_operand"
 			  "rM,r,r,o*R,Q,i,*fM,RT,*f,*f,r"))]
   "(register_operand (operands[0], DImode)
     || reg_or_0_operand (operands[1], DImode))
@@ -4252,42 +4323,30 @@
   [(set_attr "type" "move,move")
    (set_attr "length" "4,8")])
 
-;; This pattern forces (set (reg:SF ...) (const_double ...))
-;; to be reloaded by putting the constant into memory when
-;; reg is a floating point register.
-;;
-;; For integer registers we use ldil;ldo to set the appropriate
-;; value.
-;;
-;; This must come before the movsf pattern, and it must be present
-;; to handle obscure reloading cases.
-(define_insn ""
-  [(set (match_operand:SF 0 "register_operand" "=?r,f")
-	(match_operand:SF 1 "" "?F,m"))]
-  "GET_CODE (operands[1]) == CONST_DOUBLE
-   && operands[1] != CONST0_RTX (SFmode)
-   && ! TARGET_SOFT_FLOAT"
-  "* return (which_alternative == 0 ? pa_singlemove_string (operands)
-				    : \" fldw%F1 %1,%0\");"
-  [(set_attr "type" "move,fpload")
-   (set_attr "length" "8,4")])
-
 (define_expand "movsf"
   [(set (match_operand:SF 0 "general_operand" "")
 	(match_operand:SF 1 "general_operand" ""))]
   ""
   "
 {
-  /* Reject CONST_DOUBLE loads to floating point registers.  */
-  if (GET_CODE (operands[1]) == CONST_DOUBLE
-      && operands[1] != CONST0_RTX (SFmode)
-      && REG_P (operands[0])
-      && HARD_REGISTER_P (operands[0])
-      && REGNO (operands[0]) >= 32)
-    FAIL;
-
   if (pa_emit_move_sequence (operands, SFmode, 0))
     DONE;
+}")
+
+;; Handle SFmode input reloads requiring %r1 as a scratch register.
+(define_expand "reload_insf_r1"
+  [(set (match_operand:SF 0 "register_operand" "=Z")
+	(match_operand:SF 1 "non_hard_reg_operand" ""))
+   (clobber (match_operand:SI 2 "register_operand" "=&a"))]
+  ""
+  "
+{
+  if (pa_emit_move_sequence (operands, SFmode, operands[2]))
+    DONE;
+
+  /* We don't want the clobber emitted, so handle this ourselves.  */
+  emit_insn (gen_rtx_SET (VOIDmode, operands[0], operands[1]));
+  DONE;
 }")
 
 ;; Handle SFmode input reloads requiring a general register as a
@@ -4326,9 +4385,9 @@
 
 (define_insn ""
   [(set (match_operand:SF 0 "move_dest_operand"
-			  "=f,!*r,f,*r,Q,Q,?*r,?f")
+			  "=f,!*r,f,*r,T,Q,?*r,?f")
 	(match_operand:SF 1 "reg_or_0_or_nonsymb_mem_operand"
-			  "fG,!*rG,RQ,RQ,f,*rG,f,*r"))]
+			  "fG,!*rG,RT,RQ,f,*rG,f,*r"))]
   "(register_operand (operands[0], SFmode)
     || reg_or_0_operand (operands[1], SFmode))
    && !TARGET_SOFT_FLOAT
@@ -4348,9 +4407,9 @@
 
 (define_insn ""
   [(set (match_operand:SF 0 "move_dest_operand"
-			  "=f,!*r,f,*r,Q,Q")
+			  "=f,!*r,f,*r,T,Q")
 	(match_operand:SF 1 "reg_or_0_or_nonsymb_mem_operand"
-			  "fG,!*rG,RQ,RQ,f,*rG"))]
+			  "fG,!*rG,RT,RQ,f,*rG"))]
   "(register_operand (operands[0], SFmode)
     || reg_or_0_operand (operands[1], SFmode))
    && !TARGET_SOFT_FLOAT
@@ -5305,7 +5364,7 @@
 }")
 
 (define_insn "umulsidi3"
-  [(set (match_operand:DI 0 "nonimmediate_operand" "=f")
+  [(set (match_operand:DI 0 "register_operand" "=f")
 	(mult:DI (zero_extend:DI (match_operand:SI 1 "nonimmediate_operand" "f"))
 		 (zero_extend:DI (match_operand:SI 2 "nonimmediate_operand" "f"))))]
   "TARGET_PA_11 && ! TARGET_DISABLE_FPREGS && ! TARGET_SOFT_FLOAT"
@@ -5314,7 +5373,7 @@
    (set_attr "length" "4")])
 
 (define_insn ""
-  [(set (match_operand:DI 0 "nonimmediate_operand" "=f")
+  [(set (match_operand:DI 0 "register_operand" "=f")
 	(mult:DI (zero_extend:DI (match_operand:SI 1 "nonimmediate_operand" "f"))
 		 (match_operand:DI 2 "uint32_operand" "f")))]
   "TARGET_PA_11 && ! TARGET_DISABLE_FPREGS && ! TARGET_SOFT_FLOAT && !TARGET_64BIT"
@@ -5323,7 +5382,7 @@
    (set_attr "length" "4")])
 
 (define_insn ""
-  [(set (match_operand:DI 0 "nonimmediate_operand" "=f")
+  [(set (match_operand:DI 0 "register_operand" "=f")
 	(mult:DI (zero_extend:DI (match_operand:SI 1 "nonimmediate_operand" "f"))
 		 (match_operand:DI 2 "uint32_operand" "f")))]
   "TARGET_PA_11 && ! TARGET_DISABLE_FPREGS && ! TARGET_SOFT_FLOAT && TARGET_64BIT"
@@ -5647,22 +5706,8 @@
   [(set (match_operand:DI 0 "register_operand" "")
 	(and:DI (match_operand:DI 1 "register_operand" "")
 		(match_operand:DI 2 "and_operand" "")))]
-  ""
-  "
-{
-  /* Both operands must be register operands.  */
-  if (!TARGET_64BIT && !register_operand (operands[2], DImode))
-    FAIL;
-}")
-
-(define_insn ""
-  [(set (match_operand:DI 0 "register_operand" "=r")
-	(and:DI (match_operand:DI 1 "register_operand" "%r")
-		(match_operand:DI 2 "register_operand" "r")))]
-  "!TARGET_64BIT"
-  "and %1,%2,%0\;and %R1,%R2,%R0"
-  [(set_attr "type" "binary")
-   (set_attr "length" "8")])
+  "TARGET_64BIT"
+  "")
 
 (define_insn ""
   [(set (match_operand:DI 0 "register_operand" "=r,r")
@@ -5688,15 +5733,6 @@
   [(set (match_operand:DI 0 "register_operand" "=r")
 	(and:DI (not:DI (match_operand:DI 1 "register_operand" "r"))
 		(match_operand:DI 2 "register_operand" "r")))]
-  "!TARGET_64BIT"
-  "andcm %2,%1,%0\;andcm %R2,%R1,%R0"
-  [(set_attr "type" "binary")
-   (set_attr "length" "8")])
-
-(define_insn ""
-  [(set (match_operand:DI 0 "register_operand" "=r")
-	(and:DI (not:DI (match_operand:DI 1 "register_operand" "r"))
-		(match_operand:DI 2 "register_operand" "r")))]
   "TARGET_64BIT"
   "andcm %2,%1,%0"
   [(set_attr "type" "binary")
@@ -5715,22 +5751,8 @@
   [(set (match_operand:DI 0 "register_operand" "")
 	(ior:DI (match_operand:DI 1 "register_operand" "")
 		(match_operand:DI 2 "reg_or_cint_ior_operand" "")))]
-  ""
-  "
-{
-  /* Both operands must be register operands.  */
-  if (!TARGET_64BIT && !register_operand (operands[2], DImode))
-    FAIL;
-}")
-
-(define_insn ""
-  [(set (match_operand:DI 0 "register_operand" "=r")
-	(ior:DI (match_operand:DI 1 "register_operand" "%r")
-		(match_operand:DI 2 "register_operand" "r")))]
-  "!TARGET_64BIT"
-  "or %1,%2,%0\;or %R1,%R2,%R0"
-  [(set_attr "type" "binary")
-   (set_attr "length" "8")])
+  "TARGET_64BIT"
+  "")
 
 (define_insn ""
   [(set (match_operand:DI 0 "register_operand" "=r,r")
@@ -5780,19 +5802,8 @@
   [(set (match_operand:DI 0 "register_operand" "")
 	(xor:DI (match_operand:DI 1 "register_operand" "")
 		(match_operand:DI 2 "register_operand" "")))]
-  ""
-  "
-{
-}")
-
-(define_insn ""
-  [(set (match_operand:DI 0 "register_operand" "=r")
-	(xor:DI (match_operand:DI 1 "register_operand" "%r")
-		(match_operand:DI 2 "register_operand" "r")))]
-  "!TARGET_64BIT"
-  "xor %1,%2,%0\;xor %R1,%R2,%R0"
-  [(set_attr "type" "binary")
-   (set_attr "length" "8")])
+  "TARGET_64BIT"
+  "")
 
 (define_insn ""
   [(set (match_operand:DI 0 "register_operand" "=r")
@@ -6589,7 +6600,7 @@
 (define_insn "lshrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(lshiftrt:SI (match_operand:SI 1 "register_operand" "r,r")
-		     (match_operand:SI 2 "arith32_operand" "q,n")))]
+		     (match_operand:SI 2 "shift5_operand" "q,n")))]
   ""
   "@
    {vshd %%r0,%1,%0|shrpw %%r0,%1,%%sar,%0}
@@ -6600,7 +6611,7 @@
 (define_insn "lshrdi3"
   [(set (match_operand:DI 0 "register_operand" "=r,r")
 	(lshiftrt:DI (match_operand:DI 1 "register_operand" "r,r")
-		     (match_operand:DI 2 "arith32_operand" "q,n")))]
+		     (match_operand:DI 2 "shift6_operand" "q,n")))]
   "TARGET_64BIT"
   "@
    shrpd %%r0,%1,%%sar,%0
@@ -6608,10 +6619,40 @@
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
 
+; Shift right pair word 0 to 31 bits.
+(define_insn "shrpsi4"
+  [(set (match_operand:SI 0 "register_operand" "=r,r")
+	(ior:SI (ashift:SI (match_operand:SI 1 "register_operand" "r,r")
+			   (minus:SI (const_int 32)
+			     (match_operand:SI 3 "shift5_operand" "q,n")))
+		(lshiftrt:SI (match_operand:SI 2 "register_operand" "r,r")
+			     (match_dup 3))))]
+  ""
+  "@
+   {vshd %1,%2,%0|shrpw %1,%2,%%sar,%0}
+   {shd|shrpw} %1,%2,%3,%0"
+  [(set_attr "type" "shift")
+   (set_attr "length" "4")])
+
+; Shift right pair doubleword 0 to 63 bits.
+(define_insn "shrpdi4"
+  [(set (match_operand:DI 0 "register_operand" "=r,r")
+	(ior:DI (ashift:DI (match_operand:SI 1 "register_operand" "r,r")
+			   (minus:DI (const_int 64)
+			     (match_operand:DI 3 "shift6_operand" "q,n")))
+		(lshiftrt:DI (match_operand:DI 2 "register_operand" "r,r")
+			     (match_dup 3))))]
+  "TARGET_64BIT"
+  "@
+   shrpd %1,%2,%%sar,%0
+   shrpd %1,%2,%3,%0"
+  [(set_attr "type" "shift")
+   (set_attr "length" "4")])
+
 (define_insn "rotrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(rotatert:SI (match_operand:SI 1 "register_operand" "r,r")
-		     (match_operand:SI 2 "arith32_operand" "q,n")))]
+		     (match_operand:SI 2 "shift5_operand" "q,n")))]
   ""
   "*
 {
@@ -6896,7 +6937,7 @@
      of the virtual stack variables and the hard frame pointer.  */
   if (GET_CODE (fp) != REG)
     fp = force_reg (Pmode, fp);
-  emit_move_insn (hard_frame_pointer_rtx, plus_constant (fp, -8));
+  emit_move_insn (hard_frame_pointer_rtx, plus_constant (Pmode, fp, -8));
 
   emit_stack_restore (SAVE_NONLOCAL, stack);
 
@@ -7218,12 +7259,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 	      (symbol_ref "pa_attr_length_call (insn, 0)")))])
 
 (define_insn "call_symref_pic"
-  [(set (match_operand:SI 2 "register_operand" "=&r") (reg:SI 19))
-   (call (mem:SI (match_operand 0 "call_operand_address" ""))
+  [(call (mem:SI (match_operand 0 "call_operand_address" ""))
 	 (match_operand 1 "" "i"))
    (clobber (reg:SI 1))
    (clobber (reg:SI 2))
-   (use (match_dup 2))
+   (clobber (match_operand 2))
    (use (reg:SI 19))
    (use (const_int 0))]
   "!TARGET_PORTABLE_RUNTIME && !TARGET_64BIT"
@@ -7239,12 +7279,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:SI 2 "register_operand" "") (reg:SI 19))
-	      (call (mem:SI (match_operand 0 "call_operand_address" ""))
+  [(parallel [(call (mem:SI (match_operand 0 "call_operand_address" ""))
 		    (match_operand 1 "" ""))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:SI 19))
 	      (use (const_int 0))])]
   "!TARGET_PORTABLE_RUNTIME && !TARGET_64BIT && reload_completed
@@ -7259,12 +7298,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:SI 2 "register_operand" "") (reg:SI 19))
-	      (call (mem:SI (match_operand 0 "call_operand_address" ""))
+  [(parallel [(call (mem:SI (match_operand 0 "call_operand_address" ""))
 		    (match_operand 1 "" ""))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:SI 19))
 	      (use (const_int 0))])]
   "!TARGET_PORTABLE_RUNTIME && !TARGET_64BIT && reload_completed"
@@ -7299,12 +7337,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; This pattern is split if it is necessary to save and restore the
 ;; PIC register.
 (define_insn "call_symref_64bit"
-  [(set (match_operand:DI 2 "register_operand" "=&r") (reg:DI 27))
-   (call (mem:SI (match_operand 0 "call_operand_address" ""))
+  [(call (mem:SI (match_operand 0 "call_operand_address" ""))
 	 (match_operand 1 "" "i"))
    (clobber (reg:DI 1))
    (clobber (reg:DI 2))
-   (use (match_dup 2))
+   (clobber (match_operand 2))
    (use (reg:DI 27))
    (use (reg:DI 29))
    (use (const_int 0))]
@@ -7321,12 +7358,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:DI 2 "register_operand" "") (reg:DI 27))
-	      (call (mem:SI (match_operand 0 "call_operand_address" ""))
+  [(parallel [(call (mem:SI (match_operand 0 "call_operand_address" ""))
 		    (match_operand 1 "" ""))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 0))])]
@@ -7343,12 +7379,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:DI 2 "register_operand" "") (reg:DI 27))
-	      (call (mem:SI (match_operand 0 "call_operand_address" ""))
+  [(parallel [(call (mem:SI (match_operand 0 "call_operand_address" ""))
 		    (match_operand 1 "" ""))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 0))])]
@@ -7402,12 +7437,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; This pattern is split if it is necessary to save and restore the
 ;; PIC register.
 (define_insn "call_reg_pic"
-  [(set (match_operand:SI 1 "register_operand" "=&r") (reg:SI 19))
-   (call (mem:SI (reg:SI 22))
+  [(call (mem:SI (reg:SI 22))
 	 (match_operand 0 "" "i"))
    (clobber (reg:SI 1))
    (clobber (reg:SI 2))
-   (use (match_dup 1))
+   (clobber (match_operand 1))
    (use (reg:SI 19))
    (use (const_int 1))]
   "!TARGET_64BIT"
@@ -7423,12 +7457,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:SI 1 "register_operand" "") (reg:SI 19))
-	      (call (mem:SI (reg:SI 22))
+  [(parallel [(call (mem:SI (reg:SI 22))
 		    (match_operand 0 "" ""))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 1))
+	      (clobber (match_operand 1))
 	      (use (reg:SI 19))
 	      (use (const_int 1))])]
   "!TARGET_64BIT && reload_completed
@@ -7443,12 +7476,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:SI 1 "register_operand" "") (reg:SI 19))
-	      (call (mem:SI (reg:SI 22))
+  [(parallel [(call (mem:SI (reg:SI 22))
 		    (match_operand 0 "" ""))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 1))
+	      (clobber (match_operand 1))
 	      (use (reg:SI 19))
 	      (use (const_int 1))])]
   "!TARGET_64BIT && reload_completed"
@@ -7482,12 +7514,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; This pattern is split if it is necessary to save and restore the
 ;; PIC register.
 (define_insn "call_reg_64bit"
-  [(set (match_operand:DI 2 "register_operand" "=&r") (reg:DI 27))
-   (call (mem:SI (match_operand:DI 0 "register_operand" "r"))
+  [(call (mem:SI (match_operand:DI 0 "register_operand" "r"))
 	 (match_operand 1 "" "i"))
    (clobber (reg:DI 1))
    (clobber (reg:DI 2))
-   (use (match_dup 2))
+   (clobber (match_operand 2))
    (use (reg:DI 27))
    (use (reg:DI 29))
    (use (const_int 1))]
@@ -7504,12 +7535,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:DI 2 "register_operand" "") (reg:DI 27))
-	      (call (mem:SI (match_operand 0 "register_operand" ""))
+  [(parallel [(call (mem:SI (match_operand 0 "register_operand" ""))
 		    (match_operand 1 "" ""))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 1))])]
@@ -7526,12 +7556,11 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:DI 2 "register_operand" "") (reg:DI 27))
-	      (call (mem:SI (match_operand 0 "register_operand" ""))
+  [(parallel [(call (mem:SI (match_operand 0 "register_operand" ""))
 		    (match_operand 1 "" ""))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 1))])]
@@ -7694,13 +7723,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 	      (symbol_ref "pa_attr_length_call (insn, 0)")))])
 
 (define_insn "call_val_symref_pic"
-  [(set (match_operand:SI 3 "register_operand" "=&r") (reg:SI 19))
-   (set (match_operand 0 "" "")
+  [(set (match_operand 0 "" "")
 	(call (mem:SI (match_operand 1 "call_operand_address" ""))
 	      (match_operand 2 "" "i")))
    (clobber (reg:SI 1))
    (clobber (reg:SI 2))
-   (use (match_dup 3))
+   (clobber (match_operand 3))
    (use (reg:SI 19))
    (use (const_int 0))]
   "!TARGET_PORTABLE_RUNTIME && !TARGET_64BIT"
@@ -7716,13 +7744,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:SI 3 "register_operand" "") (reg:SI 19))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 	      (call (mem:SI (match_operand 1 "call_operand_address" ""))
 		    (match_operand 2 "" "")))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 3))
+	      (clobber (match_operand 3))
 	      (use (reg:SI 19))
 	      (use (const_int 0))])]
   "!TARGET_PORTABLE_RUNTIME && !TARGET_64BIT && reload_completed
@@ -7738,13 +7765,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:SI 3 "register_operand" "") (reg:SI 19))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 	      (call (mem:SI (match_operand 1 "call_operand_address" ""))
 		    (match_operand 2 "" "")))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 3))
+	      (clobber (match_operand 3))
 	      (use (reg:SI 19))
 	      (use (const_int 0))])]
   "!TARGET_PORTABLE_RUNTIME && !TARGET_64BIT && reload_completed"
@@ -7781,13 +7807,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; This pattern is split if it is necessary to save and restore the
 ;; PIC register.
 (define_insn "call_val_symref_64bit"
-  [(set (match_operand:DI 3 "register_operand" "=&r") (reg:DI 27))
-   (set (match_operand 0 "" "")
+  [(set (match_operand 0 "" "")
 	(call (mem:SI (match_operand 1 "call_operand_address" ""))
 	      (match_operand 2 "" "i")))
    (clobber (reg:DI 1))
    (clobber (reg:DI 2))
-   (use (match_dup 3))
+   (clobber (match_operand 3))
    (use (reg:DI 27))
    (use (reg:DI 29))
    (use (const_int 0))]
@@ -7804,13 +7829,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:DI 3 "register_operand" "") (reg:DI 27))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 	      (call (mem:SI (match_operand 1 "call_operand_address" ""))
 		    (match_operand 2 "" "")))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 3))
+	      (clobber (match_operand 3))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 0))])]
@@ -7828,13 +7852,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:DI 3 "register_operand" "") (reg:DI 27))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 	      (call (mem:SI (match_operand 1 "call_operand_address" ""))
 		    (match_operand 2 "" "")))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 3))
+	      (clobber (match_operand 3))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 0))])]
@@ -7891,13 +7914,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; This pattern is split if it is necessary to save and restore the
 ;; PIC register.
 (define_insn "call_val_reg_pic"
-  [(set (match_operand:SI 2 "register_operand" "=&r") (reg:SI 19))
-   (set (match_operand 0 "" "")
+  [(set (match_operand 0 "" "")
 	(call (mem:SI (reg:SI 22))
 	      (match_operand 1 "" "i")))
    (clobber (reg:SI 1))
    (clobber (reg:SI 2))
-   (use (match_dup 2))
+   (clobber (match_operand 2))
    (use (reg:SI 19))
    (use (const_int 1))]
   "!TARGET_64BIT"
@@ -7913,13 +7935,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:SI 2 "register_operand" "") (reg:SI 19))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 		   (call (mem:SI (reg:SI 22))
 			 (match_operand 1 "" "")))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:SI 19))
 	      (use (const_int 1))])]
   "!TARGET_64BIT && reload_completed
@@ -7935,13 +7956,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:SI 2 "register_operand" "") (reg:SI 19))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 		   (call (mem:SI (reg:SI 22))
 			 (match_operand 1 "" "")))
 	      (clobber (reg:SI 1))
 	      (clobber (reg:SI 2))
-	      (use (match_dup 2))
+	      (clobber (match_operand 2))
 	      (use (reg:SI 19))
 	      (use (const_int 1))])]
   "!TARGET_64BIT && reload_completed"
@@ -7977,13 +7997,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; This pattern is split if it is necessary to save and restore the
 ;; PIC register.
 (define_insn "call_val_reg_64bit"
-  [(set (match_operand:DI 3 "register_operand" "=&r") (reg:DI 27))
-   (set (match_operand 0 "" "")
+  [(set (match_operand 0 "" "")
 	(call (mem:SI (match_operand:DI 1 "register_operand" "r"))
 	      (match_operand 2 "" "i")))
    (clobber (reg:DI 1))
    (clobber (reg:DI 2))
-   (use (match_dup 3))
+   (clobber (match_operand 3))
    (use (reg:DI 27))
    (use (reg:DI 29))
    (use (const_int 1))]
@@ -8000,13 +8019,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; terminate the basic block.  The split has to contain more than one
 ;; insn.
 (define_split
-  [(parallel [(set (match_operand:DI 3 "register_operand" "") (reg:DI 27))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 		   (call (mem:SI (match_operand:DI 1 "register_operand" ""))
 			 (match_operand 2 "" "")))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 3))
+	      (clobber (match_operand 3))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 1))])]
@@ -8024,13 +8042,12 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   "")
 
 (define_split
-  [(parallel [(set (match_operand:DI 3 "register_operand" "") (reg:DI 27))
-	      (set (match_operand 0 "" "")
+  [(parallel [(set (match_operand 0 "" "")
 		   (call (mem:SI (match_operand:DI 1 "register_operand" ""))
 			 (match_operand 2 "" "")))
 	      (clobber (reg:DI 1))
 	      (clobber (reg:DI 2))
-	      (use (match_dup 3))
+	      (clobber (match_operand 3))
 	      (use (reg:DI 27))
 	      (use (reg:DI 29))
 	      (use (const_int 1))])]
@@ -8358,9 +8375,9 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 {
   /* The elements of the buffer are, in order:  */
   rtx fp = gen_rtx_MEM (Pmode, operands[0]);
-  rtx lab = gen_rtx_MEM (Pmode, plus_constant (operands[0],
+  rtx lab = gen_rtx_MEM (Pmode, plus_constant (Pmode, operands[0],
 			 POINTER_SIZE / BITS_PER_UNIT));
-  rtx stack = gen_rtx_MEM (Pmode, plus_constant (operands[0],
+  rtx stack = gen_rtx_MEM (Pmode, plus_constant (Pmode, operands[0],
 			   (POINTER_SIZE * 2) / BITS_PER_UNIT));
   rtx pv = gen_rtx_REG (Pmode, 1);
 
@@ -8372,7 +8389,7 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
      to adjust for the offset between these two values.  */
   if (GET_CODE (fp) != REG)
     fp = force_reg (Pmode, fp);
-  emit_move_insn (hard_frame_pointer_rtx, plus_constant (fp, -8));
+  emit_move_insn (hard_frame_pointer_rtx, plus_constant (Pmode, fp, -8));
 
   /* This bit is the same as expand_builtin_longjmp.  */
   emit_stack_restore (SAVE_NONLOCAL, stack);
@@ -8394,21 +8411,22 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 }")
 
 ;;; Operands 2 and 3 are assumed to be CONST_INTs.
-(define_expand "extzv"
-  [(set (match_operand 0 "register_operand" "")
-	(zero_extract (match_operand 1 "register_operand" "")
-		      (match_operand 2 "uint32_operand" "")
-		      (match_operand 3 "uint32_operand" "")))]
+(define_expand "extzvsi"
+  [(set (match_operand:SI 0 "register_operand" "")
+	(zero_extract:SI (match_operand:SI 1 "register_operand" "")
+			 (match_operand:SI 2 "uint5_operand" "")
+			 (match_operand:SI 3 "uint5_operand" "")))]
   ""
   "
 {
-  HOST_WIDE_INT len = INTVAL (operands[2]);
-  HOST_WIDE_INT pos = INTVAL (operands[3]);
+  unsigned HOST_WIDE_INT len = UINTVAL (operands[2]);
+  unsigned HOST_WIDE_INT pos = UINTVAL (operands[3]);
 
   /* PA extraction insns don't support zero length bitfields or fields
-     extending beyond the left or right-most bits.  Also, we reject lengths
-     equal to a word as they are better handled by the move patterns.  */
-  if (len <= 0 || len >= BITS_PER_WORD || pos < 0 || pos + len > BITS_PER_WORD)
+     extending beyond the left or right-most bits.  Also, the predicate
+     rejects lengths equal to a word as they are better handled by
+     the move patterns.  */
+  if (len == 0 || pos + len > 32)
     FAIL;
 
   /* From mips.md: extract_bit_field doesn't verify that our source
@@ -8416,12 +8434,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   if (!register_operand (operands[1], VOIDmode))
     FAIL;
 
-  if (TARGET_64BIT)
-    emit_insn (gen_extzv_64 (operands[0], operands[1],
-			     operands[2], operands[3]));
-  else
-    emit_insn (gen_extzv_32 (operands[0], operands[1],
-			     operands[2], operands[3]));
+  emit_insn (gen_extzv_32 (operands[0], operands[1],
+			   operands[2], operands[3]));
   DONE;
 }")
 
@@ -8430,7 +8444,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 	(zero_extract:SI (match_operand:SI 1 "register_operand" "r")
 			 (match_operand:SI 2 "uint5_operand" "")
 			 (match_operand:SI 3 "uint5_operand" "")))]
-  ""
+  "UINTVAL (operands[2]) > 0
+   && UINTVAL (operands[2]) + UINTVAL (operands[3]) <= 32"
   "{extru|extrw,u} %1,%3+%2-1,%2,%0"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
@@ -8445,12 +8460,42 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
 
+(define_expand "extzvdi"
+  [(set (match_operand:DI 0 "register_operand" "")
+	(zero_extract:DI (match_operand:DI 1 "register_operand" "")
+			 (match_operand:DI 2 "uint6_operand" "")
+			 (match_operand:DI 3 "uint6_operand" "")))]
+  "TARGET_64BIT"
+  "
+{
+  unsigned HOST_WIDE_INT len = UINTVAL (operands[2]);
+  unsigned HOST_WIDE_INT pos = UINTVAL (operands[3]);
+
+  /* PA extraction insns don't support zero length bitfields or fields
+     extending beyond the left or right-most bits.  Also, the predicate
+     rejects lengths equal to a doubleword as they are better handled by
+     the move patterns.  */
+  if (len == 0 || pos + len > 64)
+    FAIL;
+
+  /* From mips.md: extract_bit_field doesn't verify that our source
+     matches the predicate, so check it again here.  */
+  if (!register_operand (operands[1], VOIDmode))
+    FAIL;
+
+  emit_insn (gen_extzv_64 (operands[0], operands[1],
+			   operands[2], operands[3]));
+  DONE;
+}")
+
 (define_insn "extzv_64"
   [(set (match_operand:DI 0 "register_operand" "=r")
 	(zero_extract:DI (match_operand:DI 1 "register_operand" "r")
-			 (match_operand:DI 2 "uint32_operand" "")
-			 (match_operand:DI 3 "uint32_operand" "")))]
-  "TARGET_64BIT"
+			 (match_operand:DI 2 "uint6_operand" "")
+			 (match_operand:DI 3 "uint6_operand" "")))]
+  "TARGET_64BIT
+   && UINTVAL (operands[2]) > 0
+   && UINTVAL (operands[2]) + UINTVAL (operands[3]) <= 64"
   "extrd,u %1,%3+%2-1,%2,%0"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
@@ -8466,21 +8511,22 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
    (set_attr "length" "4")])
 
 ;;; Operands 2 and 3 are assumed to be CONST_INTs.
-(define_expand "extv"
-  [(set (match_operand 0 "register_operand" "")
-	(sign_extract (match_operand 1 "register_operand" "")
-		      (match_operand 2 "uint32_operand" "")
-		      (match_operand 3 "uint32_operand" "")))]
+(define_expand "extvsi"
+  [(set (match_operand:SI 0 "register_operand" "")
+	(sign_extract:SI (match_operand:SI 1 "register_operand" "")
+			 (match_operand:SI 2 "uint5_operand" "")
+			 (match_operand:SI 3 "uint5_operand" "")))]
   ""
   "
 {
-  HOST_WIDE_INT len = INTVAL (operands[2]);
-  HOST_WIDE_INT pos = INTVAL (operands[3]);
+  unsigned HOST_WIDE_INT len = UINTVAL (operands[2]);
+  unsigned HOST_WIDE_INT pos = UINTVAL (operands[3]);
 
   /* PA extraction insns don't support zero length bitfields or fields
-     extending beyond the left or right-most bits.  Also, we reject lengths
-     equal to a word as they are better handled by the move patterns.  */
-  if (len <= 0 || len >= BITS_PER_WORD || pos < 0 || pos + len > BITS_PER_WORD)
+     extending beyond the left or right-most bits.  Also, the predicate
+     rejects lengths equal to a word as they are better handled by
+     the move patterns.  */
+  if (len == 0 || pos + len > 32)
     FAIL;
 
   /* From mips.md: extract_bit_field doesn't verify that our source
@@ -8488,12 +8534,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   if (!register_operand (operands[1], VOIDmode))
     FAIL;
 
-  if (TARGET_64BIT)
-    emit_insn (gen_extv_64 (operands[0], operands[1],
-			    operands[2], operands[3]));
-  else
-    emit_insn (gen_extv_32 (operands[0], operands[1],
-			    operands[2], operands[3]));
+  emit_insn (gen_extv_32 (operands[0], operands[1],
+			  operands[2], operands[3]));
   DONE;
 }")
 
@@ -8502,7 +8544,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 	(sign_extract:SI (match_operand:SI 1 "register_operand" "r")
 			 (match_operand:SI 2 "uint5_operand" "")
 			 (match_operand:SI 3 "uint5_operand" "")))]
-  ""
+  "UINTVAL (operands[2]) > 0
+   && UINTVAL (operands[2]) + UINTVAL (operands[3]) <= 32"
   "{extrs|extrw,s} %1,%3+%2-1,%2,%0"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
@@ -8517,12 +8560,42 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
 
+(define_expand "extvdi"
+  [(set (match_operand:DI 0 "register_operand" "")
+	(sign_extract:DI (match_operand:DI 1 "register_operand" "")
+			 (match_operand:DI 2 "uint6_operand" "")
+			 (match_operand:DI 3 "uint6_operand" "")))]
+  "TARGET_64BIT"
+  "
+{
+  unsigned HOST_WIDE_INT len = UINTVAL (operands[2]);
+  unsigned HOST_WIDE_INT pos = UINTVAL (operands[3]);
+
+  /* PA extraction insns don't support zero length bitfields or fields
+     extending beyond the left or right-most bits.  Also, the predicate
+     rejects lengths equal to a doubleword as they are better handled by
+     the move patterns.  */
+  if (len == 0 || pos + len > 64)
+    FAIL;
+
+  /* From mips.md: extract_bit_field doesn't verify that our source
+     matches the predicate, so check it again here.  */
+  if (!register_operand (operands[1], VOIDmode))
+    FAIL;
+
+  emit_insn (gen_extv_64 (operands[0], operands[1],
+			  operands[2], operands[3]));
+  DONE;
+}")
+
 (define_insn "extv_64"
   [(set (match_operand:DI 0 "register_operand" "=r")
 	(sign_extract:DI (match_operand:DI 1 "register_operand" "r")
-			 (match_operand:DI 2 "uint32_operand" "")
-			 (match_operand:DI 3 "uint32_operand" "")))]
-  "TARGET_64BIT"
+			 (match_operand:DI 2 "uint6_operand" "")
+			 (match_operand:DI 3 "uint6_operand" "")))]
+  "TARGET_64BIT
+   && UINTVAL (operands[2]) > 0
+   && UINTVAL (operands[2]) + UINTVAL (operands[3]) <= 64"
   "extrd,s %1,%3+%2-1,%2,%0"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
@@ -8538,21 +8611,22 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
    (set_attr "length" "4")])
 
 ;;; Operands 1 and 2 are assumed to be CONST_INTs.
-(define_expand "insv"
-  [(set (zero_extract (match_operand 0 "register_operand" "")
-                      (match_operand 1 "uint32_operand" "")
-                      (match_operand 2 "uint32_operand" ""))
-        (match_operand 3 "arith5_operand" ""))]
+(define_expand "insvsi"
+  [(set (zero_extract:SI (match_operand:SI 0 "register_operand" "")
+			 (match_operand:SI 1 "uint5_operand" "")
+			 (match_operand:SI 2 "uint5_operand" ""))
+	(match_operand:SI 3 "arith5_operand" ""))]
   ""
   "
 {
-  HOST_WIDE_INT len = INTVAL (operands[1]);
-  HOST_WIDE_INT pos = INTVAL (operands[2]);
+  unsigned HOST_WIDE_INT len = UINTVAL (operands[1]);
+  unsigned HOST_WIDE_INT pos = UINTVAL (operands[2]);
 
   /* PA insertion insns don't support zero length bitfields or fields
-     extending beyond the left or right-most bits.  Also, we reject lengths
-     equal to a word as they are better handled by the move patterns.  */
-  if (len <= 0 || len >= BITS_PER_WORD || pos < 0 || pos + len > BITS_PER_WORD)
+     extending beyond the left or right-most bits.  Also, the predicate
+     rejects lengths equal to a word as they are better handled by
+     the move patterns.  */
+  if (len <= 0 || pos + len > 32)
     FAIL;
 
   /* From mips.md: insert_bit_field doesn't verify that our destination
@@ -8560,12 +8634,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   if (!register_operand (operands[0], VOIDmode))
     FAIL;
 
-  if (TARGET_64BIT)
-    emit_insn (gen_insv_64 (operands[0], operands[1],
-			    operands[2], operands[3]));
-  else
-    emit_insn (gen_insv_32 (operands[0], operands[1],
-			    operands[2], operands[3]));
+  emit_insn (gen_insv_32 (operands[0], operands[1],
+			  operands[2], operands[3]));
   DONE;
 }")
 
@@ -8574,7 +8644,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 			 (match_operand:SI 1 "uint5_operand" "")
 			 (match_operand:SI 2 "uint5_operand" ""))
 	(match_operand:SI 3 "arith5_operand" "r,L"))]
-  ""
+  "UINTVAL (operands[1]) > 0
+   && UINTVAL (operands[1]) + UINTVAL (operands[2]) <= 32"
   "@
    {dep|depw} %3,%2+%1-1,%1,%0
    {depi|depwi} %3,%2+%1-1,%1,%0"
@@ -8597,12 +8668,42 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
   [(set_attr "type" "shift")
    (set_attr "length" "4")])
 
+(define_expand "insvdi"
+  [(set (zero_extract:DI (match_operand:DI 0 "register_operand" "")
+			 (match_operand:DI 1 "uint6_operand" "")
+			 (match_operand:DI 2 "uint6_operand" ""))
+	(match_operand:DI 3 "arith5_operand" ""))]
+  "TARGET_64BIT"
+  "
+{
+  unsigned HOST_WIDE_INT len = UINTVAL (operands[1]);
+  unsigned HOST_WIDE_INT pos = UINTVAL (operands[2]);
+
+  /* PA insertion insns don't support zero length bitfields or fields
+     extending beyond the left or right-most bits.  Also, the predicate
+     rejects lengths equal to a doubleword as they are better handled by
+     the move patterns.  */
+  if (len <= 0 || pos + len > 64)
+    FAIL;
+
+  /* From mips.md: insert_bit_field doesn't verify that our destination
+     matches the predicate, so check it again here.  */
+  if (!register_operand (operands[0], VOIDmode))
+    FAIL;
+
+  emit_insn (gen_insv_64 (operands[0], operands[1],
+			  operands[2], operands[3]));
+  DONE;
+}")
+
 (define_insn "insv_64"
   [(set (zero_extract:DI (match_operand:DI 0 "register_operand" "+r,r")
-			 (match_operand:DI 1 "uint32_operand" "")
-			 (match_operand:DI 2 "uint32_operand" ""))
-	(match_operand:DI 3 "arith32_operand" "r,L"))]
-  "TARGET_64BIT"
+			 (match_operand:DI 1 "uint6_operand" "")
+			 (match_operand:DI 2 "uint6_operand" ""))
+	(match_operand:DI 3 "arith5_operand" "r,L"))]
+  "TARGET_64BIT
+   && UINTVAL (operands[1]) > 0
+   && UINTVAL (operands[1]) + UINTVAL (operands[2]) <= 64"
   "@
    depd %3,%2+%1-1,%1,%0
    depdi %3,%2+%1-1,%1,%0"
@@ -8612,8 +8713,8 @@ add,l %2,%3,%3\;bv,n %%r0(%3)"
 ;; Optimize insertion of const_int values of type 1...1xxxx.
 (define_insn ""
   [(set (zero_extract:DI (match_operand:DI 0 "register_operand" "+r")
-			 (match_operand:DI 1 "uint32_operand" "")
-			 (match_operand:DI 2 "uint32_operand" ""))
+			 (match_operand:DI 1 "uint6_operand" "")
+			 (match_operand:DI 2 "uint6_operand" ""))
 	(match_operand:DI 3 "const_int_operand" ""))]
   "(INTVAL (operands[3]) & 0x10) != 0
    && TARGET_64BIT

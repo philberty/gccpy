@@ -1,8 +1,6 @@
 /* Call-backs for C++ error reporting.
    This code is non-reentrant.
-   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2002, 2003,
-   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 1993-2013 Free Software Foundation, Inc.
    This file is part of GCC.
 
 GCC is free software; you can redistribute it and/or modify
@@ -84,7 +82,7 @@ static void dump_exception_spec (tree, int);
 static void dump_template_argument (tree, int);
 static void dump_template_argument_list (tree, int);
 static void dump_template_parameter (tree, int);
-static void dump_template_bindings (tree, tree, VEC(tree,gc) *);
+static void dump_template_bindings (tree, tree, vec<tree, va_gc> *);
 static void dump_scope (tree, int);
 static void dump_template_parms (tree, int, int);
 static int get_non_default_template_args_count (tree, int);
@@ -259,7 +257,7 @@ dump_template_parameter (tree parm, int flags)
    TREE_VEC.  */
 
 static void
-dump_template_bindings (tree parms, tree args, VEC(tree,gc)* typenames)
+dump_template_bindings (tree parms, tree args, vec<tree, va_gc> *typenames)
 {
   bool need_semicolon = false;
   int i;
@@ -310,10 +308,10 @@ dump_template_bindings (tree parms, tree args, VEC(tree,gc)* typenames)
     }
 
   /* Don't bother with typenames for a partial instantiation.  */
-  if (VEC_empty (tree, typenames) || uses_template_parms (args))
+  if (vec_safe_is_empty (typenames) || uses_template_parms (args))
     return;
 
-  FOR_EACH_VEC_ELT (tree, typenames, i, t)
+  FOR_EACH_VEC_SAFE_ELT (typenames, i, t)
     {
       if (need_semicolon)
 	pp_separate_with_semicolon (cxx_pp);
@@ -657,7 +655,7 @@ dump_aggr_type (tree t, int flags)
       else
 	pp_printf (pp_base (cxx_pp), M_("<anonymous %s>"), variety);
     }
-  else if (LAMBDANAME_P (name))
+  else if (LAMBDA_TYPE_P (name))
     {
       /* A lambda's "type" is essentially its signature.  */
       pp_string (cxx_pp, M_("<lambda"));
@@ -846,7 +844,9 @@ dump_type_suffix (tree t, int flags)
 	{
 	  tree dtype = TYPE_DOMAIN (t);
 	  tree max = TYPE_MAX_VALUE (dtype);
-	  if (host_integerp (max, 0))
+	  if (integer_all_onesp (max))
+	    pp_character (cxx_pp, '0');
+	  else if (host_integerp (max, 0))
 	    pp_wide_integer (cxx_pp, tree_low_cst (max, 0) + 1);
 	  else if (TREE_CODE (max) == MINUS_EXPR)
 	    dump_expr (TREE_OPERAND (max, 0),
@@ -1028,7 +1028,12 @@ dump_decl (tree t, int flags)
 	    dump_scope (CP_DECL_CONTEXT (t), flags);
 	  flags &= ~TFF_UNQUALIFIED_NAME;
 	  if (DECL_NAME (t) == NULL_TREE)
-	    pp_cxx_ws_string (cxx_pp, M_("{anonymous}"));
+            {
+              if (!(pp_c_base (cxx_pp)->flags & pp_c_flag_gnu_v3))
+                pp_cxx_ws_string (cxx_pp, M_("{anonymous}"));
+              else
+                pp_cxx_ws_string (cxx_pp, M_("(anonymous namespace)"));
+            }
 	  else
 	    pp_cxx_tree_identifier (cxx_pp, DECL_NAME (t));
 	}
@@ -1037,7 +1042,7 @@ dump_decl (tree t, int flags)
     case SCOPE_REF:
       dump_type (TREE_OPERAND (t, 0), flags);
       pp_string (cxx_pp, "::");
-      dump_decl (TREE_OPERAND (t, 1), flags|TFF_UNQUALIFIED_NAME);
+      dump_decl (TREE_OPERAND (t, 1), TFF_UNQUALIFIED_NAME);
       break;
 
     case ARRAY_REF:
@@ -1268,17 +1273,17 @@ dump_template_decl (tree t, int flags)
 }
 
 /* find_typenames looks through the type of the function template T
-   and returns a VEC containing any typedefs, decltypes or TYPENAME_TYPEs
+   and returns a vec containing any typedefs, decltypes or TYPENAME_TYPEs
    it finds.  */
 
 struct find_typenames_t
 {
   struct pointer_set_t *p_set;
-  VEC (tree,gc) *typenames;
+  vec<tree, va_gc> *typenames;
 };
 
 static tree
-find_typenames_r (tree *tp, int *walk_subtrees ATTRIBUTE_UNUSED, void *data)
+find_typenames_r (tree *tp, int * /*walk_subtrees*/, void *data)
 {
   struct find_typenames_t *d = (struct find_typenames_t *)data;
   tree mv = NULL_TREE;
@@ -1292,7 +1297,7 @@ find_typenames_r (tree *tp, int *walk_subtrees ATTRIBUTE_UNUSED, void *data)
     mv = TYPE_MAIN_VARIANT (*tp);
 
   if (mv && (mv == *tp || !pointer_set_insert (d->p_set, mv)))
-    VEC_safe_push (tree, gc, d->typenames, mv);
+    vec_safe_push (d->typenames, mv);
 
   /* Search into class template arguments, which cp_walk_subtrees
      doesn't do.  */
@@ -1303,7 +1308,7 @@ find_typenames_r (tree *tp, int *walk_subtrees ATTRIBUTE_UNUSED, void *data)
   return NULL_TREE;
 }
 
-static VEC(tree,gc) *
+static vec<tree, va_gc> *
 find_typenames (tree t)
 {
   struct find_typenames_t ft;
@@ -1331,7 +1336,7 @@ dump_function_decl (tree t, int flags)
   int show_return = flags & TFF_RETURN_TYPE || flags & TFF_DECL_SPECIFIERS;
   int do_outer_scope = ! (flags & TFF_UNQUALIFIED_NAME);
   tree exceptions;
-  VEC(tree,gc) *typenames = NULL;
+  vec<tree, va_gc> *typenames = NULL;
 
   if (DECL_NAME (t) && LAMBDA_FUNCTION_P (t))
     {
@@ -1341,7 +1346,7 @@ dump_function_decl (tree t, int flags)
       return;
     }
 
-  flags &= ~TFF_UNQUALIFIED_NAME;
+  flags &= ~(TFF_UNQUALIFIED_NAME | TFF_TEMPLATE_NAME);
   if (TREE_CODE (t) == TEMPLATE_DECL)
     t = DECL_TEMPLATE_RESULT (t);
 
@@ -1556,6 +1561,8 @@ dump_function_name (tree t, int flags)
     {
       if (LAMBDA_TYPE_P (DECL_CONTEXT (t)))
 	name = get_identifier ("<lambda>");
+      else if (TYPE_ANONYMOUS_P (DECL_CONTEXT (t)))
+	name = get_identifier ("<constructor>");
       else
 	name = constructor_name (DECL_CONTEXT (t));
     }
@@ -1728,7 +1735,7 @@ dump_expr_list (tree l, int flags)
 /* Print out a vector of initializers (subr of dump_expr).  */
 
 static void
-dump_expr_init_vec (VEC(constructor_elt,gc) *v, int flags)
+dump_expr_init_vec (vec<constructor_elt, va_gc> *v, int flags)
 {
   unsigned HOST_WIDE_INT idx;
   tree value;
@@ -1736,7 +1743,7 @@ dump_expr_init_vec (VEC(constructor_elt,gc) *v, int flags)
   FOR_EACH_CONSTRUCTOR_VALUE (v, idx, value)
     {
       dump_expr (value, flags | TFF_EXPR_IN_PARENS);
-      if (idx != VEC_length (constructor_elt, v) - 1)
+      if (idx != v->length () - 1)
 	pp_separate_with_comma (cxx_pp);
     }
 }
@@ -1796,7 +1803,8 @@ dump_expr (tree t, int flags)
       break;
 
     case SSA_NAME:
-      if (!DECL_ARTIFICIAL (SSA_NAME_VAR (t)))
+      if (SSA_NAME_VAR (t)
+	  && !DECL_ARTIFICIAL (SSA_NAME_VAR (t)))
 	dump_expr (SSA_NAME_VAR (t), flags);
       else
 	pp_cxx_ws_string (cxx_pp, M_("<unknown>"));
@@ -2302,7 +2310,9 @@ dump_expr (tree t, int flags)
 	}
       pp_cxx_whitespace (cxx_pp);
       pp_cxx_left_paren (cxx_pp);
-      if (TYPE_P (TREE_OPERAND (t, 0)))
+      if (TREE_CODE (t) == SIZEOF_EXPR && SIZEOF_EXPR_TYPE_P (t))
+	dump_type (TREE_TYPE (TREE_OPERAND (t, 0)), flags);
+      else if (TYPE_P (TREE_OPERAND (t, 0)))
 	dump_type (TREE_OPERAND (t, 0), flags);
       else
 	dump_expr (TREE_OPERAND (t, 0), flags);
@@ -2554,6 +2564,21 @@ expr_as_string (tree decl, int flags)
   return pp_formatted_text (cxx_pp);
 }
 
+/* Wrap decl_as_string with options appropriate for dwarf.  */
+
+const char *
+decl_as_dwarf_string (tree decl, int flags)
+{
+  const char *name;
+  /* Curiously, reinit_cxx_pp doesn't reset the flags field, so setting the flag
+     here will be adequate to get the desired behaviour.  */
+  pp_c_base (cxx_pp)->flags |= pp_c_flag_gnu_v3;
+  name = decl_as_string (decl, flags);
+  /* Subsequent calls to the pretty printer shouldn't use this style.  */
+  pp_c_base (cxx_pp)->flags &= ~pp_c_flag_gnu_v3;
+  return name;
+}
+
 const char *
 decl_as_string (tree decl, int flags)
 {
@@ -2569,6 +2594,21 @@ decl_as_string_translate (tree decl, int flags)
   reinit_cxx_pp ();
   dump_decl (decl, flags);
   return pp_formatted_text (cxx_pp);
+}
+
+/* Wrap lang_decl_name with options appropriate for dwarf.  */
+
+const char *
+lang_decl_dwarf_name (tree decl, int v, bool translate)
+{
+  const char *name;
+  /* Curiously, reinit_cxx_pp doesn't reset the flags field, so setting the flag
+     here will be adequate to get the desired behaviour.  */
+  pp_c_base (cxx_pp)->flags |= pp_c_flag_gnu_v3;
+  name = lang_decl_name (decl, v, translate);
+  /* Subsequent calls to the pretty printer shouldn't use this style.  */
+  pp_c_base (cxx_pp)->flags &= ~pp_c_flag_gnu_v3;
+  return name;
 }
 
 /* Generate the three forms of printable names for cxx_printable_name.  */
@@ -2594,6 +2634,9 @@ lang_decl_name (tree decl, int v, bool translate)
 
   if (TREE_CODE (decl) == FUNCTION_DECL)
     dump_function_name (decl, TFF_PLAIN_IDENTIFIER);
+  else if ((DECL_NAME (decl) == NULL_TREE)
+           && TREE_CODE (decl) == NAMESPACE_DECL)
+    dump_decl (decl, TFF_PLAIN_IDENTIFIER | TFF_UNQUALIFIED_NAME);
   else
     dump_decl (DECL_NAME (decl), TFF_PLAIN_IDENTIFIER);
 
@@ -3076,10 +3119,20 @@ print_instantiation_partial_context (diagnostic_context *context,
 
   t = t0;
 
-  if (n_total >= 12) 
+  if (template_backtrace_limit
+      && n_total > template_backtrace_limit) 
     {
-      int skip = n_total - 10;
-      for (n = 0; n < 5; n++)
+      int skip = n_total - template_backtrace_limit;
+      int head = template_backtrace_limit / 2;
+
+      /* Avoid skipping just 1.  If so, skip 2.  */
+      if (skip == 1)
+       {
+         skip = 2;
+         head = (template_backtrace_limit - 1) / 2;
+       }
+     
+      for (n = 0; n < head; n++)
 	{
 	  gcc_assert (t != NULL);
 	  if (loc != t->locus)
@@ -3088,17 +3141,19 @@ print_instantiation_partial_context (diagnostic_context *context,
 	  loc = t->locus;
 	  t = t->next;
 	}
-      if (t != NULL && skip > 1)
+      if (t != NULL && skip > 0)
 	{
 	  expanded_location xloc;
 	  xloc = expand_location (loc);
 	  if (context->show_column)
 	    pp_verbatim (context->printer,
-			 _("%s:%d:%d:   [ skipping %d instantiation contexts ]\n"),
+			 _("%s:%d:%d:   [ skipping %d instantiation contexts, "
+			   "use -ftemplate-backtrace-limit=0 to disable ]\n"),
 			 xloc.file, xloc.line, xloc.column, skip);
 	  else
 	    pp_verbatim (context->printer,
-			 _("%s:%d:   [ skipping %d instantiation contexts ]\n"),
+			 _("%s:%d:   [ skipping %d instantiation contexts, "
+			   "use -ftemplate-backtrace-limit=0 to disable ]\n"),
 			 xloc.file, xloc.line, skip);
 	  
 	  do {
@@ -3142,6 +3197,7 @@ print_instantiation_context (void)
 {
   print_instantiation_partial_context
     (global_dc, current_instantiation (), input_location);
+  pp_base_newline (global_dc->printer);
   diagnostic_flush_buffer (global_dc);
 }
 
@@ -3150,11 +3206,11 @@ print_instantiation_context (void)
 void
 maybe_print_constexpr_context (diagnostic_context *context)
 {
-  VEC(tree,heap) *call_stack = cx_error_context ();
+  vec<tree> call_stack = cx_error_context ();
   unsigned ix;
   tree t;
 
-  FOR_EACH_VEC_ELT (tree, call_stack, ix, t)
+  FOR_EACH_VEC_ELT (call_stack, ix, t)
     {
       expanded_location xloc = expand_location (EXPR_LOCATION (t));
       const char *s = expr_as_string (t, 0);
@@ -3292,7 +3348,7 @@ maybe_warn_cpp0x (cpp0x_warn_str str)
 		 "only available with -std=c++11 or -std=gnu++11");
 	break;
       case CPP0X_INLINE_NAMESPACES:
-	pedwarn (input_location, OPT_pedantic,
+	pedwarn (input_location, OPT_Wpedantic,
 		 "inline namespaces "
 		 "only available with -std=c++11 or -std=gnu++11");
 	break;
@@ -3316,6 +3372,16 @@ maybe_warn_cpp0x (cpp0x_warn_str str)
 		 "delegating constructors "
 		 "only available with -std=c++11 or -std=gnu++11");
         break;
+      case CPP0X_INHERITING_CTORS:
+	pedwarn (input_location, 0,
+		 "inheriting constructors "
+		 "only available with -std=c++11 or -std=gnu++11");
+        break;
+      case CPP0X_ATTRIBUTES:
+	pedwarn (input_location, 0,
+		 "c++11 attributes "
+		 "only available with -std=c++11 or -std=gnu++11");
+	break;
       default:
 	gcc_unreachable ();
       }
@@ -3338,13 +3404,15 @@ pedwarn_cxx98 (location_t location, int opt, const char *gmsgid, ...)
 {
   diagnostic_info diagnostic;
   va_list ap;
+  bool ret;
 
   va_start (ap, gmsgid);
   diagnostic_set_info (&diagnostic, gmsgid, &ap, location,
 		       (cxx_dialect == cxx98) ? DK_PEDWARN : DK_WARNING);
   diagnostic.option_index = opt;
+  ret = report_diagnostic (&diagnostic);
   va_end (ap);
-  return report_diagnostic (&diagnostic);
+  return ret;
 }
 
 /* Issue a diagnostic that NAME cannot be found in SCOPE.  DECL is what

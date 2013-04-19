@@ -1,7 +1,6 @@
 /* Form lists of pseudo register references for autoinc optimization
    for GNU compiler.  This is part of flow optimization.
-   Copyright (C) 1999, 2000, 2001, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012  Free Software Foundation, Inc.
+   Copyright (C) 1999-2013 Free Software Foundation, Inc.
    Originally contributed by Michael P. Hayes
              (m.hayes@elec.canterbury.ac.nz, mhayes@redhat.com)
    Major rewrite contributed by Danny Berlin (dberlin@dberlin.org)
@@ -239,6 +238,9 @@ typedef void (*df_dump_problem_function) (FILE *);
 /* Function to dump top or bottom of basic block results to FILE.  */
 typedef void (*df_dump_bb_problem_function) (basic_block, FILE *);
 
+/* Function to dump before or after an insn to FILE.  */
+typedef void (*df_dump_insn_problem_function) (const_rtx, FILE *);
+
 /* Function to dump top or bottom of basic block results to FILE.  */
 typedef void (*df_verify_solution_start) (void);
 
@@ -268,6 +270,8 @@ struct df_problem {
   df_dump_problem_function dump_start_fun;
   df_dump_bb_problem_function dump_top_fun;
   df_dump_bb_problem_function dump_bottom_fun;
+  df_dump_insn_problem_function dump_insn_top_fun;
+  df_dump_insn_problem_function dump_insn_bottom_fun;
   df_verify_solution_start verify_start_fun;
   df_verify_solution_end verify_end_fun;
   struct df_problem *dependent_problem;
@@ -367,7 +371,7 @@ struct df_base_ref
      when FUDs are added.  */
   struct df_insn_info *insn_info;
   /* For each regno, there are three chains of refs, one for the uses,
-     the eq_uses and the defs.  These chains go thru the refs
+     the eq_uses and the defs.  These chains go through the refs
      themselves rather than using an external structure.  */
   union df_ref_d *next_reg;     /* Next ref with same regno and type.  */
   union df_ref_d *prev_reg;     /* Prev ref with same regno and type.  */
@@ -463,7 +467,12 @@ enum df_changeable_flags
   rescans to be batched.  */
   DF_DEFER_INSN_RESCAN    = 1 << 5,
 
-  DF_VERIFY_SCHEDULED     = 1 << 6
+  /* Compute the reaching defs problem as "live and reaching defs" (LR&RD).
+     A DEF is reaching and live at insn I if DEF reaches I and REGNO(DEF)
+     is in LR_IN of the basic block containing I.  */
+  DF_RD_PRUNE_DEAD_DEFS   = 1 << 6,
+
+  DF_VERIFY_SCHEDULED     = 1 << 7
 };
 
 /* Two of these structures are inline in df, one for the uses and one
@@ -773,7 +782,9 @@ struct df_scan_bb_info
 
 
 /* Reaching definitions.  All bitmaps are indexed by the id field of
-   the ref except sparse_kill which is indexed by regno.  */
+   the ref except sparse_kill which is indexed by regno.  For the
+   LR&RD problem, the kill set is not complete: It does not contain
+   DEFs killed because the set register has died in the LR set.  */
 struct df_rd_bb_info
 {
   /* Local sets to describe the basic blocks.   */
@@ -918,6 +929,8 @@ extern void df_dump_region (FILE *);
 extern void df_dump_start (FILE *);
 extern void df_dump_top (basic_block, FILE *);
 extern void df_dump_bottom (basic_block, FILE *);
+extern void df_dump_insn_top (const_rtx, FILE *);
+extern void df_dump_insn_bottom (const_rtx, FILE *);
 extern void df_refs_chain_dump (df_ref *, bool, FILE *);
 extern void df_regs_chain_dump (df_ref,  FILE *);
 extern void df_insn_debug (rtx, bool, FILE *);
@@ -937,8 +950,6 @@ extern void debug_df_chain (struct df_link *);
 extern struct df_link *df_chain_create (df_ref, df_ref);
 extern void df_chain_unlink (df_ref);
 extern void df_chain_copy (df_ref, struct df_link *);
-extern bitmap df_get_live_in (basic_block);
-extern bitmap df_get_live_out (basic_block);
 extern void df_grow_bb_info (struct dataflow *);
 extern void df_chain_dump (struct df_link *, FILE *);
 extern void df_print_bb_index (basic_block bb, FILE *file);
@@ -1009,7 +1020,10 @@ extern void df_compute_regs_ever_live (bool);
 extern bool df_read_modify_subreg_p (rtx);
 extern void df_scan_verify (void);
 
-/* Get basic block info.  */
+
+/*----------------------------------------------------------------------------
+   Public functions access functions for the dataflow problems.
+----------------------------------------------------------------------------*/
 
 static inline struct df_scan_bb_info *
 df_scan_get_bb_info (unsigned int index)
@@ -1065,6 +1079,39 @@ df_word_lr_get_bb_info (unsigned int index)
     return NULL;
 }
 
+/* Get the live at out set for BB no matter what problem happens to be
+   defined.  This function is used by the register allocators who
+   choose different dataflow problems depending on the optimization
+   level.  */
+
+static inline bitmap
+df_get_live_out (basic_block bb)
+{
+  gcc_checking_assert (df_lr);
+
+  if (df_live)
+    return DF_LIVE_OUT (bb);
+  else
+    return DF_LR_OUT (bb);
+}
+
+/* Get the live at in set for BB no matter what problem happens to be
+   defined.  This function is used by the register allocators who
+   choose different dataflow problems depending on the optimization
+   level.  */
+
+static inline bitmap
+df_get_live_in (basic_block bb)
+{
+  gcc_checking_assert (df_lr);
+
+  if (df_live)
+    return DF_LIVE_IN (bb);
+  else
+    return DF_LR_IN (bb);
+}
+
+/* Get basic block info.  */
 /* Get the artificial defs for a basic block.  */
 
 static inline df_ref *

@@ -1,5 +1,5 @@
 /* Operations with affine combinations of trees.
-   Copyright (C) 2005, 2007, 2008 Free Software Foundation, Inc.
+   Copyright (C) 2005-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -79,5 +79,4 @@ void free_affine_expand_cache (struct pointer_map_t **);
 bool aff_comb_cannot_overlap_p (aff_tree *, double_int, double_int);
 
 /* Debugging functions.  */
-void print_aff (FILE *, aff_tree *);
 void debug_aff (aff_tree *);

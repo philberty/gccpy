@@ -1,7 +1,6 @@
 // Allocators -*- C++ -*-
 
-// Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-// 2011 Free Software Foundation, Inc.
+// Copyright (C) 2001-2013 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -46,6 +45,9 @@
 
 // Define the base class to std::allocator.
 #include <bits/c++allocator.h>
+#if __cplusplus >= 201103L
+#include <type_traits>
+#endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -77,6 +79,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _Tp1>
         struct rebind
         { typedef allocator<_Tp1> other; };
+
+#if __cplusplus >= 201103L
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2103. std::allocator propagate_on_container_move_assignment
+      typedef true_type propagate_on_container_move_assignment;
+#endif
     };
 
   /**
@@ -84,9 +92,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    *
    *  See http://gcc.gnu.org/onlinedocs/libstdc++/manual/bk01pt04ch11.html
    *  for further details.
+   *
+   *  @tparam  _Tp  Type of allocated object.
    */
   template<typename _Tp>
-    class allocator: public __glibcxx_base_allocator<_Tp>
+    class allocator: public __allocator_base<_Tp>
     {
    public:
       typedef size_t     size_type;
@@ -101,10 +111,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         struct rebind
         { typedef allocator<_Tp1> other; };
 
+#if __cplusplus >= 201103L
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2103. std::allocator propagate_on_container_move_assignment
+      typedef true_type propagate_on_container_move_assignment;
+#endif
+
       allocator() throw() { }
 
       allocator(const allocator& __a) throw()
-      : __glibcxx_base_allocator<_Tp>(__a) { }
+      : __allocator_base<_Tp>(__a) { }
 
       template<typename _Tp1>
         allocator(const allocator<_Tp1>&) throw() { }
@@ -134,6 +150,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     operator!=(const allocator<_Tp>&, const allocator<_Tp>&)
     { return false; }
 
+  /// Declare uses_allocator so it can be specialized in \<queue\> etc.
+  template<typename, typename>
+    struct uses_allocator;
+
   /**
    * @}
    */
@@ -146,7 +166,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 #endif
 
   // Undefine.
-#undef __glibcxx_base_allocator
+#undef __allocator_base
 
   // To implement Option 3 of DR 431.
   template<typename _Alloc, bool = __is_empty(_Alloc)>
@@ -182,7 +202,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return __one != __two; }
     };
 
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
+#if __cplusplus >= 201103L
   template<typename _Tp, bool
     = __or_<is_copy_constructible<typename _Tp::value_type>,
             is_nothrow_move_constructible<typename _Tp::value_type>>::value>
@@ -206,10 +226,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  { return false; }
       }
     };
-
-  // Declare uses_allocator so it can be specialized in <queue> etc.
-  template<typename, typename>
-    struct uses_allocator;
 #endif
 
 _GLIBCXX_END_NAMESPACE_VERSION

@@ -1,5 +1,5 @@
 /* LTO routines to use object files.
-   Copyright 2010 Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Google.
 
 This file is part of GCC.
@@ -133,7 +133,10 @@ lto_obj_file_open (const char *filename, bool writable)
 	  errmsg = simple_object_attributes_merge (saved_attributes, attrs,
 						   &err);
 	  if (errmsg != NULL)
-	    goto fail_errmsg;
+	    {
+	      free (attrs);
+	      goto fail_errmsg;
+	    }
 	}
     }
   else
@@ -155,10 +158,12 @@ lto_obj_file_open (const char *filename, bool writable)
     error ("%s: %s: %s", fname, errmsg, xstrerror (err));
 					 
  fail:
-  if (lo != NULL)
+  if (lo->fd != -1)
     lto_obj_file_close ((lto_file *) lo);
+  free (lo);
   return NULL;
 }
+
 
 /* Close FILE.  If FILE was opened for writing, it is written out
    now.  */

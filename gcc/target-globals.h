@@ -1,5 +1,5 @@
 /* Target-dependent globals.
-   Copyright (C) 2010  Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -32,9 +32,11 @@ extern struct target_libfuncs *this_target_libfuncs;
 extern struct target_cfgloop *this_target_cfgloop;
 extern struct target_ira *this_target_ira;
 extern struct target_ira_int *this_target_ira_int;
+extern struct target_lra_int *this_target_lra_int;
 extern struct target_builtins *this_target_builtins;
 extern struct target_gcse *this_target_gcse;
 extern struct target_bb_reorder *this_target_bb_reorder;
+extern struct target_lower_subreg *this_target_lower_subreg;
 
 struct GTY(()) target_globals {
   struct target_flag_state *GTY((skip)) flag_state;
@@ -48,9 +50,11 @@ struct GTY(()) target_globals {
   struct target_cfgloop *GTY((skip)) cfgloop;
   struct target_ira *GTY((skip)) ira;
   struct target_ira_int *GTY((skip)) ira_int;
+  struct target_lra_int *GTY((skip)) lra_int;
   struct target_builtins *GTY((skip)) builtins;
   struct target_gcse *GTY((skip)) gcse;
   struct target_bb_reorder *GTY((skip)) bb_reorder;
+  struct target_lower_subreg *GTY((skip)) lower_subreg;
 };
 
 extern struct target_globals default_target_globals;
@@ -71,9 +75,11 @@ restore_target_globals (struct target_globals *g)
   this_target_cfgloop = g->cfgloop;
   this_target_ira = g->ira;
   this_target_ira_int = g->ira_int;
+  this_target_lra_int = g->lra_int;
   this_target_builtins = g->builtins;
   this_target_gcse = g->gcse;
   this_target_bb_reorder = g->bb_reorder;
+  this_target_lower_subreg = g->lower_subreg;
 }
 #endif
 

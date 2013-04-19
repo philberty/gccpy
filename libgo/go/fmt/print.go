@@ -26,8 +26,8 @@ var (
 	extraBytes      = []byte("%!(EXTRA ")
 	irparenBytes    = []byte("i)")
 	bytesBytes      = []byte("[]byte{")
-	widthBytes      = []byte("%!(BADWIDTH)")
-	precBytes       = []byte("%!(BADPREC)")
+	badWidthBytes   = []byte("%!(BADWIDTH)")
+	badPrecBytes    = []byte("%!(BADPREC)")
 	noVerbBytes     = []byte("%!(NOVERB)")
 )
 
@@ -153,7 +153,7 @@ func newCache(f func() interface{}) *cache {
 
 var ppFree = newCache(func() interface{} { return new(pp) })
 
-// Allocate a new pp struct or grab a cached one.
+// newPrinter allocates a new pp struct or grab a cached one.
 func newPrinter() *pp {
 	p := ppFree.get().(*pp)
 	p.panicking = false
@@ -162,7 +162,7 @@ func newPrinter() *pp {
 	return p
 }
 
-// Save used pp structs in ppFree; avoids an allocation per invocation.
+// free saves used pp structs in ppFree; avoids an allocation per invocation.
 func (p *pp) free() {
 	// Don't hold on to pp structs with large buffers.
 	if cap(p.buf) > 1024 {
@@ -231,7 +231,7 @@ func Sprintf(format string, a ...interface{}) string {
 	return s
 }
 
-// Errorf formats according to a format specifier and returns the string 
+// Errorf formats according to a format specifier and returns the string
 // as a value that satisfies error.
 func Errorf(format string, a ...interface{}) error {
 	return errors.New(Sprintf(format, a...))
@@ -299,7 +299,7 @@ func Sprintln(a ...interface{}) string {
 	return s
 }
 
-// Get the i'th arg of the struct value.
+// getField gets the i'th arg of the struct value.
 // If the arg itself is an interface, return a value for
 // the thing inside the interface, not the interface itself.
 func getField(v reflect.Value, i int) reflect.Value {
@@ -310,7 +310,7 @@ func getField(v reflect.Value, i int) reflect.Value {
 	return val
 }
 
-// Convert ASCII to integer.  n is 0 (and got is false) if no number present.
+// parsenum converts ASCII to integer.  num is 0 (and isnum is false) if no number present.
 func parsenum(s string, start, end int) (num int, isnum bool, newi int) {
 	if start >= end {
 		return 0, false, end
@@ -569,24 +569,27 @@ func (p *pp) fmtBytes(v []byte, verb rune, goSyntax bool, depth int) {
 		}
 		return
 	}
-	s := string(v)
 	switch verb {
 	case 's':
-		p.fmt.fmt_s(s)
+		p.fmt.fmt_s(string(v))
 	case 'x':
-		p.fmt.fmt_sx(s, ldigits)
+		p.fmt.fmt_bx(v, ldigits)
 	case 'X':
-		p.fmt.fmt_sx(s, udigits)
+		p.fmt.fmt_bx(v, udigits)
 	case 'q':
-		p.fmt.fmt_q(s)
+		p.fmt.fmt_q(string(v))
 	default:
 		p.badVerb(verb)
 	}
 }
 
 func (p *pp) fmtPointer(value reflect.Value, verb rune, goSyntax bool) {
+	use0x64 := true
 	switch verb {
-	case 'p', 'v', 'b', 'd', 'o', 'x', 'X':
+	case 'p', 'v':
+		// ok
+	case 'b', 'd', 'o', 'x', 'X':
+		use0x64 = false
 		// ok
 	default:
 		p.badVerb(verb)
@@ -616,7 +619,11 @@ func (p *pp) fmtPointer(value reflect.Value, verb rune, goSyntax bool) {
 	} else if verb == 'v' && u == 0 {
 		p.buf.Write(nilAngleBytes)
 	} else {
-		p.fmt0x64(uint64(u), !p.fmt.sharp)
+		if use0x64 {
+			p.fmt0x64(uint64(u), !p.fmt.sharp)
+		} else {
+			p.fmtUint64(uint64(u), verb, false)
+		}
 	}
 }
 
@@ -735,8 +742,17 @@ func (p *pp) printField(field interface{}, verb rune, plus, goSyntax bool, depth
 		return false
 	}
 
-	if wasString, handled := p.handleMethods(verb, plus, goSyntax, depth); handled {
-		return wasString
+	// Clear flags for base formatters.
+	// handleMethods needs them, so we must restore them later.
+	// We could call handleMethods here and avoid this work, but
+	// handleMethods is expensive enough to be worth delaying.
+	oldPlus := p.fmt.plus
+	oldSharp := p.fmt.sharp
+	if plus {
+		p.fmt.plus = false
+	}
+	if goSyntax {
+		p.fmt.sharp = false
 	}
 
 	// Some types can be done without reflection.
@@ -780,6 +796,13 @@ func (p *pp) printField(field interface{}, verb rune, plus, goSyntax bool, depth
 		p.fmtBytes(f, verb, goSyntax, depth)
 		wasString = verb == 's'
 	default:
+		// Restore flags in case handleMethods finds a Formatter.
+		p.fmt.plus = oldPlus
+		p.fmt.sharp = oldSharp
+		// If the type is not simple, it might have methods.
+		if wasString, handled := p.handleMethods(verb, plus, goSyntax, depth); handled {
+			return wasString
+		}
 		// Need to use reflection
 		return p.printReflectValue(reflect.ValueOf(field), verb, plus, goSyntax, depth)
 	}
@@ -1034,7 +1057,7 @@ func (p *pp) doPrintf(format string, a []interface{}) {
 		if i < end && format[i] == '*' {
 			p.fmt.wid, p.fmt.widPresent, i, fieldnum = intFromArg(a, end, i, fieldnum)
 			if !p.fmt.widPresent {
-				p.buf.Write(widthBytes)
+				p.buf.Write(badWidthBytes)
 			}
 		} else {
 			p.fmt.wid, p.fmt.widPresent, i = parsenum(format, i, end)
@@ -1044,7 +1067,7 @@ func (p *pp) doPrintf(format string, a []interface{}) {
 			if format[i+1] == '*' {
 				p.fmt.prec, p.fmt.precPresent, i, fieldnum = intFromArg(a, end, i+1, fieldnum)
 				if !p.fmt.precPresent {
-					p.buf.Write(precBytes)
+					p.buf.Write(badPrecBytes)
 				}
 			} else {
 				p.fmt.prec, p.fmt.precPresent, i = parsenum(format, i+1, end)
@@ -1100,7 +1123,7 @@ func (p *pp) doPrint(a []interface{}, addspace, addnewline bool) {
 	prevString := false
 	for fieldnum := 0; fieldnum < len(a); fieldnum++ {
 		p.fmt.clearflags()
-		// always add spaces if we're doing println
+		// always add spaces if we're doing Println
 		field := a[fieldnum]
 		if fieldnum > 0 {
 			isString := field != nil && reflect.TypeOf(field).Kind() == reflect.String

@@ -42,9 +42,10 @@ type fakeDriver struct {
 type fakeDB struct {
 	name string
 
-	mu     sync.Mutex
-	free   []*fakeConn
-	tables map[string]*table
+	mu      sync.Mutex
+	free    []*fakeConn
+	tables  map[string]*table
+	badConn bool
 }
 
 type table struct {
@@ -83,6 +84,7 @@ type fakeConn struct {
 	stmtsMade   int
 	stmtsClosed int
 	numPrepare  int
+	bad         bool
 }
 
 func (c *fakeConn) incrStat(v *int) {
@@ -122,7 +124,9 @@ func init() {
 
 // Supports dsn forms:
 //    <dbname>
-//    <dbname>;<opts>  (no currently supported options)
+//    <dbname>;<opts>  (only currently supported option is `badConn`,
+//                      which causes driver.ErrBadConn to be returned on
+//                      every other conn.Begin())
 func (d *fakeDriver) Open(dsn string) (driver.Conn, error) {
 	parts := strings.Split(dsn, ";")
 	if len(parts) < 1 {
@@ -135,7 +139,12 @@ func (d *fakeDriver) Open(dsn string) (driver.Conn, error) {
 	d.mu.Lock()
 	d.openCount++
 	d.mu.Unlock()
-	return &fakeConn{db: db}, nil
+	conn := &fakeConn{db: db}
+
+	if len(parts) >= 2 && parts[1] == "badConn" {
+		conn.bad = true
+	}
+	return conn, nil
 }
 
 func (d *fakeDriver) getDB(name string) *fakeDB {
@@ -199,7 +208,20 @@ func (db *fakeDB) columnType(table, column string) (typ string, ok bool) {
 	return "", false
 }
 
+func (c *fakeConn) isBad() bool {
+	// if not simulating bad conn, do nothing
+	if !c.bad {
+		return false
+	}
+	// alternate between bad conn and not bad conn
+	c.db.badConn = !c.db.badConn
+	return c.db.badConn
+}
+
 func (c *fakeConn) Begin() (driver.Tx, error) {
+	if c.isBad() {
+		return nil, driver.ErrBadConn
+	}
 	if c.currTx != nil {
 		return nil, errors.New("already in a transaction")
 	}
@@ -383,6 +405,9 @@ func (c *fakeConn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (s *fakeStmt) ColumnConverter(idx int) driver.ValueConverter {
+	if len(s.placeholderConverter) == 0 {
+		return driver.DefaultParameterConverter
+	}
 	return s.placeholderConverter[idx]
 }
 
@@ -598,6 +623,28 @@ func (rc *rowsCursor) Next(dest []driver.Value) error {
 	return nil
 }
 
+// fakeDriverString is like driver.String, but indirects pointers like
+// DefaultValueConverter.
+//
+// This could be surprising behavior to retroactively apply to
+// driver.String now that Go1 is out, but this is convenient for
+// our TestPointerParamsAndScans.
+//
+type fakeDriverString struct{}
+
+func (fakeDriverString) ConvertValue(v interface{}) (driver.Value, error) {
+	switch c := v.(type) {
+	case string, []byte:
+		return v, nil
+	case *string:
+		if c == nil {
+			return nil, nil
+		}
+		return *c, nil
+	}
+	return fmt.Sprintf("%v", v), nil
+}
+
 func converterForType(typ string) driver.ValueConverter {
 	switch typ {
 	case "bool":
@@ -607,9 +654,9 @@ func converterForType(typ string) driver.ValueConverter {
 	case "int32":
 		return driver.Int32
 	case "string":
-		return driver.NotNull{Converter: driver.String}
+		return driver.NotNull{Converter: fakeDriverString{}}
 	case "nullstring":
-		return driver.Null{Converter: driver.String}
+		return driver.Null{Converter: fakeDriverString{}}
 	case "int64":
 		// TODO(coopernurse): add type-specific converter
 		return driver.NotNull{Converter: driver.DefaultParameterConverter}

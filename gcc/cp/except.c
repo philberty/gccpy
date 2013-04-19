@@ -1,7 +1,5 @@
 /* Handle exceptional things in C++.
-   Copyright (C) 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 1989-2013 Free Software Foundation, Inc.
    Contributed by Michael Tiemann <tiemann@cygnus.com>
    Rewritten by Mike Stump <mrs@cygnus.com>, based upon an
    initial re-implementation courtesy Tad Hunt.
@@ -30,7 +28,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree.h"
 #include "cp-tree.h"
 #include "flags.h"
-#include "output.h"
 #include "tree-inline.h"
 #include "tree-iterator.h"
 #include "target.h"
@@ -46,7 +43,7 @@ static void initialize_handler_parm (tree, tree);
 static tree do_allocate_exception (tree);
 static tree wrap_cleanups_r (tree *, int *, void *);
 static int complete_ptr_ref_or_void_ptr_p (tree, tree);
-static bool is_admissible_throw_operand (tree);
+static bool is_admissible_throw_operand_or_catch_parameter (tree, bool);
 static int can_convert_eh (tree, tree);
 
 /* Sets up all the global eh stuff that needs to be initialized at the
@@ -425,7 +422,8 @@ initialize_handler_parm (tree decl, tree exp)
       && TYPE_PTR_P (TREE_TYPE (init_type)))
     exp = cp_build_addr_expr (exp, tf_warning_or_error);
 
-  exp = ocp_convert (init_type, exp, CONV_IMPLICIT|CONV_FORCE_TEMP, 0);
+  exp = ocp_convert (init_type, exp, CONV_IMPLICIT|CONV_FORCE_TEMP, 0,
+		     tf_warning_or_error);
 
   init = convert_from_reference (exp);
 
@@ -436,7 +434,8 @@ initialize_handler_parm (tree decl, tree exp)
       /* Generate the copy constructor call directly so we can wrap it.
 	 See also expand_default_init.  */
       init = ocp_convert (TREE_TYPE (decl), init,
-			  CONV_IMPLICIT|CONV_FORCE_TEMP, 0);
+			  CONV_IMPLICIT|CONV_FORCE_TEMP, 0,
+			  tf_warning_or_error);
       /* Force cleanups now to avoid nesting problems with the
 	 MUST_NOT_THROW_EXPR.  */
       init = fold_build_cleanup_point_expr (TREE_TYPE (init), init);
@@ -485,12 +484,13 @@ expand_start_catch_block (tree decl)
   if (! doing_eh ())
     return NULL_TREE;
 
-  /* Make sure this declaration is reasonable.  */
-  if (decl && !complete_ptr_ref_or_void_ptr_p (TREE_TYPE (decl), NULL_TREE))
-    decl = error_mark_node;
-
   if (decl)
-    type = prepare_eh_type (TREE_TYPE (decl));
+    {
+      if (!is_admissible_throw_operand_or_catch_parameter (decl, false))
+	decl = error_mark_node;
+
+      type = prepare_eh_type (TREE_TYPE (decl));
+    }
   else
     type = NULL_TREE;
 
@@ -669,8 +669,7 @@ do_free_exception (tree ptr)
    Called from build_throw via walk_tree_without_duplicates.  */
 
 static tree
-wrap_cleanups_r (tree *tp, int *walk_subtrees ATTRIBUTE_UNUSED,
-		 void *data ATTRIBUTE_UNUSED)
+wrap_cleanups_r (tree *tp, int *walk_subtrees, void * /*data*/)
 {
   tree exp = *tp;
   tree cleanup;
@@ -720,7 +719,7 @@ build_throw (tree exp)
 
   if (exp != NULL_TREE)
     {
-      if (!is_admissible_throw_operand (exp))
+      if (!is_admissible_throw_operand_or_catch_parameter (exp, true))
 	return error_mark_node;
     }
 
@@ -823,7 +822,7 @@ build_throw (tree exp)
       if (CLASS_TYPE_P (temp_type))
 	{
 	  int flags = LOOKUP_NORMAL | LOOKUP_ONLYCONVERTING;
-	  VEC(tree,gc) *exp_vec;
+	  vec<tree, va_gc> *exp_vec;
 
 	  /* Under C++0x [12.8/16 class.copy], a thrown lvalue is sometimes
 	     treated as an rvalue for the purposes of overload resolution
@@ -850,7 +849,7 @@ build_throw (tree exp)
 	}
       else
 	{
-	  tmp = decay_conversion (exp);
+	  tmp = decay_conversion (exp, tf_warning_or_error);
 	  if (tmp == error_mark_node)
 	    return error_mark_node;
 	  exp = build2 (INIT_EXPR, temp_type, object, tmp);
@@ -944,14 +943,21 @@ complete_ptr_ref_or_void_ptr_p (tree type, tree from)
   return 1;
 }
 
-/* Return truth-value if EXPRESSION is admissible in throw-expression,
-   i.e. if it is not of incomplete type or a pointer/reference to such
-   a type or of an abstract class type.  */
+/* If IS_THROW is true return truth-value if T is an expression admissible
+   in throw-expression, i.e. if it is not of incomplete type or a pointer/
+   reference to such a type or of an abstract class type.
+   If IS_THROW is false, likewise for a catch parameter, same requirements
+   for its type plus rvalue reference type is also not admissible.  */
 
 static bool
-is_admissible_throw_operand (tree expr)
+is_admissible_throw_operand_or_catch_parameter (tree t, bool is_throw)
 {
-  tree type = TREE_TYPE (expr);
+  tree expr = is_throw ? t : NULL_TREE;
+  tree type = TREE_TYPE (t);
+
+  /* C++11 [except.handle] The exception-declaration shall not denote
+     an incomplete type, an abstract class type, or an rvalue reference 
+     type.  */
 
   /* 15.1/4 [...] The type of the throw-expression shall not be an
 	    incomplete type, or a pointer or a reference to an incomplete
@@ -966,10 +972,22 @@ is_admissible_throw_operand (tree expr)
   /* 10.4/3 An abstract class shall not be used as a parameter type,
 	    as a function return type or as type of an explicit
 	    conversion.  */
-  else if (CLASS_TYPE_P (type) && CLASSTYPE_PURE_VIRTUALS (type))
+  else if (ABSTRACT_CLASS_TYPE_P (type))
     {
-      error ("expression %qE of abstract class type %qT cannot "
-	     "be used in throw-expression", expr, type);
+      if (is_throw)
+	error ("expression %qE of abstract class type %qT cannot "
+	       "be used in throw-expression", expr, type);
+      else
+	error ("cannot declare catch parameter to be of abstract "
+	       "class type %qT", type);
+      return false;
+    }
+  else if (!is_throw
+	   && TREE_CODE (type) == REFERENCE_TYPE
+	   && TYPE_REF_IS_RVALUE (type))
+    {
+      error ("cannot declare catch parameter to be of rvalue "
+	     "reference type %qT", type);
       return false;
     }
 
@@ -1031,7 +1049,7 @@ can_convert_eh (tree to, tree from)
     }
 
   if (CLASS_TYPE_P (to) && CLASS_TYPE_P (from)
-      && PUBLICLY_UNIQUELY_DERIVED_P (to, from))
+      && publicly_uniquely_derived_p (to, from))
     return 1;
 
   return 0;
@@ -1108,8 +1126,7 @@ check_handlers (tree handlers)
      expression whose type is a polymorphic class type (10.3).  */
 
 static tree
-check_noexcept_r (tree *tp, int *walk_subtrees ATTRIBUTE_UNUSED,
-		  void *data ATTRIBUTE_UNUSED)
+check_noexcept_r (tree *tp, int * /*walk_subtrees*/, void * /*data*/)
 {
   tree t = *tp;
   enum tree_code code = TREE_CODE (t);
@@ -1157,9 +1174,7 @@ typedef struct GTY(()) pending_noexcept {
   tree fn;
   location_t loc;
 } pending_noexcept;
-DEF_VEC_O(pending_noexcept);
-DEF_VEC_ALLOC_O(pending_noexcept,gc);
-static GTY(()) VEC(pending_noexcept,gc) *pending_noexcept_checks;
+static GTY(()) vec<pending_noexcept, va_gc> *pending_noexcept_checks;
 
 /* FN is a FUNCTION_DECL that caused a noexcept-expr to be false.  Warn if
    it can't throw.  */
@@ -1185,7 +1200,7 @@ perform_deferred_noexcept_checks (void)
   int i;
   pending_noexcept *p;
   location_t saved_loc = input_location;
-  FOR_EACH_VEC_ELT (pending_noexcept, pending_noexcept_checks, i, p)
+  FOR_EACH_VEC_SAFE_ELT (pending_noexcept_checks, i, p)
     {
       input_location = p->loc;
       maybe_noexcept_warning (p->fn);
@@ -1228,11 +1243,8 @@ expr_noexcept_p (tree expr, tsubst_flags_t complain)
 	  if (!DECL_INITIAL (fn))
 	    {
 	      /* Not defined yet; check again at EOF.  */
-	      pending_noexcept *p
-		= VEC_safe_push (pending_noexcept, gc,
-				 pending_noexcept_checks, NULL);
-	      p->fn = fn;
-	      p->loc = input_location;
+	      pending_noexcept p = {fn, input_location};
+	      vec_safe_push (pending_noexcept_checks, p);
 	    }
 	  else
 	    maybe_noexcept_warning (fn);

@@ -1,6 +1,5 @@
 /* Generic dominator tree walker
-   Copyright (C) 2003, 2004, 2005, 2007, 2008, 2010 Free Software Foundation,
-   Inc.
+   Copyright (C) 2003-2013 Free Software Foundation, Inc.
    Contributed by Diego Novillo <dnovillo@redhat.com>
 
 This file is part of GCC.
@@ -145,8 +144,8 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
   basic_block *worklist = XNEWVEC (basic_block, n_basic_blocks * 2);
   int sp = 0;
   sbitmap visited = sbitmap_alloc (last_basic_block + 1);
-  sbitmap_zero (visited);
-  SET_BIT (visited, ENTRY_BLOCK_PTR->index);
+  bitmap_clear (visited);
+  bitmap_set_bit (visited, ENTRY_BLOCK_PTR->index);
 
   while (true)
     {
@@ -162,9 +161,9 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
 
 	      /* First get some local data, reusing any local data
 		 pointer we may have saved.  */
-	      if (VEC_length (void_p, walk_data->free_block_data) > 0)
+	      if (walk_data->free_block_data.length () > 0)
 		{
-		  bd = VEC_pop (void_p, walk_data->free_block_data);
+		  bd = walk_data->free_block_data.pop ();
 		  recycled = 1;
 		}
 	      else
@@ -174,7 +173,7 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
 		}
 
 	      /* Push the local data into the local data stack.  */
-	      VEC_safe_push (void_p, heap, walk_data->block_data_stack, bd);
+	      walk_data->block_data_stack.safe_push (bd);
 
 	      /* Call the initializer.  */
 	      walk_data->initialize_block_local_data (walk_data, bb,
@@ -187,7 +186,7 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
 	  if (walk_data->before_dom_children)
 	    (*walk_data->before_dom_children) (walk_data, bb);
 
-	  SET_BIT (visited, bb->index);
+	  bitmap_set_bit (visited, bb->index);
 
 	  /* Mark the current BB to be popped out of the recursion stack
 	     once children are processed.  */
@@ -212,9 +211,9 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
 	  if (walk_data->initialize_block_local_data)
 	    {
 	      /* And finally pop the record off the block local data stack.  */
-	      bd = VEC_pop (void_p, walk_data->block_data_stack);
+	      bd = walk_data->block_data_stack.pop ();
 	      /* And save the block data so that we can re-use it.  */
-	      VEC_safe_push (void_p, heap, walk_data->free_block_data, bd);
+	      walk_data->free_block_data.safe_push (bd);
 	    }
 	}
       if (sp)
@@ -233,7 +232,7 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
 		FOR_EACH_EDGE (e, ei, bb->preds)
 		  {
 		    if (!dominated_by_p (CDI_DOMINATORS, e->src, e->dest)
-			&& !TEST_BIT (visited, e->src->index))
+			&& !bitmap_bit_p (visited, e->src->index))
 		      {
 			found = false;
 			break;
@@ -261,8 +260,8 @@ walk_dominator_tree (struct dom_walk_data *walk_data, basic_block bb)
 void
 init_walk_dominator_tree (struct dom_walk_data *walk_data)
 {
-  walk_data->free_block_data = NULL;
-  walk_data->block_data_stack = NULL;
+  walk_data->free_block_data.create (0);
+  walk_data->block_data_stack.create (0);
 }
 
 void
@@ -270,10 +269,10 @@ fini_walk_dominator_tree (struct dom_walk_data *walk_data)
 {
   if (walk_data->initialize_block_local_data)
     {
-      while (VEC_length (void_p, walk_data->free_block_data) > 0)
-	free (VEC_pop (void_p, walk_data->free_block_data));
+      while (walk_data->free_block_data.length () > 0)
+	free (walk_data->free_block_data.pop ());
     }
 
-  VEC_free (void_p, heap, walk_data->free_block_data);
-  VEC_free (void_p, heap, walk_data->block_data_stack);
+  walk_data->free_block_data.release ();
+  walk_data->block_data_stack.release ();
 }

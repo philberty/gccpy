@@ -1,6 +1,5 @@
 /* Integrated Register Allocator (IRA) intercommunication header file.
-   Copyright (C) 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2006-2013 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -48,9 +47,6 @@ along with GCC; see the file COPYING3.  If not see
    ? REG_FREQ_MAX : (freq * REG_FREQ_MAX / BB_FREQ_MAX)			   \
    ? (freq * REG_FREQ_MAX / BB_FREQ_MAX) : 1)
 
-/* All natural loops.  */
-extern struct loops ira_loops;
-
 /* A modified value of flag `-fira-verbose' used internally.  */
 extern int internal_flag_ira_verbose;
 
@@ -65,15 +61,11 @@ typedef struct ira_allocno_copy *ira_copy_t;
 typedef struct ira_object *ira_object_t;
 
 /* Definition of vector of allocnos and copies.  */
-DEF_VEC_P(ira_allocno_t);
-DEF_VEC_ALLOC_P(ira_allocno_t, heap);
-DEF_VEC_P(ira_object_t);
-DEF_VEC_ALLOC_P(ira_object_t, heap);
-DEF_VEC_P(ira_copy_t);
-DEF_VEC_ALLOC_P(ira_copy_t, heap);
 
 /* Typedef for pointer to the subsequent structure.  */
 typedef struct ira_loop_tree_node *ira_loop_tree_node_t;
+
+typedef unsigned short move_table[N_REG_CLASSES];
 
 /* In general case, IRA is a regional allocator.  The regions are
    nested and form a tree.  Currently regions are natural loops.  The
@@ -376,6 +368,9 @@ struct ira_allocno
   int call_freq;
   /* Accumulated number of the intersected calls.  */
   int calls_crossed_num;
+  /* The number of calls across which it is live, but which should not
+     affect register preferences.  */
+  int cheap_calls_crossed_num;
   /* Array of usage costs (accumulated and the one updated during
      coloring) for each hard register of the allocno class.  The
      member value can be NULL if all costs are the same and equal to
@@ -418,6 +413,7 @@ struct ira_allocno
 #define ALLOCNO_HARD_REGNO(A) ((A)->hard_regno)
 #define ALLOCNO_CALL_FREQ(A) ((A)->call_freq)
 #define ALLOCNO_CALLS_CROSSED_NUM(A) ((A)->calls_crossed_num)
+#define ALLOCNO_CHEAP_CALLS_CROSSED_NUM(A) ((A)->cheap_calls_crossed_num)
 #define ALLOCNO_MEM_OPTIMIZED_DEST(A) ((A)->mem_optimized_dest)
 #define ALLOCNO_MEM_OPTIMIZED_DEST_P(A) ((A)->mem_optimized_dest_p)
 #define ALLOCNO_SOMEWHERE_RENAMED_P(A) ((A)->somewhere_renamed_p)
@@ -763,35 +759,24 @@ struct target_ira_int {
   HARD_REG_SET (x_ira_reg_mode_hard_regset
 		[FIRST_PSEUDO_REGISTER][NUM_MACHINE_MODES]);
 
-  /* Array based on TARGET_REGISTER_MOVE_COST.  Don't use
-     ira_register_move_cost directly.  Use function of
-     ira_get_may_move_cost instead.  */
+  /* Maximum cost of moving from a register in one class to a register
+     in another class.  Based on TARGET_REGISTER_MOVE_COST.  */
   move_table *x_ira_register_move_cost[MAX_MACHINE_MODE];
 
-  /* Array analogs of the macros MEMORY_MOVE_COST and
-     REGISTER_MOVE_COST but they contain maximal cost not minimal as
-     the previous two ones do.  */
-  short int x_ira_max_memory_move_cost[MAX_MACHINE_MODE][N_REG_CLASSES][2];
-  move_table *x_ira_max_register_move_cost[MAX_MACHINE_MODE];
-
-  /* Similar to may_move_in_cost but it is calculated in IRA instead of
-     regclass.  Another difference we take only available hard registers
-     into account to figure out that one register class is a subset of
-     the another one.  Don't use it directly.  Use function of
-     ira_get_may_move_cost instead.  */
+  /* Similar, but here we don't have to move if the first index is a
+     subset of the second so in that case the cost is zero.  */
   move_table *x_ira_may_move_in_cost[MAX_MACHINE_MODE];
 
-  /* Similar to may_move_out_cost but it is calculated in IRA instead of
-     regclass.  Another difference we take only available hard registers
-     into account to figure out that one register class is a subset of
-     the another one.  Don't use it directly.  Use function of
-     ira_get_may_move_cost instead.  */
+  /* Similar, but here we don't have to move if the first index is a
+     superset of the second so in that case the cost is zero.  */
   move_table *x_ira_may_move_out_cost[MAX_MACHINE_MODE];
 
-/* Similar to ira_may_move_in_cost and ira_may_move_out_cost but they
-   return maximal cost.  */
-  move_table *x_ira_max_may_move_in_cost[MAX_MACHINE_MODE];
-  move_table *x_ira_max_may_move_out_cost[MAX_MACHINE_MODE];
+  /* Keep track of the last mode we initialized move costs for.  */
+  int x_last_mode_for_init_move_cost;
+
+  /* Array analog of the macro MEMORY_MOVE_COST but they contain maximal
+     cost not minimal.  */
+  short int x_ira_max_memory_move_cost[MAX_MACHINE_MODE][N_REG_CLASSES][2];
 
   /* Map class->true if class is a possible allocno class, false
      otherwise. */
@@ -799,11 +784,6 @@ struct target_ira_int {
 
   /* Map class->true if class is a pressure class, false otherwise. */
   bool x_ira_reg_pressure_class_p[N_REG_CLASSES];
-
-  /* Register class subset relation: TRUE if the first class is a subset
-     of the second one considering only hard registers available for the
-     allocation.  */
-  int x_ira_class_subset_p[N_REG_CLASSES][N_REG_CLASSES];
 
   /* Array of the number of hard registers of given class which are
      available for allocation.  The order is defined by the hard
@@ -821,6 +801,20 @@ struct target_ira_int {
      values for given mode are zero.  */
   HARD_REG_SET x_ira_prohibited_class_mode_regs[N_REG_CLASSES][NUM_MACHINE_MODES];
 
+  /* Index [CL][M] contains R if R appears somewhere in a register of the form:
+
+         (reg:M R'), R' not in x_ira_prohibited_class_mode_regs[CL][M]
+
+     For example, if:
+
+     - (reg:M 2) is valid and occupies two registers;
+     - register 2 belongs to CL; and
+     - register 3 belongs to the same pressure class as CL
+
+     then (reg:M 2) contributes to [CL][M] and registers 2 and 3 will be
+     in the set.  */
+  HARD_REG_SET x_ira_useful_class_mode_regs[N_REG_CLASSES][NUM_MACHINE_MODES];
+
   /* The value is number of elements in the subsequent array.  */
   int x_ira_important_classes_num;
 
@@ -833,6 +827,9 @@ struct target_ira_int {
      classes.  */
   int x_ira_important_class_nums[N_REG_CLASSES];
 
+  /* Map class->true if class is an uniform class, false otherwise.  */
+  bool x_ira_uniform_class_p[N_REG_CLASSES];
+
   /* The biggest important class inside of intersection of the two
      classes (that is calculated taking only hard registers available
      for allocation into account;.  If the both classes contain no hard
@@ -840,13 +837,8 @@ struct target_ira_int {
      taking all hard-registers including fixed ones into account.  */
   enum reg_class x_ira_reg_class_intersect[N_REG_CLASSES][N_REG_CLASSES];
 
-  /* True if the two classes (that is calculated taking only hard
-     registers available for allocation into account; are
-     intersected.  */
-  bool x_ira_reg_classes_intersect_p[N_REG_CLASSES][N_REG_CLASSES];
-
   /* Classes with end marker LIM_REG_CLASSES which are intersected with
-     given class (the first index;.  That includes given class itself.
+     given class (the first index).  That includes given class itself.
      This is calculated taking only hard registers available for
      allocation into account.  */
   enum reg_class x_ira_reg_class_super_classes[N_REG_CLASSES][N_REG_CLASSES];
@@ -863,7 +855,7 @@ struct target_ira_int {
 
   /* For each reg class, table listing all the classes contained in it
      (excluding the class itself.  Non-allocatable registers are
-     excluded from the consideration;.  */
+     excluded from the consideration).  */
   enum reg_class x_alloc_reg_class_subclasses[N_REG_CLASSES][N_REG_CLASSES];
 
   /* Array whose values are hard regset of hard registers for which
@@ -888,38 +880,32 @@ extern struct target_ira_int *this_target_ira_int;
   (this_target_ira_int->x_ira_register_move_cost)
 #define ira_max_memory_move_cost \
   (this_target_ira_int->x_ira_max_memory_move_cost)
-#define ira_max_register_move_cost \
-  (this_target_ira_int->x_ira_max_register_move_cost)
 #define ira_may_move_in_cost \
   (this_target_ira_int->x_ira_may_move_in_cost)
 #define ira_may_move_out_cost \
   (this_target_ira_int->x_ira_may_move_out_cost)
-#define ira_max_may_move_in_cost \
-  (this_target_ira_int->x_ira_max_may_move_in_cost)
-#define ira_max_may_move_out_cost \
-  (this_target_ira_int->x_ira_max_may_move_out_cost)
 #define ira_reg_allocno_class_p \
   (this_target_ira_int->x_ira_reg_allocno_class_p)
 #define ira_reg_pressure_class_p \
   (this_target_ira_int->x_ira_reg_pressure_class_p)
-#define ira_class_subset_p \
-  (this_target_ira_int->x_ira_class_subset_p)
 #define ira_non_ordered_class_hard_regs \
   (this_target_ira_int->x_ira_non_ordered_class_hard_regs)
 #define ira_class_hard_reg_index \
   (this_target_ira_int->x_ira_class_hard_reg_index)
 #define ira_prohibited_class_mode_regs \
   (this_target_ira_int->x_ira_prohibited_class_mode_regs)
+#define ira_useful_class_mode_regs \
+  (this_target_ira_int->x_ira_useful_class_mode_regs)
 #define ira_important_classes_num \
   (this_target_ira_int->x_ira_important_classes_num)
 #define ira_important_classes \
   (this_target_ira_int->x_ira_important_classes)
 #define ira_important_class_nums \
   (this_target_ira_int->x_ira_important_class_nums)
+#define ira_uniform_class_p \
+  (this_target_ira_int->x_ira_uniform_class_p)
 #define ira_reg_class_intersect \
   (this_target_ira_int->x_ira_reg_class_intersect)
-#define ira_reg_classes_intersect_p \
-  (this_target_ira_int->x_ira_reg_classes_intersect_p)
 #define ira_reg_class_super_classes \
   (this_target_ira_int->x_ira_reg_class_super_classes)
 #define ira_reg_class_subunion \
@@ -939,17 +925,6 @@ extern void ira_print_disposition (FILE *);
 extern void ira_debug_disposition (void);
 extern void ira_debug_allocno_classes (void);
 extern void ira_init_register_move_cost (enum machine_mode);
-
-/* The length of the two following arrays.  */
-extern int ira_reg_equiv_len;
-
-/* The element value is TRUE if the corresponding regno value is
-   invariant.  */
-extern bool *ira_reg_equiv_invariant_p;
-
-/* The element value is equiv constant of given pseudo-register or
-   NULL_RTX.  */
-extern rtx *ira_reg_equiv_const;
 
 /* ira-build.c */
 
@@ -1031,6 +1006,20 @@ extern void ira_color (void);
 extern void ira_initiate_emit_data (void);
 extern void ira_finish_emit_data (void);
 extern void ira_emit (bool);
+
+
+
+/* Return true if equivalence of pseudo REGNO is not a lvalue.  */
+static inline bool
+ira_equiv_no_lvalue_p (int regno)
+{
+  if (regno >= ira_reg_equiv_len)
+    return false;
+  return (ira_reg_equiv[regno].constant != NULL_RTX
+	  || ira_reg_equiv[regno].invariant != NULL_RTX
+	  || (ira_reg_equiv[regno].memory != NULL_RTX
+	      && MEM_READONLY_P (ira_reg_equiv[regno].memory)));
+}
 
 
 
@@ -1421,3 +1410,6 @@ ira_allocate_and_set_or_copy_costs (int **vec, enum reg_class aclass,
 	reg_costs[i] = val;
     }
 }
+
+extern rtx ira_create_new_reg (rtx);
+extern int first_moveable_pseudo, last_moveable_pseudo;

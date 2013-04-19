@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -26,7 +26,6 @@
 with Atree;    use Atree;
 with Einfo;    use Einfo;
 with Elists;   use Elists;
-with Errout;   use Errout;
 with Exp_Atag; use Exp_Atag;
 with Exp_Disp; use Exp_Disp;
 with Exp_Strm; use Exp_Strm;
@@ -803,12 +802,14 @@ package body Exp_Dist is
          --  the declaration and entity for the newly-created function.
 
          function Build_To_Any_Call
-           (N     : Node_Id;
+           (Loc   : Source_Ptr;
+            N     : Node_Id;
             Decls : List_Id) return Node_Id;
          --  Build call to To_Any attribute function with expression as actual
-         --  parameter. Decls is the declarations list for an appropriate
-         --  enclosing scope of the point where the call will be inserted; if
-         --  the To_Any attribute for Typ needs to be generated at this point,
+         --  parameter. Loc is the reference location ofr generated nodes,
+         --  Decls is the declarations list for an appropriate enclosing scope
+         --  of the point where the call will be inserted; if the To_Any
+         --  attribute for the type of N needs to be generated at this point,
          --  its declaration is appended to Decls.
 
          procedure Build_To_Any_Function
@@ -838,7 +839,7 @@ package body Exp_Dist is
             Fnam : out Entity_Id);
          --  Build TypeCode attribute function for Typ. Loc is the reference
          --  location for generated nodes, Typ is the type for which the
-         --  conversion function is generated. On return, Decl and Fnam contain
+         --  typecode function is generated. On return, Decl and Fnam contain
          --  the declaration and entity for the newly-created function.
 
          procedure Build_Name_And_Repository_Id
@@ -879,7 +880,8 @@ package body Exp_Dist is
      renames PolyORB_Support.Helpers.Build_From_Any_Call;
 
    function Build_To_Any_Call
-     (N     : Node_Id;
+     (Loc   : Source_Ptr;
+      N     : Node_Id;
       Decls : List_Id) return Node_Id
      renames PolyORB_Support.Helpers.Build_To_Any_Call;
 
@@ -2174,7 +2176,7 @@ package body Exp_Dist is
 
                Append_To (Decls,
                  Make_Pragma (Loc,
-                   Chars => Name_Import,
+                   Chars                        => Name_Import,
                    Pragma_Argument_Associations => New_List (
                      Make_Pragma_Argument_Association (Loc,
                        Chars      => Name_Convention,
@@ -6562,7 +6564,7 @@ package body Exp_Dist is
              Object_Definition   => New_Occurrence_Of (RTE (RE_Any), Loc),
              Expression          =>
                PolyORB_Support.Helpers.Build_To_Any_Call
-                 (RACW_Parameter, No_List)));
+                 (Loc, RACW_Parameter, No_List)));
 
          Statements := New_List (
            Make_Procedure_Call_Statement (Loc,
@@ -7362,7 +7364,7 @@ package body Exp_Dist is
                      --  the first one.
 
                      Expr := PolyORB_Support.Helpers.Build_To_Any_Call
-                               (Actual_Parameter, Decls);
+                               (Loc, Actual_Parameter, Decls);
 
                   else
                      Expr := Make_Function_Call (Loc,
@@ -7415,6 +7417,7 @@ package body Exp_Dist is
 
             --  If the current parameter has a dynamic constrained status, then
             --  this status is transmitted as well.
+
             --  This should be done for accessibility as well ???
 
             if Nkind (Parameter_Type (Current_Parameter)) /=
@@ -7448,7 +7451,7 @@ package body Exp_Dist is
                         New_Occurrence_Of (RTE (RE_Any), Loc),
                       Expression          =>
                         PolyORB_Support.Helpers.Build_To_Any_Call
-                          (Parameter_Exp, Decls)));
+                          (Loc, Parameter_Exp, Decls)));
 
                   Append_To (Extra_Formal_Statements,
                     Add_Parameter_To_NVList (Loc,
@@ -7934,7 +7937,7 @@ package body Exp_Dist is
                       Parameter_Associations => New_List (
                         New_Occurrence_Of (Any, Loc),
                         PolyORB_Support.Helpers.Build_To_Any_Call
-                          (New_Occurrence_Of (Object, Loc), Decls))));
+                          (Loc, New_Occurrence_Of (Object, Loc), Decls))));
                end if;
 
                --  For RACW controlling formals, the Etyp of Object is always
@@ -8094,7 +8097,7 @@ package body Exp_Dist is
                    Parameter_Associations => New_List (
                      New_Occurrence_Of (Request_Parameter, Loc),
                      PolyORB_Support.Helpers.Build_To_Any_Call
-                       (New_Occurrence_Of (Result, Loc), Decls))));
+                       (Loc, New_Occurrence_Of (Result, Loc), Decls))));
 
                --  A DSA function does not have out or inout arguments
             end;
@@ -8451,6 +8454,14 @@ package body Exp_Dist is
 
             if Sloc (U_Type) <= Standard_Location then
                U_Type := Base_Type (U_Type);
+
+            --  For a user subtype, go to first subtype
+
+            elsif Comes_From_Source (U_Type)
+              and then Nkind (Declaration_Node (U_Type))
+                         = N_Subtype_Declaration
+            then
+               U_Type := First_Subtype (U_Type);
             end if;
 
             --  Check first for Boolean and Character. These are enumeration
@@ -9219,11 +9230,10 @@ package body Exp_Dist is
          -----------------------
 
          function Build_To_Any_Call
-           (N     : Node_Id;
+           (Loc   : Source_Ptr;
+            N     : Node_Id;
             Decls : List_Id) return Node_Id
          is
-            Loc : constant Source_Ptr := Sloc (N);
-
             Typ    : Entity_Id := Etype (N);
             U_Type : Entity_Id;
             C_Type : Entity_Id;
@@ -9260,6 +9270,14 @@ package body Exp_Dist is
 
             if Sloc (U_Type) <= Standard_Location then
                U_Type := Base_Type (U_Type);
+
+            --  For a user subtype, go to first subtype
+
+            elsif Comes_From_Source (U_Type)
+              and then Nkind (Declaration_Node (U_Type))
+                         = N_Subtype_Declaration
+            then
+               U_Type := First_Subtype (U_Type);
             end if;
 
             if Present (Fnam) then
@@ -9463,7 +9481,8 @@ package body Exp_Dist is
                                 (Rt_Type,
                                  New_Occurrence_Of (Expr_Parameter, Loc));
                begin
-                  Set_Expression (Any_Decl, Build_To_Any_Call (Expr, Decls));
+                  Set_Expression (Any_Decl,
+                    Build_To_Any_Call (Loc, Expr, Decls));
                end;
 
             elsif Is_Record_Type (Typ) and then not Is_Tagged_Type (Typ) then
@@ -9479,7 +9498,7 @@ package body Exp_Dist is
 
                   begin
                      Set_Expression
-                       (Any_Decl, Build_To_Any_Call (Expr, Decls));
+                       (Any_Decl, Build_To_Any_Call (Loc, Expr, Decls));
                   end;
 
                --  Comment needed here (and label on declare block ???)
@@ -9535,7 +9554,7 @@ package body Exp_Dist is
                                    RTE (RE_Add_Aggregate_Element), Loc),
                                Parameter_Associations => New_List (
                                  New_Occurrence_Of (Container, Loc),
-                                 Build_To_Any_Call (Field_Ref, Decls))));
+                                 Build_To_Any_Call (Loc, Field_Ref, Decls))));
 
                         else
                            --  A variant part
@@ -9660,7 +9679,8 @@ package body Exp_Dist is
                                       Parameter_Associations => New_List (
                                         New_Occurrence_Of (Union_Any, Loc),
                                           Build_To_Any_Call
-                                            (Make_Discriminant_Reference,
+                                            (Loc,
+                                             Make_Discriminant_Reference,
                                              Block_Decls))));
 
                                  --  Populate inner struct aggregate
@@ -9761,7 +9781,8 @@ package body Exp_Dist is
                                   Choices => New_List (
                                     Make_Integer_Literal (Loc, Counter)),
                                   Expression =>
-                                    Build_To_Any_Call (Discriminant, Decls)));
+                                    Build_To_Any_Call (Loc,
+                                      Discriminant, Decls)));
                            end;
 
                            Counter := Counter + 1;
@@ -9850,7 +9871,7 @@ package body Exp_Dist is
                      if Etype (Datum) = RTE (RE_Any) then
                         Element_Any := Datum;
                      else
-                        Element_Any := Build_To_Any_Call (Datum, Decls);
+                        Element_Any := Build_To_Any_Call (Loc, Datum, Decls);
                      end if;
 
                      Append_To (Stmts,
@@ -9889,7 +9910,7 @@ package body Exp_Dist is
                                 RTE (RE_Add_Aggregate_Element), Loc),
                             Parameter_Associations => New_List (
                               New_Occurrence_Of (Any, Loc),
-                              Build_To_Any_Call (
+                              Build_To_Any_Call (Loc,
                                 OK_Convert_To (Etype (Index),
                                   Make_Attribute_Reference (Loc,
                                     Prefix         =>
@@ -9910,7 +9931,7 @@ package body Exp_Dist is
                --  Integer types
 
                Set_Expression (Any_Decl,
-                 Build_To_Any_Call (
+                 Build_To_Any_Call (Loc,
                    OK_Convert_To (
                      Find_Numeric_Representation (Typ),
                      New_Occurrence_Of (Expr_Parameter, Loc)),
@@ -10041,6 +10062,14 @@ package body Exp_Dist is
 
             if Sloc (U_Type) <= Standard_Location then
                U_Type := Base_Type (U_Type);
+
+            --  For a user subtype, go to first subtype
+
+            elsif Comes_From_Source (U_Type)
+              and then Nkind (Declaration_Node (U_Type))
+                         = N_Subtype_Declaration
+            then
+               U_Type := First_Subtype (U_Type);
             end if;
 
             if No (Fnam) then
@@ -10073,7 +10102,7 @@ package body Exp_Dist is
                --  Integer types (walk back to the base type)
 
                elsif U_Type = RTE (RE_Integer_8) then
-                     Lib_RE := RE_TC_I8;
+                  Lib_RE := RE_TC_I8;
 
                elsif U_Type = RTE (RE_Integer_16) then
                   Lib_RE := RE_TC_I16;
@@ -10184,7 +10213,7 @@ package body Exp_Dist is
             --  Make a return statement that calls TC_Build with the given
             --  typecode kind, and the constructed parameters list.
 
-            procedure Return_Alias_TypeCode (Base_TypeCode  : Node_Id);
+            procedure Return_Alias_TypeCode (Base_TypeCode : Node_Id);
             --  Return a typecode that is a TC_Alias for the given typecode
 
             --------------------------
@@ -10253,9 +10282,7 @@ package body Exp_Dist is
             -- Return_Alias_TypeCode --
             ---------------------------
 
-            procedure Return_Alias_TypeCode
-              (Base_TypeCode  : Node_Id)
-            is
+            procedure Return_Alias_TypeCode (Base_TypeCode : Node_Id) is
             begin
                Add_TypeCode_Parameter (Base_TypeCode, Parameters);
                Return_Constructed_TypeCode (RTE (RE_TC_Alias));
@@ -10454,7 +10481,7 @@ package body Exp_Dist is
 
                                        Set_Etype (Expr, Disc_Type);
                                        Append_To (Union_TC_Params,
-                                         Build_To_Any_Call (Expr, Decls));
+                                         Build_To_Any_Call (Loc, Expr, Decls));
 
                                        Add_Params_For_Variant_Components;
                                        J := J + Uint_1;
@@ -10495,7 +10522,7 @@ package body Exp_Dist is
                                  begin
                                     Set_Etype (Exp, Disc_Type);
                                     Append_To (Union_TC_Params,
-                                      Build_To_Any_Call (Exp, Decls));
+                                      Build_To_Any_Call (Loc, Exp, Decls));
                                  end;
 
                                  Add_Params_For_Variant_Components;
@@ -10509,7 +10536,7 @@ package body Exp_Dist is
                                             New_Copy_Tree (Choice);
                                  begin
                                     Append_To (Union_TC_Params,
-                                      Build_To_Any_Call (Exp, Decls));
+                                      Build_To_Any_Call (Loc, Exp, Decls));
                                  end;
 
                                  Add_Params_For_Variant_Components;
@@ -10679,7 +10706,7 @@ package body Exp_Dist is
                      if Constrained then
                         Inner_TypeCode := Make_Constructed_TypeCode
                           (RTE (RE_TC_Array), New_List (
-                            Build_To_Any_Call (
+                            Build_To_Any_Call (Loc,
                               OK_Convert_To (RTE (RE_Unsigned_32),
                                 Make_Attribute_Reference (Loc,
                                   Prefix => New_Occurrence_Of (Typ, Loc),
@@ -10688,7 +10715,7 @@ package body Exp_Dist is
                                     Make_Integer_Literal (Loc,
                                       Intval => Ndim - J + 1)))),
                               Decls),
-                            Build_To_Any_Call (Inner_TypeCode, Decls)));
+                            Build_To_Any_Call (Loc, Inner_TypeCode, Decls)));
 
                      else
                         --  Unconstrained case: add low bound for each
@@ -10705,11 +10732,11 @@ package body Exp_Dist is
 
                         Inner_TypeCode := Make_Constructed_TypeCode
                           (RTE (RE_TC_Sequence), New_List (
-                            Build_To_Any_Call (
+                            Build_To_Any_Call (Loc,
                               OK_Convert_To (RTE (RE_Unsigned_32),
                                 Make_Integer_Literal (Loc, 0)),
                               Decls),
-                            Build_To_Any_Call (Inner_TypeCode, Decls)));
+                            Build_To_Any_Call (Loc, Inner_TypeCode, Decls)));
                      end if;
                   end loop;
 

@@ -160,6 +160,9 @@ package Rtsfind is
 
       --  Children of Ada.Strings
 
+      Ada_Strings_Superbounded,
+      Ada_Strings_Wide_Superbounded,
+      Ada_Strings_Wide_Wide_Superbounded,
       Ada_Strings_Unbounded,
 
       --  Children of Ada.Text_IO (for Text_IO_Kludge)
@@ -208,9 +211,12 @@ package Rtsfind is
       System_Arith_64,
       System_AST_Handling,
       System_Assertions,
+      System_Atomic_Primitives,
       System_Aux_DEC,
+      System_Bignums,
       System_Bit_Ops,
       System_Boolean_Array_Operations,
+      System_Byte_Swapping,
       System_Checked_Pools,
       System_Compare_Array_Signed_16,
       System_Compare_Array_Signed_32,
@@ -438,7 +444,7 @@ package Rtsfind is
    --  Range of values for children of Ada.Streams
 
    subtype Ada_Strings_Child is Ada_Child
-     range Ada_Strings_Unbounded .. Ada_Strings_Unbounded;
+     range Ada_Strings_Superbounded .. Ada_Strings_Unbounded;
    --  Range of values for children of Ada.Strings
 
    subtype Ada_Text_IO_Child is Ada_Child
@@ -588,6 +594,12 @@ package Rtsfind is
 
      RE_Stream_Access,                   -- Ada.Streams.Stream_IO
 
+     RO_SU_Super_String,                 -- Ada.Strings.Superbounded
+
+     RO_WI_Super_String,                 -- Ada.Strings.Wide_Superbounded
+
+     RO_WW_Super_String,                 -- Ada.Strings.Wide_Wide_Superbounded
+
      RE_Unbounded_String,                -- Ada.Strings.Unbounded
 
      RE_Access_Level,                    -- Ada.Tags
@@ -721,6 +733,19 @@ package Rtsfind is
      RE_Assert_Failure,                  -- System.Assertions
      RE_Raise_Assert_Failure,            -- System.Assertions
 
+     RE_Lock_Free_Read_8,                -- System.Atomic_Primitives
+     RE_Lock_Free_Read_16,               -- System.Atomic_Primitives
+     RE_Lock_Free_Read_32,               -- System.Atomic_Primitives
+     RE_Lock_Free_Read_64,               -- System.Atomic_Primitives
+     RE_Lock_Free_Try_Write_8,           -- System.Atomic_Primitives
+     RE_Lock_Free_Try_Write_16,          -- System.Atomic_Primitives
+     RE_Lock_Free_Try_Write_32,          -- System.Atomic_Primitives
+     RE_Lock_Free_Try_Write_64,          -- System.Atomic_Primitives
+     RE_Uint8,                           -- System.Atomic_Primitives
+     RE_Uint16,                          -- System.Atomic_Primitives
+     RE_Uint32,                          -- System.Atomic_Primitives
+     RE_Uint64,                          -- System.Atomic_Primitives
+
      RE_AST_Handler,                     -- System.Aux_DEC
      RE_Import_Value,                    -- System.Aux_DEC
      RE_No_AST_Handler,                  -- System.Aux_DEC
@@ -734,6 +759,28 @@ package Rtsfind is
      RE_Type_Class_Access,               -- System.Aux_DEC
      RE_Type_Class_Task,                 -- System.Aux_DEC
      RE_Type_Class_Address,              -- System.Aux_DEC
+
+     RE_Big_Abs,                         -- System.Bignums
+     RE_Big_Add,                         -- System.Bignums
+     RE_Big_Div,                         -- System.Bignums
+     RE_Big_Exp,                         -- System.Bignums
+     RE_Big_Mod,                         -- System.Bignums
+     RE_Big_Mul,                         -- System.Bignums
+     RE_Big_Neg,                         -- System.Bignums
+     RE_Big_Rem,                         -- System.Bignums
+     RE_Big_Sub,                         -- System.Bignums
+
+     RE_Big_EQ,                          -- System.Bignums
+     RE_Big_GE,                          -- System.Bignums
+     RE_Big_GT,                          -- System.Bignums
+     RE_Big_LE,                          -- System.Bignums
+     RE_Big_LT,                          -- System.Bignums
+     RE_Big_NE,                          -- System.Bignums
+
+     RE_Bignum,                          -- System.Bignums
+     RE_Bignum_In_LLI_Range,             -- System.Bignums
+     RE_To_Bignum,                       -- System.Bignums
+     RE_From_Bignum,                     -- System.Bignums
 
      RE_Bit_And,                         -- System.Bit_Ops
      RE_Bit_Eq,                          -- System.Bit_Ops
@@ -749,24 +796,24 @@ package Rtsfind is
      RE_Vector_Nxor,                     -- System_Boolean_Array_Operations,
      RE_Vector_Xor,                      -- System_Boolean_Array_Operations,
 
+     RE_Bswap_16,                        -- System.Byte_Swapping
+     RE_Bswap_32,                        -- System.Byte_Swapping
+     RE_Bswap_64,                        -- System.Byte_Swapping
+
      RE_Checked_Pool,                    -- System.Checked_Pools
 
      RE_Compare_Array_S8,                -- System.Compare_Array_Signed_8
      RE_Compare_Array_S8_Unaligned,      -- System.Compare_Array_Signed_8
 
      RE_Compare_Array_S16,               -- System.Compare_Array_Signed_16
-
      RE_Compare_Array_S32,               -- System.Compare_Array_Signed_16
-
      RE_Compare_Array_S64,               -- System.Compare_Array_Signed_16
 
      RE_Compare_Array_U8,                -- System.Compare_Array_Unsigned_8
      RE_Compare_Array_U8_Unaligned,      -- System.Compare_Array_Unsigned_8
 
      RE_Compare_Array_U16,               -- System.Compare_Array_Unsigned_16
-
      RE_Compare_Array_U32,               -- System.Compare_Array_Unsigned_16
-
      RE_Compare_Array_U64,               -- System.Compare_Array_Unsigned_16
 
      RE_Str_Concat_2,                    -- System.Concat_2
@@ -1376,6 +1423,7 @@ package Rtsfind is
      RE_Root_Storage_Pool,               -- System.Storage_Pools
      RE_Root_Storage_Pool_Ptr,           -- System.Storage_Pools
 
+     RE_Adjust_Controlled_Dereference,   -- System.Storage_Pools.Subpools
      RE_Allocate_Any_Controlled,         -- System.Storage_Pools.Subpools
      RE_Deallocate_Any_Controlled,       -- System.Storage_Pools.Subpools
      RE_Header_Size_With_Padding,        -- System.Storage_Pools.Subpools
@@ -1454,6 +1502,9 @@ package Rtsfind is
      RE_Unspecified_Task_Info,           -- System.Task_Info
 
      RE_Task_Procedure_Access,           -- System.Tasking
+     RE_Task_Entry_Names_Array,          -- System.Tasking
+     RO_ST_Number_Of_Entries,            -- System.Tasking
+     RO_ST_Set_Entry_Names,              -- System.Tasking
 
      RO_ST_Task_Id,                      -- System.Tasking
      RO_ST_Null_Task,                    -- System.Tasking
@@ -1480,6 +1531,7 @@ package Rtsfind is
      RE_Simple_Mode,                     -- System.Tasking
      RE_Terminate_Mode,                  -- System.Tasking
      RE_Delay_Mode,                      -- System.Tasking
+     RE_Entry_Index,                     -- System.Tasking
      RE_Task_Entry_Index,                -- System.Tasking
      RE_Self,                            -- System.Tasking
 
@@ -1639,14 +1691,16 @@ package Rtsfind is
      RE_Dispatching_Domain,              -- Dispatching_Domains
 
      RE_Protected_Entry_Body_Array,      -- Tasking.Protected_Objects.Entries
+     RE_Protected_Entry_Names_Array,     -- Tasking.Protected_Objects.Entries
      RE_Protection_Entries,              -- Tasking.Protected_Objects.Entries
      RE_Protection_Entries_Access,       -- Tasking.Protected_Objects.Entries
      RE_Initialize_Protection_Entries,   -- Tasking.Protected_Objects.Entries
      RE_Lock_Entries,                    -- Tasking.Protected_Objects.Entries
-     RO_PE_Get_Ceiling,                  -- Tasking.Protected_Objects.Entries
-     RO_PE_Set_Ceiling,                  -- Tasking.Protected_Objects.Entries
-     RO_PE_Set_Entry_Name,               -- Tasking.Protected_Objects.Entries
      RE_Unlock_Entries,                  -- Tasking.Protected_Objects.Entries
+     RO_PE_Get_Ceiling,                  -- Tasking.Protected_Objects.Entries
+     RO_PE_Number_Of_Entries,            -- Tasking.Protected_Objects.Entries
+     RO_PE_Set_Ceiling,                  -- Tasking.Protected_Objects.Entries
+     RO_PE_Set_Entry_Names,              -- Tasking.Protected_Objects.Entries
 
      RE_Communication_Block,             -- Protected_Objects.Operations
      RE_Protected_Entry_Call,            -- Protected_Objects.Operations
@@ -1708,11 +1762,12 @@ package Rtsfind is
      RE_Timed_Task_Entry_Call,           -- System.Tasking.Rendezvous
      RE_Timed_Selective_Wait,            -- System.Tasking.Rendezvous
 
-     RE_Activate_Restricted_Tasks,       -- System.Tasking.Restricted.Stages
-     RE_Complete_Restricted_Activation,  -- System.Tasking.Restricted.Stages
-     RE_Create_Restricted_Task,          -- System.Tasking.Restricted.Stages
-     RE_Complete_Restricted_Task,        -- System.Tasking.Restricted.Stages
-     RE_Restricted_Terminated,           -- System.Tasking.Restricted.Stages
+     RE_Activate_Restricted_Tasks,         -- System.Tasking.Restricted.Stages
+     RE_Complete_Restricted_Activation,    -- System.Tasking.Restricted.Stages
+     RE_Create_Restricted_Task,            -- System.Tasking.Restricted.Stages
+     RE_Create_Restricted_Task_Sequential, -- System.Tasking.Restricted.Stages
+     RE_Complete_Restricted_Task,          -- System.Tasking.Restricted.Stages
+     RE_Restricted_Terminated,             -- System.Tasking.Restricted.Stages
 
      RE_Abort_Tasks,                     -- System.Tasking.Stages
      RE_Activate_Tasks,                  -- System.Tasking.Stages
@@ -1722,7 +1777,6 @@ package Rtsfind is
      RE_Free_Task,                       -- System.Tasking.Stages
      RE_Expunge_Unactivated_Tasks,       -- System.Tasking.Stages
      RE_Move_Activation_Chain,           -- System_Tasking_Stages
-     RO_TS_Set_Entry_Name,               -- System.Tasking.Stages
      RE_Terminated);                     -- System.Tasking.Stages
 
    --  The following declarations build a table that is indexed by the RTE
@@ -1789,6 +1843,12 @@ package Rtsfind is
      RE_Stream_Element_Offset            => Ada_Streams,
 
      RE_Stream_Access                    => Ada_Streams_Stream_IO,
+
+     RO_SU_Super_String                  => Ada_Strings_Superbounded,
+
+     RO_WI_Super_String                  => Ada_Strings_Wide_Superbounded,
+
+     RO_WW_Super_String                  => Ada_Strings_Wide_Wide_Superbounded,
 
      RE_Unbounded_String                 => Ada_Strings_Unbounded,
 
@@ -1923,6 +1983,19 @@ package Rtsfind is
      RE_Assert_Failure                   => System_Assertions,
      RE_Raise_Assert_Failure             => System_Assertions,
 
+     RE_Lock_Free_Read_8                 => System_Atomic_Primitives,
+     RE_Lock_Free_Read_16                => System_Atomic_Primitives,
+     RE_Lock_Free_Read_32                => System_Atomic_Primitives,
+     RE_Lock_Free_Read_64                => System_Atomic_Primitives,
+     RE_Lock_Free_Try_Write_8            => System_Atomic_Primitives,
+     RE_Lock_Free_Try_Write_16           => System_Atomic_Primitives,
+     RE_Lock_Free_Try_Write_32           => System_Atomic_Primitives,
+     RE_Lock_Free_Try_Write_64           => System_Atomic_Primitives,
+     RE_Uint8                            => System_Atomic_Primitives,
+     RE_Uint16                           => System_Atomic_Primitives,
+     RE_Uint32                           => System_Atomic_Primitives,
+     RE_Uint64                           => System_Atomic_Primitives,
+
      RE_AST_Handler                      => System_Aux_DEC,
      RE_Import_Value                     => System_Aux_DEC,
      RE_No_AST_Handler                   => System_Aux_DEC,
@@ -1936,6 +2009,28 @@ package Rtsfind is
      RE_Type_Class_Access                => System_Aux_DEC,
      RE_Type_Class_Task                  => System_Aux_DEC,
      RE_Type_Class_Address               => System_Aux_DEC,
+
+     RE_Big_Abs                          => System_Bignums,
+     RE_Big_Add                          => System_Bignums,
+     RE_Big_Div                          => System_Bignums,
+     RE_Big_Exp                          => System_Bignums,
+     RE_Big_Mod                          => System_Bignums,
+     RE_Big_Mul                          => System_Bignums,
+     RE_Big_Neg                          => System_Bignums,
+     RE_Big_Rem                          => System_Bignums,
+     RE_Big_Sub                          => System_Bignums,
+
+     RE_Big_EQ                           => System_Bignums,
+     RE_Big_GE                           => System_Bignums,
+     RE_Big_GT                           => System_Bignums,
+     RE_Big_LE                           => System_Bignums,
+     RE_Big_LT                           => System_Bignums,
+     RE_Big_NE                           => System_Bignums,
+
+     RE_Bignum                           => System_Bignums,
+     RE_Bignum_In_LLI_Range              => System_Bignums,
+     RE_To_Bignum                        => System_Bignums,
+     RE_From_Bignum                      => System_Bignums,
 
      RE_Bit_And                          => System_Bit_Ops,
      RE_Bit_Eq                           => System_Bit_Ops,
@@ -1952,6 +2047,10 @@ package Rtsfind is
      RE_Vector_Nor                       => System_Boolean_Array_Operations,
      RE_Vector_Nxor                      => System_Boolean_Array_Operations,
      RE_Vector_Xor                       => System_Boolean_Array_Operations,
+
+     RE_Bswap_16                         => System_Byte_Swapping,
+     RE_Bswap_32                         => System_Byte_Swapping,
+     RE_Bswap_64                         => System_Byte_Swapping,
 
      RE_Compare_Array_S8                 => System_Compare_Array_Signed_8,
      RE_Compare_Array_S8_Unaligned       => System_Compare_Array_Signed_8,
@@ -2578,6 +2677,7 @@ package Rtsfind is
      RE_Root_Storage_Pool                => System_Storage_Pools,
      RE_Root_Storage_Pool_Ptr            => System_Storage_Pools,
 
+     RE_Adjust_Controlled_Dereference    => System_Storage_Pools_Subpools,
      RE_Allocate_Any_Controlled          => System_Storage_Pools_Subpools,
      RE_Deallocate_Any_Controlled        => System_Storage_Pools_Subpools,
      RE_Header_Size_With_Padding         => System_Storage_Pools_Subpools,
@@ -2656,6 +2756,9 @@ package Rtsfind is
      RE_Unspecified_Task_Info            => System_Task_Info,
 
      RE_Task_Procedure_Access            => System_Tasking,
+     RE_Task_Entry_Names_Array           => System_Tasking,
+     RO_ST_Number_Of_Entries             => System_Tasking,
+     RO_ST_Set_Entry_Names               => System_Tasking,
 
      RO_ST_Task_Id                       => System_Tasking,
      RO_ST_Null_Task                     => System_Tasking,
@@ -2682,6 +2785,7 @@ package Rtsfind is
      RE_Simple_Mode                      => System_Tasking,
      RE_Terminate_Mode                   => System_Tasking,
      RE_Delay_Mode                       => System_Tasking,
+     RE_Entry_Index                      => System_Tasking,
      RE_Task_Entry_Index                 => System_Tasking,
      RE_Self                             => System_Tasking,
 
@@ -2844,6 +2948,8 @@ package Rtsfind is
 
      RE_Protected_Entry_Body_Array       =>
        System_Tasking_Protected_Objects_Entries,
+     RE_Protected_Entry_Names_Array      =>
+       System_Tasking_Protected_Objects_Entries,
      RE_Protection_Entries               =>
        System_Tasking_Protected_Objects_Entries,
      RE_Protection_Entries_Access        =>
@@ -2852,13 +2958,15 @@ package Rtsfind is
        System_Tasking_Protected_Objects_Entries,
      RE_Lock_Entries                     =>
        System_Tasking_Protected_Objects_Entries,
+     RE_Unlock_Entries                   =>
+       System_Tasking_Protected_Objects_Entries,
      RO_PE_Get_Ceiling                   =>
+       System_Tasking_Protected_Objects_Entries,
+     RO_PE_Number_Of_Entries             =>
        System_Tasking_Protected_Objects_Entries,
      RO_PE_Set_Ceiling                   =>
        System_Tasking_Protected_Objects_Entries,
-     RO_PE_Set_Entry_Name                =>
-       System_Tasking_Protected_Objects_Entries,
-     RE_Unlock_Entries                   =>
+     RO_PE_Set_Entry_Names               =>
        System_Tasking_Protected_Objects_Entries,
 
      RE_Communication_Block              =>
@@ -2948,11 +3056,12 @@ package Rtsfind is
      RE_Timed_Task_Entry_Call            => System_Tasking_Rendezvous,
      RE_Timed_Selective_Wait             => System_Tasking_Rendezvous,
 
-     RE_Activate_Restricted_Tasks        => System_Tasking_Restricted_Stages,
-     RE_Complete_Restricted_Activation   => System_Tasking_Restricted_Stages,
-     RE_Create_Restricted_Task           => System_Tasking_Restricted_Stages,
-     RE_Complete_Restricted_Task         => System_Tasking_Restricted_Stages,
-     RE_Restricted_Terminated            => System_Tasking_Restricted_Stages,
+     RE_Activate_Restricted_Tasks         => System_Tasking_Restricted_Stages,
+     RE_Complete_Restricted_Activation    => System_Tasking_Restricted_Stages,
+     RE_Create_Restricted_Task            => System_Tasking_Restricted_Stages,
+     RE_Create_Restricted_Task_Sequential => System_Tasking_Restricted_Stages,
+     RE_Complete_Restricted_Task          => System_Tasking_Restricted_Stages,
+     RE_Restricted_Terminated             => System_Tasking_Restricted_Stages,
 
      RE_Abort_Tasks                      => System_Tasking_Stages,
      RE_Activate_Tasks                   => System_Tasking_Stages,
@@ -2962,7 +3071,6 @@ package Rtsfind is
      RE_Free_Task                        => System_Tasking_Stages,
      RE_Expunge_Unactivated_Tasks        => System_Tasking_Stages,
      RE_Move_Activation_Chain            => System_Tasking_Stages,
-     RO_TS_Set_Entry_Name                => System_Tasking_Stages,
      RE_Terminated                       => System_Tasking_Stages);
 
    --------------------------------

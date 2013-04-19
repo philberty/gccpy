@@ -1,7 +1,5 @@
 /* Definitions for c-common.c.
-   Copyright (C) 1987, 1993, 1994, 1995, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -25,6 +23,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "splay-tree.h"
 #include "cpplib.h"
 #include "ggc.h"
+#include "tree.h"
 
 /* In order for the format checking to accept the C frontend
    diagnostic framework extensions, you must include this file before
@@ -44,7 +43,6 @@ never after.
 
 /* Usage of TREE_LANG_FLAG_?:
    0: IDENTIFIER_MARKED (used by search routines).
-      DECL_PRETTY_FUNCTION_P (in VAR_DECL)
       C_MAYBE_CONST_EXPR_INT_OPERANDS (in C_MAYBE_CONST_EXPR, for C)
    1: C_DECLARED_LABEL_FLAG (in LABEL_DECL)
       STATEMENT_LIST_STMT_EXPR (in STATEMENT_LIST)
@@ -390,7 +388,7 @@ extern const unsigned int num_c_common_reswords;
 #define int32_type_node			c_global_trees[CTI_INT32_TYPE]
 #define int64_type_node			c_global_trees[CTI_INT64_TYPE]
 #define uint8_type_node			c_global_trees[CTI_UINT8_TYPE]
-#define uint16_type_node		c_global_trees[CTI_UINT16_TYPE]
+#define c_uint16_type_node		c_global_trees[CTI_UINT16_TYPE]
 #define c_uint32_type_node		c_global_trees[CTI_UINT32_TYPE]
 #define c_uint64_type_node		c_global_trees[CTI_UINT64_TYPE]
 #define int_least8_type_node		c_global_trees[CTI_INT_LEAST8_TYPE]
@@ -477,14 +475,16 @@ typedef enum ref_operator {
   /* -> */
   RO_ARROW,
   /* implicit conversion */
-  RO_IMPLICIT_CONVERSION
+  RO_IMPLICIT_CONVERSION,
+  /* ->* */
+  RO_ARROW_STAR
 } ref_operator;
 
 /* Information about a statement tree.  */
 
 struct GTY(()) stmt_tree_s {
   /* A stack of statement lists being collected.  */
-  VEC(tree,gc) *x_cur_stmt_list;
+  vec<tree, va_gc> *x_cur_stmt_list;
 
   /* In C++, Nonzero if we should treat statements as full
      expressions.  In particular, this variable is non-zero if at the
@@ -510,20 +510,16 @@ struct GTY(()) c_language_function {
 
   /* Vector of locally defined typedefs, for
      -Wunused-local-typedefs.  */
-  VEC(tree,gc) *local_typedefs;
+  vec<tree, va_gc> *local_typedefs;
 };
 
 #define stmt_list_stack (current_stmt_tree ()->x_cur_stmt_list)
 
 /* When building a statement-tree, this is the current statement list
-   being collected.  We define it in this convoluted way, rather than
-   using VEC_last, because it must be an lvalue.  */
+   being collected.  */
+#define cur_stmt_list	(stmt_list_stack->last ())
 
-#define cur_stmt_list							\
-  (*(VEC_address (tree, stmt_list_stack)				\
-     + VEC_length (tree, stmt_list_stack) - 1))
-
-#define building_stmt_list_p() (!VEC_empty (tree, stmt_list_stack))
+#define building_stmt_list_p() (stmt_list_stack && !stmt_list_stack->is_empty())
 
 /* Language-specific hooks.  */
 
@@ -543,8 +539,6 @@ extern tree pushdecl (tree);
 extern tree build_modify_expr (location_t, tree, tree, enum tree_code,
 			       location_t, tree, tree);
 extern tree build_indirect_ref (location_t, tree, ref_operator);
-
-extern int c_expand_decl (tree);
 
 extern int field_decl_cmp (const void *, const void *);
 extern void resort_sorted_fields (void *, void *, gt_pointer_operator,
@@ -584,16 +578,6 @@ extern const char *pch_file;
    user's namespace.  */
 
 extern int flag_iso;
-
-/* Warn about #pragma directives that are not recognized.  */
-
-extern int warn_unknown_pragmas; /* Tri state variable.  */
-
-/* Warn about format/argument anomalies in calls to formatted I/O functions
-   (*printf, *scanf, strftime, strfmon, etc.).  */
-
-extern int warn_format;
-
 
 /* C/ObjC language option variables.  */
 
@@ -649,7 +633,9 @@ enum cxx_dialect {
   cxx03 = cxx98,
   /* C++11  */
   cxx0x,
-  cxx11 = cxx0x
+  cxx11 = cxx0x,
+  /* C++1y (C++17?) */
+  cxx1y
 };
 
 /* The C++ dialect being used. C++98 is the default.  */
@@ -734,7 +720,6 @@ extern void check_function_arguments_recurse (void (*)
 					      unsigned HOST_WIDE_INT);
 extern bool check_builtin_function_arguments (tree, int, tree *);
 extern void check_function_format (tree, int, tree *);
-extern void set_Wformat (int);
 extern tree handle_format_attribute (tree *, tree, tree, int, bool *);
 extern tree handle_format_arg_attribute (tree *, tree, tree, int, bool *);
 extern bool attribute_takes_identifier_p (const_tree);
@@ -767,9 +752,13 @@ extern tree fix_string_type (tree);
 extern void constant_expression_warning (tree);
 extern void constant_expression_error (tree);
 extern bool strict_aliasing_warning (tree, tree, tree);
+extern void sizeof_pointer_memaccess_warning (location_t *, tree,
+					      vec<tree, va_gc> *, tree *,
+					      bool (*) (tree, tree));
 extern void warnings_for_convert_and_check (tree, tree, tree);
 extern tree convert_and_check (tree, tree);
 extern void overflow_warning (location_t, tree);
+extern bool warn_if_unused_value (const_tree, location_t);
 extern void warn_logical_operator (location_t, enum tree_code, tree,
 				   enum tree_code, tree, enum tree_code, tree);
 extern void check_main_parameter_types (tree decl);
@@ -785,6 +774,7 @@ extern bool keyword_begins_type_specifier (enum rid);
 extern bool keyword_is_storage_class_specifier (enum rid);
 extern bool keyword_is_type_qualifier (enum rid);
 extern bool keyword_is_decl_specifier (enum rid);
+extern bool cxx_fundamental_alignment_p (unsigned);
 
 #define c_sizeof(LOC, T)  c_sizeof_or_alignof_type (LOC, T, true, 1)
 #define c_alignof(LOC, T) c_sizeof_or_alignof_type (LOC, T, false, 1)
@@ -903,10 +893,10 @@ extern void c_do_switch_warnings (splay_tree, location_t, tree, tree);
 
 extern tree build_function_call (location_t, tree, tree);
 
-extern tree build_function_call_vec (location_t, tree,
-    				     VEC(tree,gc) *, VEC(tree,gc) *);
+extern tree build_function_call_vec (location_t, tree, vec<tree, va_gc> *,
+				     vec<tree, va_gc> *);
 
-extern tree resolve_overloaded_builtin (location_t, tree, VEC(tree,gc) *);
+extern tree resolve_overloaded_builtin (location_t, tree, vec<tree, va_gc> *);
 
 extern tree finish_label_address_expr (tree, location_t);
 
@@ -918,6 +908,7 @@ extern bool lvalue_p (const_tree);
 
 extern bool vector_targets_convertible_p (const_tree t1, const_tree t2);
 extern bool vector_types_convertible_p (const_tree t1, const_tree t2, bool emit_lax_note);
+extern tree c_build_vec_perm_expr (location_t, tree, tree, tree);
 
 extern rtx c_expand_expr (tree, rtx, enum machine_mode, int, rtx *);
 
@@ -983,7 +974,8 @@ extern tree builtin_type_for_size (int, bool);
 extern void c_common_mark_addressable_vec (tree);
 
 extern void warn_array_subscript_with_type_char (tree);
-extern void warn_about_parentheses (enum tree_code,
+extern void warn_about_parentheses (location_t,
+				    enum tree_code,
 				    enum tree_code, tree,
 				    enum tree_code, tree);
 extern void warn_for_unused_label (tree label);
@@ -999,11 +991,11 @@ extern void set_underlying_type (tree);
 extern void record_locally_defined_typedef (tree);
 extern void maybe_record_typedef_use (tree);
 extern void maybe_warn_unused_local_typedefs (void);
-extern VEC(tree,gc) *make_tree_vector (void);
-extern void release_tree_vector (VEC(tree,gc) *);
-extern VEC(tree,gc) *make_tree_vector_single (tree);
-extern VEC(tree,gc) *make_tree_vector_from_list (tree);
-extern VEC(tree,gc) *make_tree_vector_copy (const VEC(tree,gc) *);
+extern vec<tree, va_gc> *make_tree_vector (void);
+extern void release_tree_vector (vec<tree, va_gc> *);
+extern vec<tree, va_gc> *make_tree_vector_single (tree);
+extern vec<tree, va_gc> *make_tree_vector_from_list (tree);
+extern vec<tree, va_gc> *make_tree_vector_copy (const vec<tree, va_gc> *);
 
 /* In c-gimplify.c  */
 extern void c_genericize (tree);
@@ -1012,13 +1004,13 @@ extern tree c_build_bind_expr (location_t, tree, tree);
 
 /* In c-pch.c  */
 extern void pch_init (void);
+extern void pch_cpp_save_state (void);
 extern int c_common_valid_pch (cpp_reader *pfile, const char *name, int fd);
 extern void c_common_read_pch (cpp_reader *pfile, const char *name, int fd,
 			       const char *orig);
 extern void c_common_write_pch (void);
 extern void c_common_no_more_pch (void);
 extern void c_common_pch_pragma (cpp_reader *pfile, const char *);
-extern void c_common_print_pch_checksum (FILE *f);
 
 /* In *-checksum.c */
 extern const unsigned char executable_checksum[16];
@@ -1095,11 +1087,18 @@ extern tree find_tm_attribute (tree);
 
 /* A suffix-identifier value doublet that represents user-defined literals
    for C++-0x.  */
+enum overflow_type {
+  OT_UNDERFLOW = -1,
+  OT_NONE,
+  OT_OVERFLOW
+};
+
 struct GTY(()) tree_userdef_literal {
   struct tree_base base;
   tree suffix_id;
   tree value;
   tree num_string;
+  enum overflow_type overflow;
 };
 
 #define USERDEF_LITERAL_SUFFIX_ID(NODE) \
@@ -1108,12 +1107,30 @@ struct GTY(()) tree_userdef_literal {
 #define USERDEF_LITERAL_VALUE(NODE) \
   (((struct tree_userdef_literal *)USERDEF_LITERAL_CHECK (NODE))->value)
 
+#define USERDEF_LITERAL_OVERFLOW(NODE) \
+  (((struct tree_userdef_literal *)USERDEF_LITERAL_CHECK (NODE))->overflow)
+
 #define USERDEF_LITERAL_NUM_STRING(NODE) \
   (((struct tree_userdef_literal *)USERDEF_LITERAL_CHECK (NODE))->num_string)
 
 #define USERDEF_LITERAL_TYPE(NODE) \
   (TREE_TYPE (USERDEF_LITERAL_VALUE (NODE)))
 
-extern tree build_userdef_literal (tree suffix_id, tree value, tree num_string);
+extern tree build_userdef_literal (tree suffix_id, tree value,
+				   enum overflow_type overflow,
+				   tree num_string);
+
+extern void convert_vector_to_pointer_for_subscript (location_t, tree*, tree);
+
+/* Possibe cases of scalar_to_vector conversion.  */
+enum stv_conv {
+  stv_error,        /* Error occured.  */
+  stv_nothing,      /* Nothing happened.  */
+  stv_firstarg,     /* First argument must be expanded.  */
+  stv_secondarg     /* Second argument must be expanded.  */
+};
+
+extern enum stv_conv scalar_to_vector (location_t loc, enum tree_code code,
+				       tree op0, tree op1, bool);
 
 #endif /* ! GCC_C_COMMON_H */

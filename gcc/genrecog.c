@@ -1,7 +1,5 @@
 /* Generate code from machine description to recognize rtl as insns.
-   Copyright (C) 1987, 1988, 1992, 1993, 1994, 1995, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -687,7 +685,6 @@ add_to_sequence (rtx pattern, struct decision_head *last,
   sub = this_decision = new_decision (pos, last);
   place = &this_decision->tests;
 
- restart:
   mode = GET_MODE (pattern);
   code = GET_CODE (pattern);
 
@@ -853,10 +850,6 @@ add_to_sequence (rtx pattern, struct decision_head *last,
       test = new_decision_test (DT_dup, &place);
       test->u.dup = XINT (pattern, 0);
       goto fini;
-
-    case ADDRESS:
-      pattern = XEXP (pattern, 0);
-      goto restart;
 
     default:
       break;

@@ -99,6 +99,19 @@ func (b *Buffer) grow(n int) int {
 	return b.off + m
 }
 
+// Grow grows the buffer's capacity, if necessary, to guarantee space for
+// another n bytes. After Grow(n), at least n bytes can be written to the
+// buffer without another allocation.
+// If n is negative, Grow will panic.
+// If the buffer can't grow it will panic with ErrTooLarge.
+func (b *Buffer) Grow(n int) {
+	if n < 0 {
+		panic("bytes.Buffer.Grow: negative count")
+	}
+	m := b.grow(n)
+	b.buf = b.buf[0:m]
+}
+
 // Write appends the contents of p to the buffer.  The return
 // value n is the length of p; err is always nil.
 // If the buffer becomes too large, Write will panic with
@@ -347,16 +360,25 @@ func (b *Buffer) UnreadByte() error {
 // ReadBytes returns err != nil if and only if the returned data does not end in
 // delim.
 func (b *Buffer) ReadBytes(delim byte) (line []byte, err error) {
+	slice, err := b.readSlice(delim)
+	// return a copy of slice. The buffer's backing array may
+	// be overwritten by later calls.
+	line = append(line, slice...)
+	return
+}
+
+// readSlice is like ReadBytes but returns a reference to internal buffer data.
+func (b *Buffer) readSlice(delim byte) (line []byte, err error) {
 	i := IndexByte(b.buf[b.off:], delim)
-	size := i + 1
+	end := b.off + i + 1
 	if i < 0 {
-		size = len(b.buf) - b.off
+		end = len(b.buf)
 		err = io.EOF
 	}
-	line = make([]byte, size)
-	copy(line, b.buf[b.off:])
-	b.off += size
-	return
+	line = b.buf[b.off:end]
+	b.off = end
+	b.lastRead = opRead
+	return line, err
 }
 
 // ReadString reads until the first occurrence of delim in the input,
@@ -366,8 +388,8 @@ func (b *Buffer) ReadBytes(delim byte) (line []byte, err error) {
 // ReadString returns err != nil if and only if the returned data does not end
 // in delim.
 func (b *Buffer) ReadString(delim byte) (line string, err error) {
-	bytes, err := b.ReadBytes(delim)
-	return string(bytes), err
+	slice, err := b.readSlice(delim)
+	return string(slice), err
 }
 
 // NewBuffer creates and initializes a new Buffer using buf as its initial

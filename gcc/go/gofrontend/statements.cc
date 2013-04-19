@@ -6,8 +6,6 @@
 
 #include "go-system.h"
 
-#include <gmp.h>
-
 #include "go-c.h"
 #include "types.h"
 #include "expressions.h"
@@ -4847,6 +4845,8 @@ Select_clauses::get_backend(Translate_context* context,
   std::vector<std::vector<Bexpression*> > cases(count);
   std::vector<Bstatement*> clauses(count);
 
+  Type* int32_type = Type::lookup_integer_type("int32");
+
   int i = 0;
   for (Clauses::iterator p = this->clauses_.begin();
        p != this->clauses_.end();
@@ -4855,7 +4855,8 @@ Select_clauses::get_backend(Translate_context* context,
       int index = p->index();
       mpz_t ival;
       mpz_init_set_ui(ival, index);
-      Expression* index_expr = Expression::make_integer(&ival, NULL, location);
+      Expression* index_expr = Expression::make_integer(&ival, int32_type,
+							location);
       mpz_clear(ival);
       cases[i].push_back(tree_to_expr(index_expr->get_tree(context)));
 

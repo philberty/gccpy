@@ -20,8 +20,13 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -62,6 +67,7 @@ func (a dummyAddr) String() string {
 type testConn struct {
 	readBuf  bytes.Buffer
 	writeBuf bytes.Buffer
+	closec   chan bool // if non-nil, send value to it on close
 }
 
 func (c *testConn) Read(b []byte) (int, error) {
@@ -73,6 +79,10 @@ func (c *testConn) Write(b []byte) (int, error) {
 }
 
 func (c *testConn) Close() error {
+	select {
+	case c.closec <- true:
+	default:
+	}
 	return nil
 }
 
@@ -168,13 +178,17 @@ var vtests = []struct {
 	{"http://someHost.com/someDir/apage", "someHost.com/someDir"},
 	{"http://otherHost.com/someDir/apage", "someDir"},
 	{"http://otherHost.com/aDir/apage", "Default"},
+	// redirections for trees
+	{"http://localhost/someDir", "/someDir/"},
+	{"http://someHost.com/someDir", "/someDir/"},
 }
 
 func TestHostHandlers(t *testing.T) {
+	mux := NewServeMux()
 	for _, h := range handlers {
-		Handle(h.pattern, stringHandler(h.msg))
+		mux.Handle(h.pattern, stringHandler(h.msg))
 	}
-	ts := httptest.NewServer(nil)
+	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
 	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
@@ -199,9 +213,19 @@ func TestHostHandlers(t *testing.T) {
 			t.Errorf("reading response: %v", err)
 			continue
 		}
-		s := r.Header.Get("Result")
-		if s != vt.expected {
-			t.Errorf("Get(%q) = %q, want %q", vt.url, s, vt.expected)
+		switch r.StatusCode {
+		case StatusOK:
+			s := r.Header.Get("Result")
+			if s != vt.expected {
+				t.Errorf("Get(%q) = %q, want %q", vt.url, s, vt.expected)
+			}
+		case StatusMovedPermanently:
+			s := r.Header.Get("Location")
+			if s != vt.expected {
+				t.Errorf("Get(%q) = %q, want %q", vt.url, s, vt.expected)
+			}
+		default:
+			t.Errorf("Get(%q) unhandled status code %d", vt.url, r.StatusCode)
 		}
 	}
 }
@@ -296,7 +320,7 @@ func TestServerTimeouts(t *testing.T) {
 	l.Close()
 }
 
-// TestIdentityResponse verifies that a handler can unset 
+// TestIdentityResponse verifies that a handler can unset
 func TestIdentityResponse(t *testing.T) {
 	handler := HandlerFunc(func(rw ResponseWriter, req *Request) {
 		rw.Header().Set("Content-Length", "3")
@@ -370,7 +394,7 @@ func TestIdentityResponse(t *testing.T) {
 	})
 }
 
-func testTcpConnectionCloses(t *testing.T, req string, h Handler) {
+func testTCPConnectionCloses(t *testing.T, req string, h Handler) {
 	s := httptest.NewServer(h)
 	defer s.Close()
 
@@ -414,21 +438,28 @@ func testTcpConnectionCloses(t *testing.T, req string, h Handler) {
 
 // TestServeHTTP10Close verifies that HTTP/1.0 requests won't be kept alive.
 func TestServeHTTP10Close(t *testing.T) {
-	testTcpConnectionCloses(t, "GET / HTTP/1.0\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+	testTCPConnectionCloses(t, "GET / HTTP/1.0\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
 		ServeFile(w, r, "testdata/file")
+	}))
+}
+
+// TestClientCanClose verifies that clients can also force a connection to close.
+func TestClientCanClose(t *testing.T) {
+	testTCPConnectionCloses(t, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+		// Nothing.
 	}))
 }
 
 // TestHandlersCanSetConnectionClose verifies that handlers can force a connection to close,
 // even for HTTP/1.1 requests.
 func TestHandlersCanSetConnectionClose11(t *testing.T) {
-	testTcpConnectionCloses(t, "GET / HTTP/1.1\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+	testTCPConnectionCloses(t, "GET / HTTP/1.1\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
 		w.Header().Set("Connection", "close")
 	}))
 }
 
 func TestHandlersCanSetConnectionClose10(t *testing.T) {
-	testTcpConnectionCloses(t, "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+	testTCPConnectionCloses(t, "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
 		w.Header().Set("Connection", "close")
 	}))
 }
@@ -459,6 +490,7 @@ func TestChunkedResponseHeaders(t *testing.T) {
 
 	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
 		w.Header().Set("Content-Length", "intentional gibberish") // we check that this is deleted
+		w.(Flusher).Flush()
 		fmt.Fprintf(w, "I am a chunked response.")
 	}))
 	defer ts.Close()
@@ -665,30 +697,51 @@ func TestServerExpect(t *testing.T) {
 			t.Fatalf("Dial: %v", err)
 		}
 		defer conn.Close()
-		sendf := func(format string, args ...interface{}) {
-			_, err := fmt.Fprintf(conn, format, args...)
-			if err != nil {
-				t.Fatalf("On test %#v, error writing %q: %v", test, format, err)
-			}
-		}
+
+		// Only send the body immediately if we're acting like an HTTP client
+		// that doesn't send 100-continue expectations.
+		writeBody := test.contentLength > 0 && strings.ToLower(test.expectation) != "100-continue"
+
 		go func() {
-			sendf("POST /?readbody=%v HTTP/1.1\r\n"+
+			_, err := fmt.Fprintf(conn, "POST /?readbody=%v HTTP/1.1\r\n"+
 				"Connection: close\r\n"+
 				"Content-Length: %d\r\n"+
 				"Expect: %s\r\nHost: foo\r\n\r\n",
 				test.readBody, test.contentLength, test.expectation)
-			if test.contentLength > 0 && strings.ToLower(test.expectation) != "100-continue" {
+			if err != nil {
+				t.Errorf("On test %#v, error writing request headers: %v", test, err)
+				return
+			}
+			if writeBody {
 				body := strings.Repeat("A", test.contentLength)
-				sendf(body)
+				_, err = fmt.Fprint(conn, body)
+				if err != nil {
+					if !test.readBody {
+						// Server likely already hung up on us.
+						// See larger comment below.
+						t.Logf("On test %#v, acceptable error writing request body: %v", test, err)
+						return
+					}
+					t.Errorf("On test %#v, error writing request body: %v", test, err)
+				}
 			}
 		}()
 		bufr := bufio.NewReader(conn)
 		line, err := bufr.ReadString('\n')
 		if err != nil {
-			t.Fatalf("ReadString: %v", err)
+			if writeBody && !test.readBody {
+				// This is an acceptable failure due to a possible TCP race:
+				// We were still writing data and the server hung up on us. A TCP
+				// implementation may send a RST if our request body data was known
+				// to be lost, which may trigger our reads to fail.
+				// See RFC 1122 page 88.
+				t.Logf("On test %#v, acceptable error from ReadString: %v", test, err)
+				return
+			}
+			t.Fatalf("On test %#v, ReadString: %v", test, err)
 		}
 		if !strings.Contains(line, test.expectedResponse) {
-			t.Errorf("for test %#v got first line=%q", test, line)
+			t.Errorf("On test %#v, got first line = %q; want %q", test, line, test.expectedResponse)
 		}
 	}
 
@@ -718,6 +771,7 @@ func TestServerUnreadRequestBodyLittle(t *testing.T) {
 			t.Errorf("on request, read buffer length is %d; expected about 100 KB", conn.readBuf.Len())
 		}
 		rw.WriteHeader(200)
+		rw.(Flusher).Flush()
 		if g, e := conn.readBuf.Len(), 0; g != e {
 			t.Errorf("after WriteHeader, read buffer length is %d; want %d", g, e)
 		}
@@ -740,24 +794,24 @@ func TestServerUnreadRequestBodyLarge(t *testing.T) {
 			"Content-Length: %d\r\n"+
 			"\r\n", len(body))))
 	conn.readBuf.Write([]byte(body))
-
-	done := make(chan bool)
+	conn.closec = make(chan bool, 1)
 
 	ls := &oneConnListener{conn}
 	go Serve(ls, HandlerFunc(func(rw ResponseWriter, req *Request) {
-		defer close(done)
 		if conn.readBuf.Len() < len(body)/2 {
 			t.Errorf("on request, read buffer length is %d; expected about 1MB", conn.readBuf.Len())
 		}
 		rw.WriteHeader(200)
+		rw.(Flusher).Flush()
 		if conn.readBuf.Len() < len(body)/2 {
 			t.Errorf("post-WriteHeader, read buffer length is %d; expected about 1MB", conn.readBuf.Len())
 		}
-		if c := rw.Header().Get("Connection"); c != "close" {
-			t.Errorf(`Connection header = %q; want "close"`, c)
-		}
 	}))
-	<-done
+	<-conn.closec
+
+	if res := conn.writeBuf.String(); !strings.Contains(res, "Connection: close") {
+		t.Errorf("Expected a Connection: close header; got response: %s", res)
+	}
 }
 
 func TestTimeoutHandler(t *testing.T) {
@@ -872,15 +926,19 @@ func TestZeroLengthPostAndResponse(t *testing.T) {
 	}
 }
 
+func TestHandlerPanicNil(t *testing.T) {
+	testHandlerPanic(t, false, nil)
+}
+
 func TestHandlerPanic(t *testing.T) {
-	testHandlerPanic(t, false)
+	testHandlerPanic(t, false, "intentional death for testing")
 }
 
 func TestHandlerPanicWithHijack(t *testing.T) {
-	testHandlerPanic(t, true)
+	testHandlerPanic(t, true, "intentional death for testing")
 }
 
-func testHandlerPanic(t *testing.T, withHijack bool) {
+func testHandlerPanic(t *testing.T, withHijack bool, panicValue interface{}) {
 	// Unlike the other tests that set the log output to ioutil.Discard
 	// to quiet the output, this test uses a pipe.  The pipe serves three
 	// purposes:
@@ -909,7 +967,7 @@ func testHandlerPanic(t *testing.T, withHijack bool) {
 			}
 			defer rwc.Close()
 		}
-		panic("intentional death for testing")
+		panic(panicValue)
 	}))
 	defer ts.Close()
 
@@ -922,7 +980,7 @@ func testHandlerPanic(t *testing.T, withHijack bool) {
 		_, err := pr.Read(buf)
 		pr.Close()
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 		done <- true
 	}()
@@ -930,6 +988,10 @@ func testHandlerPanic(t *testing.T, withHijack bool) {
 	_, err := Get(ts.URL)
 	if err == nil {
 		t.Logf("expected an error")
+	}
+
+	if panicValue == nil {
+		return
 	}
 
 	select {
@@ -1017,7 +1079,7 @@ type countReader struct {
 
 func (cr countReader) Read(p []byte) (n int, err error) {
 	n, err = cr.r.Read(p)
-	*cr.n += int64(n)
+	atomic.AddInt64(cr.n, int64(n))
 	return
 }
 
@@ -1035,8 +1097,8 @@ func TestRequestBodyLimit(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	nWritten := int64(0)
-	req, _ := NewRequest("POST", ts.URL, io.LimitReader(countReader{neverEnding('a'), &nWritten}, limit*200))
+	nWritten := new(int64)
+	req, _ := NewRequest("POST", ts.URL, io.LimitReader(countReader{neverEnding('a'), nWritten}, limit*200))
 
 	// Send the POST, but don't care it succeeds or not.  The
 	// remote side is going to reply and then close the TCP
@@ -1049,7 +1111,7 @@ func TestRequestBodyLimit(t *testing.T) {
 	// the remote side hung up on us before we wrote too much.
 	_, _ = DefaultClient.Do(req)
 
-	if nWritten > limit*100 {
+	if atomic.LoadInt64(nWritten) > limit*100 {
 		t.Errorf("handler restricted the request body to %d bytes, but client managed to write %d",
 			limit, nWritten)
 	}
@@ -1090,26 +1152,83 @@ func TestClientWriteShutdown(t *testing.T) {
 // Tests that chunked server responses that write 1 byte at a time are
 // buffered before chunk headers are added, not after chunk headers.
 func TestServerBufferedChunking(t *testing.T) {
-	if true {
-		t.Logf("Skipping known broken test; see Issue 2357")
-		return
-	}
 	conn := new(testConn)
 	conn.readBuf.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
-	done := make(chan bool)
+	conn.closec = make(chan bool, 1)
 	ls := &oneConnListener{conn}
 	go Serve(ls, HandlerFunc(func(rw ResponseWriter, req *Request) {
-		defer close(done)
-		rw.Header().Set("Content-Type", "text/plain") // prevent sniffing, which buffers
+		rw.(Flusher).Flush() // force the Header to be sent, in chunking mode, not counting the length
 		rw.Write([]byte{'x'})
 		rw.Write([]byte{'y'})
 		rw.Write([]byte{'z'})
 	}))
-	<-done
+	<-conn.closec
 	if !bytes.HasSuffix(conn.writeBuf.Bytes(), []byte("\r\n\r\n3\r\nxyz\r\n0\r\n\r\n")) {
 		t.Errorf("response didn't end with a single 3 byte 'xyz' chunk; got:\n%q",
 			conn.writeBuf.Bytes())
 	}
+}
+
+// Tests that the server flushes its response headers out when it's
+// ignoring the response body and waits a bit before forcefully
+// closing the TCP connection, causing the client to get a RST.
+// See http://golang.org/issue/3595
+func TestServerGracefulClose(t *testing.T) {
+	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+		Error(w, "bye", StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	const bodySize = 5 << 20
+	req := []byte(fmt.Sprintf("POST / HTTP/1.1\r\nHost: foo.com\r\nContent-Length: %d\r\n\r\n", bodySize))
+	for i := 0; i < bodySize; i++ {
+		req = append(req, 'x')
+	}
+	writeErr := make(chan error)
+	go func() {
+		_, err := conn.Write(req)
+		writeErr <- err
+	}()
+	br := bufio.NewReader(conn)
+	lineNum := 0
+	for {
+		line, err := br.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ReadLine: %v", err)
+		}
+		lineNum++
+		if lineNum == 1 && !strings.Contains(line, "401 Unauthorized") {
+			t.Errorf("Response line = %q; want a 401", line)
+		}
+	}
+	// Wait for write to finish. This is a broken pipe on both
+	// Darwin and Linux, but checking this isn't the point of
+	// the test.
+	<-writeErr
+}
+
+func TestCaseSensitiveMethod(t *testing.T) {
+	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+		if r.Method != "get" {
+			t.Errorf(`Got method %q; want "get"`, r.Method)
+		}
+	}))
+	defer ts.Close()
+	req, _ := NewRequest("get", ts.URL, nil)
+	res, err := DefaultClient.Do(req)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	res.Body.Close()
 }
 
 // TestContentLengthZero tests that for both an HTTP/1.0 and HTTP/1.1
@@ -1141,6 +1260,94 @@ func TestContentLengthZero(t *testing.T) {
 			t.Errorf("For version %q, Content-Length = %v; want 0", version, cl)
 		}
 		conn.Close()
+	}
+}
+
+func TestCloseNotifier(t *testing.T) {
+	gotReq := make(chan bool, 1)
+	sawClose := make(chan bool, 1)
+	ts := httptest.NewServer(HandlerFunc(func(rw ResponseWriter, req *Request) {
+		gotReq <- true
+		cc := rw.(CloseNotifier).CloseNotify()
+		<-cc
+		sawClose <- true
+	}))
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("error dialing: %v", err)
+	}
+	diec := make(chan bool)
+	go func() {
+		_, err = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nConnection: keep-alive\r\nHost: foo\r\n\r\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-diec
+		conn.Close()
+	}()
+For:
+	for {
+		select {
+		case <-gotReq:
+			diec <- true
+		case <-sawClose:
+			break For
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout")
+		}
+	}
+	ts.Close()
+}
+
+func TestOptions(t *testing.T) {
+	uric := make(chan string, 2) // only expect 1, but leave space for 2
+	mux := NewServeMux()
+	mux.HandleFunc("/", func(w ResponseWriter, r *Request) {
+		uric <- r.RequestURI
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// An OPTIONS * request should succeed.
+	_, err = conn.Write([]byte("OPTIONS * HTTP/1.1\r\nHost: foo.com\r\n\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(conn)
+	res, err := ReadResponse(br, &Request{Method: "OPTIONS"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 200 {
+		t.Errorf("Got non-200 response to OPTIONS *: %#v", res)
+	}
+
+	// A GET * request on a ServeMux should fail.
+	_, err = conn.Write([]byte("GET * HTTP/1.1\r\nHost: foo.com\r\n\r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = ReadResponse(br, &Request{Method: "GET"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 400 {
+		t.Errorf("Got non-400 response to GET *: %#v", res)
+	}
+
+	res, err = Get(ts.URL + "/second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if got := <-uric; got != "/second" {
+		t.Errorf("Handler saw request for %q; want /second", got)
 	}
 }
 
@@ -1219,4 +1426,101 @@ func BenchmarkClientServer(b *testing.B) {
 	}
 
 	b.StopTimer()
+}
+
+func BenchmarkClientServerParallel4(b *testing.B) {
+	benchmarkClientServerParallel(b, 4)
+}
+
+func BenchmarkClientServerParallel64(b *testing.B) {
+	benchmarkClientServerParallel(b, 64)
+}
+
+func benchmarkClientServerParallel(b *testing.B, conc int) {
+	b.StopTimer()
+	ts := httptest.NewServer(HandlerFunc(func(rw ResponseWriter, r *Request) {
+		fmt.Fprintf(rw, "Hello world.\n")
+	}))
+	defer ts.Close()
+	b.StartTimer()
+
+	numProcs := runtime.GOMAXPROCS(-1) * conc
+	var wg sync.WaitGroup
+	wg.Add(numProcs)
+	n := int32(b.N)
+	for p := 0; p < numProcs; p++ {
+		go func() {
+			for atomic.AddInt32(&n, -1) >= 0 {
+				res, err := Get(ts.URL)
+				if err != nil {
+					b.Logf("Get: %v", err)
+					continue
+				}
+				all, err := ioutil.ReadAll(res.Body)
+				if err != nil {
+					b.Logf("ReadAll: %v", err)
+					continue
+				}
+				body := string(all)
+				if body != "Hello world.\n" {
+					panic("Got body: " + body)
+				}
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+// A benchmark for profiling the server without the HTTP client code.
+// The client code runs in a subprocess.
+//
+// For use like:
+//   $ go test -c
+//   $ ./http.test -test.run=XX -test.bench=BenchmarkServer -test.benchtime=15s -test.cpuprofile=http.prof
+//   $ go tool pprof http.test http.prof
+//   (pprof) web
+func BenchmarkServer(b *testing.B) {
+	// Child process mode;
+	if url := os.Getenv("TEST_BENCH_SERVER_URL"); url != "" {
+		n, err := strconv.Atoi(os.Getenv("TEST_BENCH_CLIENT_N"))
+		if err != nil {
+			panic(err)
+		}
+		for i := 0; i < n; i++ {
+			res, err := Get(url)
+			if err != nil {
+				log.Panicf("Get: %v", err)
+			}
+			all, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				log.Panicf("ReadAll: %v", err)
+			}
+			body := string(all)
+			if body != "Hello world.\n" {
+				log.Panicf("Got body: %q", body)
+			}
+		}
+		os.Exit(0)
+		return
+	}
+
+	var res = []byte("Hello world.\n")
+	b.StopTimer()
+	ts := httptest.NewServer(HandlerFunc(func(rw ResponseWriter, r *Request) {
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		rw.Write(res)
+	}))
+	defer ts.Close()
+	b.StartTimer()
+
+	cmd := exec.Command(os.Args[0], "-test.run=XXXX", "-test.bench=BenchmarkServer")
+	cmd.Env = append([]string{
+		fmt.Sprintf("TEST_BENCH_CLIENT_N=%d", b.N),
+		fmt.Sprintf("TEST_BENCH_SERVER_URL=%s", ts.URL),
+	}, os.Environ()...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		b.Errorf("Test failure: %v, with output: %s", err, out)
+	}
 }

@@ -90,6 +90,15 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 	var p parser
 	p.init(fset, filename, text, mode)
 	f := p.parseFile()
+	if f == nil {
+		// source is not a valid Go source file - satisfy
+		// ParseFile API and return a valid (but) empty
+		// *ast.File
+		f = &ast.File{
+			Name:  new(ast.Ident),
+			Scope: ast.NewScope(nil),
+		}
+	}
 
 	// sort errors
 	if p.mode&SpuriousErrors == 0 {
@@ -149,7 +158,7 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 
 // ParseExpr is a convenience function for obtaining the AST of an expression x.
 // The position information recorded in the AST is undefined.
-// 
+//
 func ParseExpr(x string) (ast.Expr, error) {
 	// parse x within the context of a complete package for correct scopes;
 	// use //line directive for correct positions in error messages and put

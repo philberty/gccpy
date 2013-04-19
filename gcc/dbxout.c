@@ -1,7 +1,5 @@
 /* Output dbx-format symbol table information from GNU compiler.
-   Copyright (C) 1987, 1988, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011 Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -703,7 +701,7 @@ stabstr_O (tree cst)
      present.  */
   {
     const unsigned int width = TYPE_PRECISION (TREE_TYPE (cst));
-    if (width == HOST_BITS_PER_WIDE_INT * 2)
+    if (width == HOST_BITS_PER_DOUBLE_INT)
       ;
     else if (width > HOST_BITS_PER_WIDE_INT)
       high &= (((HOST_WIDE_INT) 1 << (width - HOST_BITS_PER_WIDE_INT)) - 1);
@@ -2184,7 +2182,7 @@ dbxout_type (tree type, int full)
 	  {
 	    int i;
 	    tree child;
-	    VEC(tree,gc) *accesses = BINFO_BASE_ACCESSES (binfo);
+	    vec<tree, va_gc> *accesses = BINFO_BASE_ACCESSES (binfo);
 
 	    if (use_gnu_debug_info_extensions)
 	      {
@@ -2197,8 +2195,7 @@ dbxout_type (tree type, int full)
 	      }
 	    for (i = 0; BINFO_BASE_ITERATE (binfo, i, child); i++)
 	      {
-		tree access = (accesses ? VEC_index (tree, accesses, i)
-			       : access_public_node);
+		tree access = (accesses ? (*accesses)[i] : access_public_node);
 
 		if (use_gnu_debug_info_extensions)
 		  {
@@ -2483,7 +2480,7 @@ dbxout_expand_expr (tree expr)
 	     return NULL, otherwise stabs might reference an undefined
 	     symbol.  */
 	  struct varpool_node *node = varpool_get_node (expr);
-	  if (!node || !node->needed)
+	  if (!node || !node->analyzed)
 	    return NULL;
 	}
       /* FALLTHRU */
@@ -2541,7 +2538,7 @@ static int
 output_used_types_helper (void **slot, void *data)
 {
   tree type = (tree) *slot;
-  VEC(tree, heap) **types_p = (VEC(tree, heap) **) data;
+  vec<tree> *types_p = (vec<tree> *) data;
 
   if ((TREE_CODE (type) == RECORD_TYPE
        || TREE_CODE (type) == UNION_TYPE
@@ -2550,10 +2547,10 @@ output_used_types_helper (void **slot, void *data)
       && TYPE_STUB_DECL (type)
       && DECL_P (TYPE_STUB_DECL (type))
       && ! DECL_IGNORED_P (TYPE_STUB_DECL (type)))
-    VEC_quick_push (tree, *types_p, TYPE_STUB_DECL (type));
+    types_p->quick_push (TYPE_STUB_DECL (type));
   else if (TYPE_NAME (type)
 	   && TREE_CODE (TYPE_NAME (type)) == TYPE_DECL)
-    VEC_quick_push (tree, *types_p, TYPE_NAME (type));
+    types_p->quick_push (TYPE_NAME (type));
 
   return 1;
 }
@@ -2593,20 +2590,20 @@ output_used_types (void)
 {
   if (cfun && cfun->used_types_hash)
     {
-      VEC(tree, heap) *types;
+      vec<tree> types;
       int i;
       tree type;
 
-      types = VEC_alloc (tree, heap, htab_elements (cfun->used_types_hash));
+      types.create (htab_elements (cfun->used_types_hash));
       htab_traverse (cfun->used_types_hash, output_used_types_helper, &types);
 
       /* Sort by UID to prevent dependence on hash table ordering.  */
-      VEC_qsort (tree, types, output_types_sort);
+      types.qsort (output_types_sort);
 
-      FOR_EACH_VEC_ELT (tree, types, i, type)
+      FOR_EACH_VEC_ELT (types, i, type)
 	debug_queue_symbol (type);
 
-      VEC_free (tree, heap, types);
+      types.release ();
     }
 }
 
@@ -2948,7 +2945,7 @@ dbxout_symbol (tree decl, int local ATTRIBUTE_UNUSED)
 
       decl_rtl = eliminate_regs (decl_rtl, VOIDmode, NULL_RTX);
 #ifdef LEAF_REG_REMAP
-      if (current_function_uses_only_leaf_regs)
+      if (crtl->uses_only_leaf_regs)
 	leaf_renumber_regs_insn (decl_rtl);
 #endif
 
@@ -2994,7 +2991,7 @@ dbxout_symbol_location (tree decl, tree type, const char *suffix, rtx home)
 	  if (REGNO (value) >= FIRST_PSEUDO_REGISTER)
 	    return 0;
 	}
-      home = alter_subreg (&home);
+      home = alter_subreg (&home, true);
     }
   if (REG_P (home))
     {
@@ -3454,7 +3451,7 @@ dbxout_parms (tree parms)
 	SET_DECL_RTL (parms,
 		      eliminate_regs (DECL_RTL (parms), VOIDmode, NULL_RTX));
 #ifdef LEAF_REG_REMAP
-	if (current_function_uses_only_leaf_regs)
+	if (crtl->uses_only_leaf_regs)
 	  {
 	    leaf_renumber_regs_insn (DECL_INCOMING_RTL (parms));
 	    leaf_renumber_regs_insn (DECL_RTL (parms));
@@ -3816,5 +3813,41 @@ dbxout_begin_function (tree decl)
 #endif /* DBX_DEBUGGING_INFO */
 
 #endif /* DBX_DEBUGGING_INFO || XCOFF_DEBUGGING_INFO */
+
+/* Record an element in the table of global destructors.  SYMBOL is
+   a SYMBOL_REF of the function to be called; PRIORITY is a number
+   between 0 and MAX_INIT_PRIORITY.  */
+
+void
+default_stabs_asm_out_destructor (rtx symbol ATTRIBUTE_UNUSED,
+				  int priority ATTRIBUTE_UNUSED)
+{
+#if defined DBX_DEBUGGING_INFO || defined XCOFF_DEBUGGING_INFO
+  /* Tell GNU LD that this is part of the static destructor set.
+     This will work for any system that uses stabs, most usefully
+     aout systems.  */
+  dbxout_begin_simple_stabs ("___DTOR_LIST__", 22 /* N_SETT */);
+  dbxout_stab_value_label (XSTR (symbol, 0));
+#else
+  sorry ("global destructors not supported on this target");
+#endif
+}
+
+/* Likewise for global constructors.  */
+
+void
+default_stabs_asm_out_constructor (rtx symbol ATTRIBUTE_UNUSED,
+				   int priority ATTRIBUTE_UNUSED)
+{
+#if defined DBX_DEBUGGING_INFO || defined XCOFF_DEBUGGING_INFO
+  /* Tell GNU LD that this is part of the static destructor set.
+     This will work for any system that uses stabs, most usefully
+     aout systems.  */
+  dbxout_begin_simple_stabs ("___CTOR_LIST__", 22 /* N_SETT */);
+  dbxout_stab_value_label (XSTR (symbol, 0));
+#else
+  sorry ("global constructors not supported on this target");
+#endif
+}
 
 #include "gt-dbxout.h"

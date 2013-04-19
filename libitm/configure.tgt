@@ -1,5 +1,5 @@
 # -*- shell-script -*-
-#   Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+#   Copyright (C) 2011-2013 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@ case "${target_cpu}" in
 
   i[3456]86)
 	case " ${CC} ${CFLAGS} " in
-	  *" -m64 "*)
+	  *" -m64 "*|*" -mx32 "*)
 	    ;;
 	  *)
 	    if test -z "$with_arch"; then
@@ -61,6 +61,7 @@ case "${target_cpu}" in
 	      XCFLAGS="${XCFLAGS} -fomit-frame-pointer"
 	    fi
 	esac
+	XCFLAGS="${XCFLAGS} -mrtm"
 	ARCH=x86
 	;;
 
@@ -101,6 +102,7 @@ case "${target_cpu}" in
 	    XCFLAGS="${XCFLAGS} -fomit-frame-pointer"
 	    ;;
 	esac
+	XCFLAGS="${XCFLAGS} -mrtm"
 	ARCH=x86
 	;;
 
@@ -130,7 +132,7 @@ case "${target}" in
 
   *-*-gnu* | *-*-k*bsd*-gnu \
   | *-*-netbsd* | *-*-freebsd* | *-*-openbsd* \
-  | *-*-solaris2* | *-*-sysv4* | *-*-irix6* | *-*-osf* | *-*-hpux11* \
+  | *-*-solaris2* | *-*-sysv4* | *-*-hpux11* \
   | *-*-darwin* | *-*-aix*)
 	# POSIX system.  The OS is supported.
 	;;

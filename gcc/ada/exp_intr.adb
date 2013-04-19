@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -44,6 +44,7 @@ with Restrict; use Restrict;
 with Rident;   use Rident;
 with Rtsfind;  use Rtsfind;
 with Sem;      use Sem;
+with Sem_Aux;  use Sem_Aux;
 with Sem_Eval; use Sem_Eval;
 with Sem_Res;  use Sem_Res;
 with Sem_Type; use Sem_Type;
@@ -209,6 +210,15 @@ package body Exp_Intr is
       Result_Typ : Entity_Id;
 
    begin
+      --  Remove side effects from tag argument early, before rewriting
+      --  the dispatching constructor call, as Remove_Side_Effects relies
+      --  on Tag_Arg's Parent link properly attached to the tree (once the
+      --  call is rewritten, the Parent is inconsistent as it points to the
+      --  rewritten node, which is not the syntactic parent of the Tag_Arg
+      --  anymore).
+
+      Remove_Side_Effects (Tag_Arg);
+
       --  The subprogram is the third actual in the instantiation, and is
       --  retrieved from the corresponding renaming declaration. However,
       --  freeze nodes may appear before, so we retrieve the declaration
@@ -222,15 +232,10 @@ package body Exp_Intr is
       Act_Constr := Entity (Name (Act_Rename));
       Result_Typ := Class_Wide_Type (Etype (Act_Constr));
 
-      --  Ada 2005 (AI-251): If the result is an interface type, the function
-      --  returns a class-wide interface type (otherwise the resulting object
-      --  would be abstract!)
-
       if Is_Interface (Etype (Act_Constr)) then
-         Set_Etype (Act_Constr, Result_Typ);
 
-         --  If the result type is not parent of Tag_Arg then we need to
-         --  locate the tag of the secondary dispatch table.
+         --  If the result type is not known to be a parent of Tag_Arg then we
+         --  need to locate the tag of the secondary dispatch table.
 
          if not Is_Ancestor (Etype (Result_Typ), Etype (Tag_Arg),
                              Use_Full_View => True)
@@ -254,7 +259,7 @@ package body Exp_Intr is
                      New_Reference_To (RTE (RE_Tag), Loc),
                    Expression          =>
                      Make_Function_Call (Loc,
-                       Name => Fname,
+                       Name                   => Fname,
                        Parameter_Associations => New_List (
                          Relocate_Node (Tag_Arg),
                          New_Reference_To
@@ -282,7 +287,6 @@ package body Exp_Intr is
          Set_Controlling_Argument (Cnstr_Call,
            New_Occurrence_Of (Defining_Identifier (Iface_Tag), Loc));
       else
-         Remove_Side_Effects (Tag_Arg);
          Set_Controlling_Argument (Cnstr_Call,
            Relocate_Node (Tag_Arg));
       end if;
@@ -313,7 +317,7 @@ package body Exp_Intr is
 
       elsif not Is_Interface (Result_Typ) then
          declare
-            Obj_Tag_Node : Node_Id := Duplicate_Subexpr (Tag_Arg);
+            Obj_Tag_Node : Node_Id := New_Copy_Tree (Tag_Arg);
             CW_Test_Node : Node_Id;
 
          begin
@@ -347,7 +351,7 @@ package body Exp_Intr is
                     Name => New_Occurrence_Of (RTE (RE_IW_Membership), Loc),
                     Parameter_Associations => New_List (
                       Make_Attribute_Reference (Loc,
-                        Prefix         => Duplicate_Subexpr (Tag_Arg),
+                        Prefix         => New_Copy_Tree (Tag_Arg),
                         Attribute_Name => Name_Address),
 
                       New_Reference_To (
@@ -450,7 +454,7 @@ package body Exp_Intr is
             New_Occurrence_Of (Standard_Character, Loc)),
 
         Make_Pragma (Loc,
-          Chars => Name_Import,
+          Chars                        => Name_Import,
           Pragma_Argument_Associations => New_List (
             Make_Pragma_Argument_Association (Loc,
               Expression => Make_Identifier (Loc, Name_Ada)),
@@ -564,16 +568,15 @@ package body Exp_Intr is
          --  conventions and this has already been checked.
 
       elsif Present (Alias (E)) then
-         Expand_Intrinsic_Call (N,  Alias (E));
+         Expand_Intrinsic_Call (N, Alias (E));
 
       elsif Nkind (N) in N_Binary_Op then
          Expand_Binary_Operator_Call (N);
 
-         --  The only other case is where an external name was specified,
-         --  since this is the only way that an otherwise unrecognized
-         --  name could escape the checking in Sem_Prag. Nothing needs
-         --  to be done in such a case, since we pass such a call to the
-         --  back end unchanged.
+         --  The only other case is where an external name was specified, since
+         --  this is the only way that an otherwise unrecognized name could
+         --  escape the checking in Sem_Prag. Nothing needs to be done in such
+         --  a case, since we pass such a call to the back end unchanged.
 
       else
          null;
@@ -603,7 +606,7 @@ package body Exp_Intr is
       --    end if;
 
       Rewrite (N,
-        Make_Conditional_Expression (Loc,
+        Make_If_Expression (Loc,
           Expressions => New_List (
             Make_Op_Lt (Loc,
               Left_Opnd  => Duplicate_Subexpr (Opnd),
@@ -611,7 +614,7 @@ package body Exp_Intr is
 
             New_Occurrence_Of (Standard_True, Loc),
 
-            Make_Conditional_Expression (Loc,
+            Make_If_Expression (Loc,
              Expressions => New_List (
                Make_Op_Gt (Loc,
                  Left_Opnd  => Duplicate_Subexpr_No_Checks (Opnd),
@@ -650,20 +653,20 @@ package body Exp_Intr is
    --  and Resolve. Such shift operator nodes will not be seen by Expand_Shift.
 
    procedure Expand_Shift (N : Node_Id; E : Entity_Id; K : Node_Kind) is
-      Loc   : constant Source_Ptr := Sloc (N);
-      Typ   : constant Entity_Id  := Etype (N);
+      Entyp : constant Entity_Id  := Etype (E);
       Left  : constant Node_Id    := First_Actual (N);
+      Loc   : constant Source_Ptr := Sloc (N);
       Right : constant Node_Id    := Next_Actual (Left);
       Ltyp  : constant Node_Id    := Etype (Left);
       Rtyp  : constant Node_Id    := Etype (Right);
+      Typ   : constant Entity_Id  := Etype (N);
       Snode : Node_Id;
 
    begin
       Snode := New_Node (K, Loc);
-      Set_Left_Opnd  (Snode, Relocate_Node (Left));
       Set_Right_Opnd (Snode, Relocate_Node (Right));
       Set_Chars      (Snode, Chars (E));
-      Set_Etype      (Snode, Base_Type (Typ));
+      Set_Etype      (Snode, Base_Type (Entyp));
       Set_Entity     (Snode, E);
 
       if Compile_Time_Known_Value (Type_High_Bound (Rtyp))
@@ -672,12 +675,30 @@ package body Exp_Intr is
          Set_Shift_Count_OK (Snode, True);
       end if;
 
-      --  Do the rewrite. Note that we don't call Analyze and Resolve on
-      --  this node, because it already got analyzed and resolved when
-      --  it was a function call!
+      if Typ = Entyp then
 
-      Rewrite (N, Snode);
-      Set_Analyzed (N);
+         --  Note that we don't call Analyze and Resolve on this node, because
+         --  it already got analyzed and resolved when it was a function call.
+
+         Set_Left_Opnd (Snode, Relocate_Node (Left));
+         Rewrite (N, Snode);
+         Set_Analyzed (N);
+
+      else
+
+         --  If the context type is not the type of the operator, it is an
+         --  inherited operator for a derived type. Wrap the node in a
+         --  conversion so that it is type-consistent for possible further
+         --  expansion (e.g. within a lock-free protected type).
+
+         Set_Left_Opnd (Snode,
+           Unchecked_Convert_To (Base_Type (Entyp), Relocate_Node (Left)));
+         Rewrite (N, Unchecked_Convert_To (Typ, Snode));
+
+         --  Analyze and resolve result formed by conversion to target type
+
+         Analyze_And_Resolve (N, Typ);
+      end if;
    end Expand_Shift;
 
    ------------------------
@@ -1027,9 +1048,9 @@ package body Exp_Intr is
                  and then Is_Entity_Name (Nam2)
                  and then Entity (Prefix (Nam1)) = Entity (Nam2)
                then
-                  Error_Msg_N ("abort may take time to complete?", N);
-                  Error_Msg_N ("\deallocation might have no effect?", N);
-                  Error_Msg_N ("\safer to wait for termination.?", N);
+                  Error_Msg_N ("abort may take time to complete??", N);
+                  Error_Msg_N ("\deallocation might have no effect??", N);
+                  Error_Msg_N ("\safer to wait for termination??", N);
                end if;
             end if;
          end;
@@ -1293,7 +1314,7 @@ package body Exp_Intr is
       Obj := Make_Explicit_Dereference (Loc, Relocate_Node (Arg));
 
       Rewrite (N,
-        Make_Conditional_Expression (Loc,
+        Make_If_Expression (Loc,
           Expressions => New_List (
             Make_Op_Eq (Loc,
               Left_Opnd => New_Copy_Tree (Arg),

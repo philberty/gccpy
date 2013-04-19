@@ -64,6 +64,8 @@ func NewReader(rd io.Reader) *Reader {
 	return NewReaderSize(rd, defaultBufSize)
 }
 
+var errNegativeRead = errors.New("bufio: reader returned negative count from Read")
+
 // fill reads a new chunk into the buffer.
 func (b *Reader) fill() {
 	// Slide existing data to beginning.
@@ -74,10 +76,13 @@ func (b *Reader) fill() {
 	}
 
 	// Read new data.
-	n, e := b.rd.Read(b.buf[b.w:])
+	n, err := b.rd.Read(b.buf[b.w:])
+	if n < 0 {
+		panic(errNegativeRead)
+	}
 	b.w += n
-	if e != nil {
-		b.err = e
+	if err != nil {
+		b.err = err
 	}
 }
 
@@ -282,6 +287,9 @@ func (b *Reader) ReadSlice(delim byte) (line []byte, err error) {
 // of the line. The returned buffer is only valid until the next call to
 // ReadLine. ReadLine either returns a non-nil line or it returns an error,
 // never both.
+//
+// The text returned from ReadLine does not include the line end ("\r\n" or "\n").
+// No indication or error is given if the input ends without a final line end.
 func (b *Reader) ReadLine() (line []byte, isPrefix bool, err error) {
 	line, err = b.ReadSlice('\n')
 	if err == ErrBufferFull {
@@ -371,8 +379,43 @@ func (b *Reader) ReadBytes(delim byte) (line []byte, err error) {
 // ReadString returns err != nil if and only if the returned data does not end in
 // delim.
 func (b *Reader) ReadString(delim byte) (line string, err error) {
-	bytes, e := b.ReadBytes(delim)
-	return string(bytes), e
+	bytes, err := b.ReadBytes(delim)
+	return string(bytes), err
+}
+
+// WriteTo implements io.WriterTo.
+func (b *Reader) WriteTo(w io.Writer) (n int64, err error) {
+	n, err = b.writeBuf(w)
+	if err != nil {
+		return
+	}
+
+	if r, ok := b.rd.(io.WriterTo); ok {
+		m, err := r.WriteTo(w)
+		n += m
+		return n, err
+	}
+
+	for b.fill(); b.r < b.w; b.fill() {
+		m, err := b.writeBuf(w)
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+
+	if b.err == io.EOF {
+		b.err = nil
+	}
+
+	return n, b.readErr()
+}
+
+// writeBuf writes the Reader's buffer to the writer.
+func (b *Reader) writeBuf(w io.Writer) (int64, error) {
+	n, err := w.Write(b.buf[b.r:b.w])
+	b.r += n
+	return int64(n), err
 }
 
 // buffered output
@@ -418,17 +461,17 @@ func (b *Writer) Flush() error {
 	if b.n == 0 {
 		return nil
 	}
-	n, e := b.wr.Write(b.buf[0:b.n])
-	if n < b.n && e == nil {
-		e = io.ErrShortWrite
+	n, err := b.wr.Write(b.buf[0:b.n])
+	if n < b.n && err == nil {
+		err = io.ErrShortWrite
 	}
-	if e != nil {
+	if err != nil {
 		if n > 0 && n < b.n {
 			copy(b.buf[0:b.n-n], b.buf[n:b.n])
 		}
 		b.n -= n
-		b.err = e
-		return e
+		b.err = err
+		return err
 	}
 	b.n = 0
 	return nil
@@ -530,6 +573,36 @@ func (b *Writer) WriteString(s string) (int, error) {
 	b.n += n
 	nn += n
 	return nn, nil
+}
+
+// ReadFrom implements io.ReaderFrom.
+func (b *Writer) ReadFrom(r io.Reader) (n int64, err error) {
+	if b.Buffered() == 0 {
+		if w, ok := b.wr.(io.ReaderFrom); ok {
+			return w.ReadFrom(r)
+		}
+	}
+	var m int
+	for {
+		m, err = r.Read(b.buf[b.n:])
+		if m == 0 {
+			break
+		}
+		b.n += m
+		n += int64(m)
+		if b.Available() == 0 {
+			if err1 := b.Flush(); err1 != nil {
+				return n, err1
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	if err == io.EOF {
+		err = nil
+	}
+	return n, err
 }
 
 // buffered input and output

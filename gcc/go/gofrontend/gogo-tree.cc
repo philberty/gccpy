@@ -6,13 +6,6 @@
 
 #include "go-system.h"
 
-#include <gmp.h>
-
-#ifndef ENABLE_BUILD_WITH_CXX
-extern "C"
-{
-#endif
-
 #include "toplev.h"
 #include "tree.h"
 #include "gimple.h"
@@ -22,12 +15,8 @@ extern "C"
 #include "convert.h"
 #include "output.h"
 #include "diagnostic.h"
-
-#ifndef ENABLE_BUILD_WITH_CXX
-}
-#endif
-
 #include "go-c.h"
+
 #include "types.h"
 #include "expressions.h"
 #include "statements.h"
@@ -353,17 +342,19 @@ Gogo::register_gc_vars(const std::vector<Named_object*>& var_gc,
 
   // Build an initialier for the __roots array.
 
-  VEC(constructor_elt,gc)* roots_init = VEC_alloc(constructor_elt, gc,
-						  count + 1);
+  vec<constructor_elt, va_gc> *roots_init;
+  vec_alloc(roots_init, count + 1);
 
   size_t i = 0;
   for (std::vector<Named_object*>::const_iterator p = var_gc.begin();
        p != var_gc.end();
        ++p, ++i)
     {
-      VEC(constructor_elt,gc)* init = VEC_alloc(constructor_elt, gc, 2);
+      vec<constructor_elt, va_gc> *init;
+      vec_alloc(init, 2);
 
-      constructor_elt* elt = VEC_quick_push(constructor_elt, init, NULL);
+      constructor_elt empty = {NULL, NULL};
+      constructor_elt* elt = init->quick_push(empty);
       tree field = TYPE_FIELDS(root_type);
       elt->index = field;
       Bvariable* bvar = (*p)->get_backend_variable(this, NULL);
@@ -371,44 +362,47 @@ Gogo::register_gc_vars(const std::vector<Named_object*>& var_gc,
       go_assert(TREE_CODE(decl) == VAR_DECL);
       elt->value = build_fold_addr_expr(decl);
 
-      elt = VEC_quick_push(constructor_elt, init, NULL);
+      elt = init->quick_push(empty);
       field = DECL_CHAIN(field);
       elt->index = field;
       elt->value = DECL_SIZE_UNIT(decl);
 
-      elt = VEC_quick_push(constructor_elt, roots_init, NULL);
+      elt = roots_init->quick_push(empty);
       elt->index = size_int(i);
       elt->value = build_constructor(root_type, init);
     }
 
   // The list ends with a NULL entry.
 
-  VEC(constructor_elt,gc)* init = VEC_alloc(constructor_elt, gc, 2);
+  vec<constructor_elt, va_gc> *init;
+  vec_alloc(init, 2);
 
-  constructor_elt* elt = VEC_quick_push(constructor_elt, init, NULL);
+  constructor_elt empty = {NULL, NULL};
+  constructor_elt* elt = init->quick_push(empty);
   tree field = TYPE_FIELDS(root_type);
   elt->index = field;
   elt->value = fold_convert(TREE_TYPE(field), null_pointer_node);
 
-  elt = VEC_quick_push(constructor_elt, init, NULL);
+  elt = init->quick_push(empty);
   field = DECL_CHAIN(field);
   elt->index = field;
   elt->value = size_zero_node;
 
-  elt = VEC_quick_push(constructor_elt, roots_init, NULL);
+  elt = roots_init->quick_push(empty);
   elt->index = size_int(i);
   elt->value = build_constructor(root_type, init);
 
   // Build a constructor for the struct.
 
-  VEC(constructor_elt,gc)* root_list_init = VEC_alloc(constructor_elt, gc, 2);
+  vec<constructor_elt, va_gc> *root_list_init;
+  vec_alloc(root_list_init, 2);
 
-  elt = VEC_quick_push(constructor_elt, root_list_init, NULL);
+  elt = root_list_init->quick_push(empty);
   field = TYPE_FIELDS(root_list_type);
   elt->index = field;
   elt->value = fold_convert(TREE_TYPE(field), null_pointer_node);
 
-  elt = VEC_quick_push(constructor_elt, root_list_init, NULL);
+  elt = root_list_init->quick_push(empty);
   field = DECL_CHAIN(field);
   elt->index = field;
   elt->value = build_constructor(array_type, roots_init);
@@ -444,15 +438,15 @@ Gogo::initialization_function_decl()
   // The tedious details of building your own function.  There doesn't
   // seem to be a helper function for this.
   std::string name = this->package_name() + ".init";
-  tree fndecl = build_decl(BUILTINS_LOCATION, FUNCTION_DECL,
-			   get_identifier_from_string(name),
+  tree fndecl = build_decl(this->package_->location().gcc_location(),
+			   FUNCTION_DECL, get_identifier_from_string(name),
 			   build_function_type(void_type_node,
 					       void_list_node));
   const std::string& asm_name(this->get_init_fn_name());
   SET_DECL_ASSEMBLER_NAME(fndecl, get_identifier_from_string(asm_name));
 
-  tree resdecl = build_decl(BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
-			    void_type_node);
+  tree resdecl = build_decl(this->package_->location().gcc_location(),
+			    RESULT_DECL, NULL_TREE, void_type_node);
   DECL_ARTIFICIAL(resdecl) = 1;
   DECL_CONTEXT(resdecl) = fndecl;
   DECL_RESULT(fndecl) = resdecl;
@@ -483,19 +477,17 @@ Gogo::write_initialization_function(tree fndecl, tree init_stmt_list)
 
   DECL_SAVED_TREE(fndecl) = init_stmt_list;
 
-  current_function_decl = fndecl;
   if (DECL_STRUCT_FUNCTION(fndecl) == NULL)
     push_struct_function(fndecl);
   else
     push_cfun(DECL_STRUCT_FUNCTION(fndecl));
-  cfun->function_end_locus = BUILTINS_LOCATION;
+  cfun->function_start_locus = this->package_->location().gcc_location();
+  cfun->function_end_locus = cfun->function_start_locus;
 
   gimplify_function_tree(fndecl);
 
   cgraph_add_new_function(fndecl, false);
-  cgraph_mark_needed_node(cgraph_get_node(fndecl));
 
-  current_function_decl = NULL_TREE;
   pop_cfun();
 }
 
@@ -507,7 +499,7 @@ class Find_var : public Traverse
   // A hash table we use to avoid looping.  The index is the name of a
   // named object.  We only look through objects defined in this
   // package.
-  typedef Unordered_set(std::string) Seen_objects;
+  typedef Unordered_set(const void*) Seen_objects;
 
   Find_var(Named_object* var, Seen_objects* seen_objects)
     : Traverse(traverse_expressions),
@@ -555,7 +547,7 @@ Find_var::expression(Expression** pexpr)
 	  if (init != NULL)
 	    {
 	      std::pair<Seen_objects::iterator, bool> ins =
-		this->seen_objects_->insert(v->name());
+		this->seen_objects_->insert(v);
 	      if (ins.second)
 		{
 		  // This is the first time we have seen this name.
@@ -576,11 +568,30 @@ Find_var::expression(Expression** pexpr)
       if (f->is_function() && f->package() == NULL)
 	{
 	  std::pair<Seen_objects::iterator, bool> ins =
-	    this->seen_objects_->insert(f->name());
+	    this->seen_objects_->insert(f);
 	  if (ins.second)
 	    {
 	      // This is the first time we have seen this name.
 	      if (f->func_value()->block()->traverse(this) == TRAVERSE_EXIT)
+		return TRAVERSE_EXIT;
+	    }
+	}
+    }
+
+  Temporary_reference_expression* tre = e->temporary_reference_expression();
+  if (tre != NULL)
+    {
+      Temporary_statement* ts = tre->statement();
+      Expression* init = ts->init();
+      if (init != NULL)
+	{
+	  std::pair<Seen_objects::iterator, bool> ins =
+	    this->seen_objects_->insert(ts);
+	  if (ins.second)
+	    {
+	      // This is the first time we have seen this temporary
+	      // statement.
+	      if (Expression::traverse(&init, this) == TRAVERSE_EXIT)
 		return TRAVERSE_EXIT;
 	    }
 	}
@@ -621,11 +632,11 @@ class Var_init
 {
  public:
   Var_init()
-    : var_(NULL), init_(NULL_TREE), waiting_(0)
+    : var_(NULL), init_(NULL_TREE)
   { }
 
   Var_init(Named_object* var, tree init)
-    : var_(var), init_(init), waiting_(0)
+    : var_(var), init_(init)
   { }
 
   // Return the variable.
@@ -638,24 +649,11 @@ class Var_init
   init() const
   { return this->init_; }
 
-  // Return the number of variables waiting for this one to be
-  // initialized.
-  size_t
-  waiting() const
-  { return this->waiting_; }
-
-  // Increment the number waiting.
-  void
-  increment_waiting()
-  { ++this->waiting_; }
-
  private:
   // The variable being initialized.
   Named_object* var_;
   // The initialization expression to run.
   tree init_;
-  // The number of variables which are waiting for this one.
-  size_t waiting_;
 };
 
 typedef std::list<Var_init> Var_inits;
@@ -668,6 +666,10 @@ typedef std::list<Var_init> Var_inits;
 static void
 sort_var_inits(Gogo* gogo, Var_inits* var_inits)
 {
+  typedef std::pair<Named_object*, Named_object*> No_no;
+  typedef std::map<No_no, bool> Cache;
+  Cache cache;
+
   Var_inits ready;
   while (!var_inits->empty())
     {
@@ -678,23 +680,30 @@ sort_var_inits(Gogo* gogo, Var_inits* var_inits)
       Named_object* dep = gogo->var_depends_on(var->var_value());
 
       // Start walking through the list to see which variables VAR
-      // needs to wait for.  We can skip P1->WAITING variables--that
-      // is the number we've already checked.
+      // needs to wait for.
       Var_inits::iterator p2 = p1;
       ++p2;
-      for (size_t i = p1->waiting(); i > 0; --i)
-	++p2;
 
       for (; p2 != var_inits->end(); ++p2)
 	{
 	  Named_object* p2var = p2->var();
-	  if (expression_requires(init, preinit, dep, p2var))
+	  No_no key(var, p2var);
+	  std::pair<Cache::iterator, bool> ins =
+	    cache.insert(std::make_pair(key, false));
+	  if (ins.second)
+	    ins.first->second = expression_requires(init, preinit, dep, p2var);
+	  if (ins.first->second)
 	    {
 	      // Check for cycles.
-	      if (expression_requires(p2var->var_value()->init(),
+	      key = std::make_pair(p2var, var);
+	      ins = cache.insert(std::make_pair(key, false));
+	      if (ins.second)
+		ins.first->second =
+		  expression_requires(p2var->var_value()->init(),
 				      p2var->var_value()->preinit(),
 				      gogo->var_depends_on(p2var->var_value()),
-				      var))
+				      var);
+	      if (ins.first->second)
 		{
 		  error_at(var->location(),
 			   ("initialization expressions for %qs and "
@@ -708,12 +717,8 @@ sort_var_inits(Gogo* gogo, Var_inits* var_inits)
 	      else
 		{
 		  // We can't emit P1 until P2 is emitted.  Move P1.
-		  // Note that the WAITING loop always executes at
-		  // least once, which is what we want.
-		  p2->increment_waiting();
 		  Var_inits::iterator p3 = p2;
-		  for (size_t i = p2->waiting(); i > 0; --i)
-		    ++p3;
+		  ++p3;
 		  var_inits->splice(p3, *var_inits, p1);
 		}
 	      break;
@@ -872,17 +877,13 @@ Gogo::write_globals()
 	      // means that we need an fndecl.
 	      if (init_fndecl == NULL_TREE)
 		init_fndecl = this->initialization_function_decl();
-	      current_function_decl = init_fndecl;
 	      if (DECL_STRUCT_FUNCTION(init_fndecl) == NULL)
 		push_struct_function(init_fndecl);
 	      else
 		push_cfun(DECL_STRUCT_FUNCTION(init_fndecl));
-
 	      tree var_decl = is_sink ? NULL_TREE : vec[i];
 	      var_init_tree = no->var_value()->get_init_block(this, NULL,
 							      var_decl);
-
-	      current_function_decl = NULL_TREE;
 	      pop_cfun();
 	    }
 
@@ -953,7 +954,7 @@ Gogo::write_globals()
 
   wrapup_global_declarations(vec, count);
 
-  cgraph_finalize_compilation_unit();
+  finalize_compilation_unit();
 
   check_global_declarations(vec, count);
   emit_debug_global_declarations(vec, count);
@@ -1131,10 +1132,9 @@ Named_object::get_tree(Gogo* gogo, Named_object* function)
 		else
 		  push_cfun(DECL_STRUCT_FUNCTION(decl));
 
+		cfun->function_start_locus = func->location().gcc_location();
 		cfun->function_end_locus =
                   func->block()->end_location().gcc_location();
-
-		current_function_decl = decl;
 
 		func->build_tree(gogo, this);
 
@@ -1142,7 +1142,6 @@ Named_object::get_tree(Gogo* gogo, Named_object* function)
 
 		cgraph_finalize_function(decl, true);
 
-		current_function_decl = NULL_TREE;
 		pop_cfun();
 	      }
 	  }
@@ -1329,6 +1328,9 @@ Function::get_or_make_decl(Gogo* gogo, Named_object* no, tree id)
 	      tree attr = get_identifier("__no_split_stack__");
 	      DECL_ATTRIBUTES(decl) = tree_cons(attr, NULL_TREE, NULL_TREE);
 	    }
+
+	  if (this->in_unique_section_)
+	    resolve_unique_section (decl, 0, 1);
 
 	  go_preserve_from_gc(decl);
 
@@ -2047,9 +2049,11 @@ Gogo::go_string_constant_tree(const std::string& val)
 {
   tree string_type = type_to_tree(Type::make_string_type()->get_backend(this));
 
-  VEC(constructor_elt, gc)* init = VEC_alloc(constructor_elt, gc, 2);
+  vec<constructor_elt, va_gc> *init;
+  vec_alloc(init, 2);
 
-  constructor_elt* elt = VEC_quick_push(constructor_elt, init, NULL);
+  constructor_elt empty = {NULL, NULL};
+  constructor_elt* elt = init->quick_push(empty);
   tree field = TYPE_FIELDS(string_type);
   go_assert(strcmp(IDENTIFIER_POINTER(DECL_NAME(field)), "__data") == 0);
   elt->index = field;
@@ -2057,7 +2061,7 @@ Gogo::go_string_constant_tree(const std::string& val)
   elt->value = fold_convert(TREE_TYPE(field),
 			    build_fold_addr_expr(str));
 
-  elt = VEC_quick_push(constructor_elt, init, NULL);
+  elt = init->quick_push(empty);
   field = DECL_CHAIN(field);
   go_assert(strcmp(IDENTIFIER_POINTER(DECL_NAME(field)), "__length") == 0);
   elt->index = field;
@@ -2105,11 +2109,13 @@ Gogo::slice_constructor(tree slice_type_tree, tree values, tree count,
 {
   go_assert(TREE_CODE(slice_type_tree) == RECORD_TYPE);
 
-  VEC(constructor_elt,gc)* init = VEC_alloc(constructor_elt, gc, 3);
+  vec<constructor_elt, va_gc> *init;
+  vec_alloc(init, 3);
 
   tree field = TYPE_FIELDS(slice_type_tree);
   go_assert(strcmp(IDENTIFIER_POINTER(DECL_NAME(field)), "__values") == 0);
-  constructor_elt* elt = VEC_quick_push(constructor_elt, init, NULL);
+  constructor_elt empty = {NULL, NULL};
+  constructor_elt* elt = init->quick_push(empty);
   elt->index = field;
   go_assert(TYPE_MAIN_VARIANT(TREE_TYPE(field))
 	     == TYPE_MAIN_VARIANT(TREE_TYPE(values)));
@@ -2124,13 +2130,13 @@ Gogo::slice_constructor(tree slice_type_tree, tree values, tree count,
 
   field = DECL_CHAIN(field);
   go_assert(strcmp(IDENTIFIER_POINTER(DECL_NAME(field)), "__count") == 0);
-  elt = VEC_quick_push(constructor_elt, init, NULL);
+  elt = init->quick_push(empty);
   elt->index = field;
   elt->value = fold_convert(TREE_TYPE(field), count);
 
   field = DECL_CHAIN(field);
   go_assert(strcmp(IDENTIFIER_POINTER(DECL_NAME(field)), "__capacity") == 0);
-  elt = VEC_quick_push(constructor_elt, init, NULL);
+  elt = init->quick_push(empty);
   elt->index = field;
   elt->value = fold_convert(TREE_TYPE(field), capacity);
 
@@ -2187,11 +2193,12 @@ Gogo::interface_method_table_for_type(const Interface_type* interface,
     }
 
   size_t count = interface_methods->size();
-  VEC(constructor_elt, gc)* pointers = VEC_alloc(constructor_elt, gc,
-						 count + 1);
+  vec<constructor_elt, va_gc> *pointers;
+  vec_alloc(pointers, count + 1);
 
   // The first element is the type descriptor.
-  constructor_elt* elt = VEC_quick_push(constructor_elt, pointers, NULL);
+  constructor_elt empty = {NULL, NULL};
+  constructor_elt* elt = pointers->quick_push(empty);
   elt->index = size_zero_node;
   Type* td_type;
   if (!is_pointer)
@@ -2232,7 +2239,7 @@ Gogo::interface_method_table_for_type(const Interface_type* interface,
 	go_unreachable();
       fndecl = build_fold_addr_expr(fndecl);
 
-      elt = VEC_quick_push(constructor_elt, pointers, NULL);
+      elt = pointers->quick_push(empty);
       elt->index = size_int(i);
       elt->value = fold_convert(const_ptr_type_node, fndecl);
     }
@@ -2345,14 +2352,17 @@ Gogo::call_builtin(tree* pdecl, Location location, const char* name,
 tree
 Gogo::runtime_error(int code, Location location)
 {
+  Type* int32_type = Type::lookup_integer_type("int32");
+  tree int32_type_tree = type_to_tree(int32_type->get_backend(this));
+
   static tree runtime_error_fndecl;
   tree ret = Gogo::call_builtin(&runtime_error_fndecl,
 				location,
 				"__go_runtime_error",
 				1,
 				void_type_node,
-				integer_type_node,
-				build_int_cst(integer_type_node, code));
+				int32_type_tree,
+				build_int_cst(int32_type_tree, code));
   if (ret == error_mark_node)
     return error_mark_node;
   // The runtime error function panics and does not return.

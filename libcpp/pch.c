@@ -1,6 +1,5 @@
 /* Part of CPP library.  (Precompiled header reading/writing.)
-   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -710,7 +709,6 @@ cpp_valid_state (cpp_reader *r, const char *name, int fd)
 
  error:
   cpp_errno (r, CPP_DL_ERROR, "while reading precompiled header");
-  return -1;
 
  fail:
   free (namebuf);

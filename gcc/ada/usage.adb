@@ -6,7 +6,7 @@
 --                                                                          --
 --                                B o d y                                   --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -167,6 +167,16 @@ begin
    Write_Switch_Char ("Dnn");
    Write_Line ("Debug expanded generated code (max line length = nn)");
 
+   --  Line for -gnatea switch
+
+   Write_Switch_Char ("ea");
+   Write_Line ("Delimiter for automatically added switches (internal switch)");
+
+   --  Line for -gnateA switch
+
+   Write_Switch_Char ("eA");
+   Write_Line ("Aliasing checks on subprogram parameters");
+
    --  Line for -gnatec switch
 
    Write_Switch_Char ("ec=?");
@@ -192,10 +202,20 @@ begin
    Write_Switch_Char ("ef");
    Write_Line ("Full source path in brief error messages");
 
+   --  Line for -gnateF switch
+
+   Write_Switch_Char ("eF");
+   Write_Line ("Check overflow on predefined Float types");
+
    --  Line for -gnateG switch
 
    Write_Switch_Char ("eG");
    Write_Line ("Generate preprocessed source");
+
+   --  Line for -gnatei switch
+
+   Write_Switch_Char ("einn");
+   Write_Line ("Set maximumum number of instantiations to nn");
 
    --  Line for -gnateI switch
 
@@ -206,6 +226,11 @@ begin
 
    Write_Switch_Char ("em=?");
    Write_Line ("Specify mapping file, e.g. -gnatem=mapping");
+
+   --  Line for -gnateO=?
+
+   Write_Switch_Char ("eO=?");
+   Write_Line ("Specify an object path file (internal switch)");
 
    --  Line for -gnatep switch
 
@@ -221,6 +246,26 @@ begin
 
    Write_Switch_Char ("eS");
    Write_Line ("Generate SCO (Source Coverage Obligation) information");
+
+   --  Line for -gnatet switch
+
+   Write_Switch_Char ("et");
+   Write_Line ("Generate target dependent information in ALI file");
+
+   --  Line for -gnateV switch
+
+   Write_Switch_Char ("eV");
+   Write_Line ("Validity checks on subprogram parameters");
+
+   --  Line for -gnateY switch
+
+   Write_Switch_Char ("eY");
+   Write_Line ("Ignore all Style_Checks pragmas in source");
+
+   --  Line for -gnatez switch
+
+   Write_Switch_Char ("ez");
+   Write_Line ("Delimiter for automatically added switches (internal switch)");
 
    --  Line for -gnatE switch
 
@@ -293,18 +338,22 @@ begin
 
    --  Line for -gnatn switch
 
-   Write_Switch_Char ("n");
-   Write_Line ("Enable pragma Inline (both within and across units)");
-
-   --  Line for -gnatN switch
-
-   Write_Switch_Char ("N");
-   Write_Line ("Full (frontend) inlining of subprograms");
+   Write_Switch_Char ("n[?]");
+   Write_Line ("Enable pragma Inline (both within and across units, ?=1/2)");
 
    --  Line for -gnato switch
 
    Write_Switch_Char ("o");
-   Write_Line ("Enable overflow checking (off by default)");
+   Write_Line ("Enable overflow checking mode to CHECKED (off by default)");
+
+   --  Lines for -gnato? switches
+
+   Write_Switch_Char ("o?");
+   Write_Line
+     ("Enable overflow checks in STRICT/MINIMIZED/ELIMINATED (1/2/3) mode ");
+   Write_Switch_Char ("o??");
+   Write_Line
+     ("Set mode for general/assertion expressions separately");
 
    --  Line for -gnatO switch
 
@@ -343,22 +392,22 @@ begin
    Write_Switch_Char ("R?s");
    Write_Line ("List rep info to file.rep instead of standard output");
 
-   --  Lines for -gnats switch
+   --  Line for -gnats switch
 
    Write_Switch_Char ("s");
    Write_Line ("Syntax check only");
 
-   --  Lines for -gnatS switch
+   --  Line for -gnatS switch
 
    Write_Switch_Char ("S");
    Write_Line ("Print listing of package Standard");
 
-   --  Lines for -gnatt switch
+   --  Line for -gnatt switch
 
    Write_Switch_Char ("t");
    Write_Line ("Tree output file to be generated");
 
-   --  Line for -gnatT switch
+   --  Line for -gnatTnn switch
 
    Write_Switch_Char ("Tnn");
    Write_Line ("All compiler tables start at nn times usual starting size");
@@ -378,7 +427,7 @@ begin
    Write_Switch_Char ("v");
    Write_Line ("Verbose mode. Full error output with source lines to stdout");
 
-   --  Line for -gnatV switch
+   --  Lines for -gnatV switch
 
    Write_Switch_Char ("Vxx");
    Write_Line
@@ -412,6 +461,8 @@ begin
 
    Write_Switch_Char ("wxx");
    Write_Line ("Enable selected warning modes, xx = list of parameters:");
+   Write_Line ("        *    indicates default setting");
+   Write_Line ("        +    indicates warning flag included in -gnatwa");
    Write_Line ("        a    turn on all info/warnings marked below with +");
    Write_Line ("        A    turn off all optional info/warnings");
    Write_Line ("        .a*+ turn on warnings for failing assertion");
@@ -428,6 +479,16 @@ begin
    Write_Line ("        .C*  turn off warnings for unrepped components");
    Write_Line ("        d    turn on warnings for implicit dereference");
    Write_Line ("        D*   turn off warnings for implicit dereference");
+
+   --  Switches -gnatw.d/w.D not available on VMS
+
+   if not OpenVMS_On_Target then
+      Write_Line
+        ("        .d   turn on tagging of warnings with -gnatw switch");
+      Write_Line
+        ("        .D*  turn off tagging of warnings with -gnatw switch");
+   end if;
+
    Write_Line ("        e    treat all warnings (but not info) as errors");
    Write_Line ("        .e   turn on every optional info/warning " &
                                                   "(no exceptions)");
@@ -441,20 +502,22 @@ begin
    Write_Line ("        .H*  turn off warnings for holes in records");
    Write_Line ("        i*+  turn on warnings for implementation unit");
    Write_Line ("        I    turn off warnings for implementation unit");
-   Write_Line ("        .i   turn on warnings for overlapping actuals");
-   Write_Line ("        .I*  turn off warnings for overlapping actuals");
+   Write_Line ("        .i*+ turn on warnings for overlapping actuals");
+   Write_Line ("        .I   turn off warnings for overlapping actuals");
    Write_Line ("        j+   turn on warnings for obsolescent " &
                                                   "(annex J) feature");
    Write_Line ("        J*   turn off warnings for obsolescent " &
                                                   "(annex J) feature");
    Write_Line ("        k+   turn on warnings on constant variable");
    Write_Line ("        K*   turn off warnings on constant variable");
+   Write_Line ("        .k   turn on warnings for standard redefinition");
+   Write_Line ("        .K*  turn off warnings for standard redefinition");
    Write_Line ("        l    turn on warnings for missing " &
                                                   "elaboration pragma");
    Write_Line ("        L*   turn off warnings for missing " &
                                                   "elaboration pragma");
    Write_Line ("        .l   turn on info messages for inherited aspects");
-   Write_Line ("        .L*   turn off info messages for inherited aspects");
+   Write_Line ("        .L*  turn off info messages for inherited aspects");
    Write_Line ("        m+   turn on warnings for variable assigned " &
                                                   "but not read");
    Write_Line ("        M*   turn off warnings for variable assigned " &
@@ -493,8 +556,8 @@ begin
    Write_Line ("        .S*  turn off warnings for overridden size clause");
    Write_Line ("        t    turn on warnings for tracking deleted code");
    Write_Line ("        T*   turn off warnings for tracking deleted code");
-   Write_Line ("        .t+  turn on warnings for suspicious contract");
-   Write_Line ("        .T*  turn off warnings for suspicious contract");
+   Write_Line ("        .t*+ turn on warnings for suspicious contract");
+   Write_Line ("        .T   turn off warnings for suspicious contract");
    Write_Line ("        u+   turn on warnings for unused entity");
    Write_Line ("        U*   turn off warnings for unused entity");
    Write_Line ("        .u   turn on warnings for unordered enumeration");
@@ -518,8 +581,6 @@ begin
                                                   "unchecked conversion");
    Write_Line ("        Z    turn off warnings for suspicious " &
                                                   "unchecked conversion");
-   Write_Line ("        *    indicates default in above list");
-   Write_Line ("        +    indicates warning flag included in -gnatwa");
 
    --  Line for -gnatW switch
 

@@ -1,6 +1,5 @@
 // -*- C++ -*- Allocate exception objects.
-// Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2011
-// Free Software Foundation, Inc.
+// Copyright (C) 2001-2013 Free Software Foundation, Inc.
 //
 // This file is part of GCC.
 //
@@ -60,7 +59,7 @@ using namespace __cxxabiv1;
 #if INT_MAX == 32767
 # define EMERGENCY_OBJ_SIZE	128
 # define EMERGENCY_OBJ_COUNT	16
-#elif LONG_MAX == 2147483647
+#elif !defined (_GLIBCXX_LLP64) && LONG_MAX == 2147483647
 # define EMERGENCY_OBJ_SIZE	512
 # define EMERGENCY_OBJ_COUNT	32
 #else
@@ -76,7 +75,11 @@ using namespace __cxxabiv1;
 #if INT_MAX == 32767 || EMERGENCY_OBJ_COUNT <= 32
 typedef unsigned int bitmask_type;
 #else
+#if defined (_GLIBCXX_LLP64)
+typedef unsigned long long bitmask_type;
+#else
 typedef unsigned long bitmask_type;
+#endif
 #endif
 
 

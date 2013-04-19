@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---                     Copyright (C) 2002-2012, AdaCore                     --
+--                     Copyright (C) 2002-2013, AdaCore                     --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -355,8 +355,10 @@ package body MLib.Utl is
       --  The linker option which specifies the response file as a string
 
       Using_GNU_response_file : constant Boolean :=
-        Object_File_Option'Length > 0
-          and then Object_File_Option (Object_File_Option'Last) = '@';
+                                  Object_File_Option'Length > 0
+                                    and then
+                                      Object_File_Option
+                                        (Object_File_Option'Last) = '@';
       --  Whether a GNU response file is used
 
       Tname    : String_Access;
@@ -394,7 +396,9 @@ package body MLib.Utl is
       --------------
 
       procedure Write_RF (S : String) is
-         Success : Boolean := True;
+         Success    : Boolean            := True;
+         Back_Slash : constant Character := '\';
+
       begin
          --  If a GNU response file is used, space and backslash need to be
          --  escaped because they are interpreted as a string separator and
@@ -403,17 +407,18 @@ package body MLib.Utl is
          --  they are interpreted as string delimiters on both sides.
 
          if Using_GNU_response_file then
-            for I in S'Range loop
-               if S (I) = ' ' or else S (I) = '\' then
-                  if Write (Tname_FD, ASCII.BACK_SLASH'Address, 1) /= 1 then
+            for J in S'Range loop
+               if S (J) = ' ' or else S (J) = '\' then
+                  if Write (Tname_FD, Back_Slash'Address, 1) /= 1 then
                      Success := False;
                   end if;
                end if;
 
-               if Write (Tname_FD, S (I)'Address, 1) /= 1 then
+               if Write (Tname_FD, S (J)'Address, 1) /= 1 then
                   Success := False;
                end if;
             end loop;
+
          else
             if Write (Tname_FD, S'Address, S'Length) /= S'Length then
                Success := False;
@@ -428,6 +433,8 @@ package body MLib.Utl is
             Fail ("cannot generate response file to link library: disk full");
          end if;
       end Write_RF;
+
+   --  Start of processing for Gcc
 
    begin
       if Driver_Name = No_Name then
@@ -544,6 +551,7 @@ package body MLib.Utl is
       end loop;
 
       if Object_List_File_Supported and then Link_Bytes > Link_Max then
+
          --  Create a temporary file containing the object files, one object
          --  file per line for maximal compatibility with linkers supporting
          --  this option.

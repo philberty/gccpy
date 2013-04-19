@@ -1,4 +1,4 @@
-# Copyright (C) 2000 -- 2013 Free Software Foundation, Inc.
+# Copyright (C) 2000-2013 Free Software Foundation, Inc.
 #
 # This file is part of GCC.
 #
@@ -18,22 +18,31 @@
 
 driver-avr.o: $(srcdir)/config/avr/driver-avr.c \
   $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H)
-	$(CC) -c $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
+	$(COMPILER) -c $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
 
 avr-devices.o: $(srcdir)/config/avr/avr-devices.c \
   $(srcdir)/config/avr/avr-mcus.def \
   $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H)
-	$(CC) -c $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
+	$(COMPILER) -c $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
 
 avr-c.o: $(srcdir)/config/avr/avr-c.c \
   $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(TREE_H) $(C_COMMON_H)
-	$(CC) -c $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
+	$(COMPILER) -c $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
 
 avr-log.o: $(srcdir)/config/avr/avr-log.c \
-  $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(TREE_H) $(INPUT_H)
-	$(CC) -c $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
+  $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(TREE_H) $(INPUT_H) dumpfile.h
+	$(COMPILER) -c $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
 
 avr.o avr-c.o: $(srcdir)/config/avr/builtins.def
+
+# This overrides stdfix.h from USER_H which we supply and include
+# in our own stdint.h as stdint-gcc.h.
+
+EXTRA_HEADERS = $(srcdir)/config/avr/stdfix.h \
+	      	stdfix-gcc.h
+
+stdfix-gcc.h: $(srcdir)/ginclude/stdfix.h
+	-cp $< $@
 
 # Files and Variables auto-generated from avr-mcus.def
 
@@ -44,15 +53,24 @@ AVR_MCUS = $(srcdir)/config/avr/avr-mcus.def
 .PHONY: avr-mcus
 
 avr-mcus: $(srcdir)/config/avr/t-multilib \
-	  $(srcdir)/config/avr/avr-tables.opt; @true
+	  $(srcdir)/config/avr/avr-tables.opt \
+	  $(srcdir)/doc/avr-mmcu.texi ; @true
 
 # Make sure that -mmcu= is supported for devices from avr-mcus.def and
 # all -mmcu= values are displayed on the help screen
 $(srcdir)/config/avr/avr-tables.opt: $(srcdir)/config/avr/genopt.sh $(AVR_MCUS)
 	$(SHELL) $< $(AVR_MCUS) > $@
 
-# Map -mmcu= to the right multilib variant
+# Make sure that -mmcu= support is in sync with -mmcu= documentation.
+gen-avr-mmcu-texi$(build_exeext): $(srcdir)/config/avr/gen-avr-mmcu-texi.c \
+  $(AVR_MCUS) $(srcdir)/config/avr/avr-devices.c \
+  $(srcdir)/config/avr/avr-arch.h
+	$(CC_FOR_BUILD) $(CFLAGS_FOR_BUILD) $< -o $@
 
+$(srcdir)/doc/avr-mmcu.texi: gen-avr-mmcu-texi$(build_exeext)
+	$(RUN_GEN) ./$< > $@
+
+# Map -mmcu= to the right multilib variant
 # MULTILIB_OPTIONS
 # MULTILIB_DIRNAMES
 # MULTILIB_EXCEPTIONS

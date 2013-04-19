@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -81,14 +81,21 @@ package body Exp_Alfa is
          when N_Attribute_Reference =>
             Expand_Alfa_N_Attribute_Reference (N);
 
+         --  Qualification of entity names in formal verification mode
+         --  is limited to the addition of a suffix for homonyms (see
+         --  Exp_Dbug.Qualify_Entity_Name). We used to qualify entity names
+         --  as full expansion does, but this was removed as this prevents the
+         --  verification back-end from using a short name for debugging and
+         --  user interaction. The verification back-end already takes care
+         --  of qualifying names when needed.
+
          when N_Block_Statement     |
               N_Package_Body        |
               N_Package_Declaration |
               N_Subprogram_Body     =>
             Qualify_Entity_Names (N);
 
-         when N_Function_Call            |
-              N_Procedure_Call_Statement =>
+         when N_Subprogram_Call     =>
             Expand_Alfa_Call (N);
 
          when N_Expanded_Name |
@@ -98,6 +105,9 @@ package body Exp_Alfa is
          when N_In =>
             Expand_Alfa_N_In (N);
 
+         --  A NOT IN B gets transformed to NOT (A IN B). This is the same
+         --  expansion used in the normal case, so shared the code.
+
          when N_Not_In =>
             Expand_N_Not_In (N);
 
@@ -106,6 +116,8 @@ package body Exp_Alfa is
 
          when N_Simple_Return_Statement =>
             Expand_Alfa_N_Simple_Return_Statement (N);
+
+         --  In Alfa mode, no other constructs require expansion
 
          when others =>
             null;

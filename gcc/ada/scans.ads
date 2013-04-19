@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -201,7 +201,7 @@ package Scans is
       --  This entry is used when scanning project files (where it represents
       --  an entire comment), and in preprocessing with the -C switch set
       --  (where it represents just the "--" of a comment). For the project
-      --  file case, the text of the comment is stored in
+      --  file case, the text of the comment is stored in Comment_Id.
 
       Tok_End_Of_Line,
       --  Represents an end of line. Not used during normal compilation scans
@@ -464,8 +464,8 @@ package Scans is
    --  Is it really right for this to be a Name rather than a String, what
    --  about the case of Wide_Wide_Characters???
 
-   Inside_Conditional_Expression : Nat := 0;
-   --  This is a counter that is set non-zero while scanning out a conditional
+   Inside_If_Expression : Nat := 0;
+   --  This is a counter that is set non-zero while scanning out an if
    --  expression (incremented on entry, decremented on exit). It is used to
    --  disconnect format checks that normally apply to keywords THEN, ELSE etc.
 

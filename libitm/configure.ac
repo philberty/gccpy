@@ -1,5 +1,5 @@
 # Process this file with autoreconf to produce a configure script.
-#   Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+#   Copyright (C) 2011-2013 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -244,6 +244,7 @@ CFLAGS="$save_CFLAGS $XCFLAGS"
 LIBITM_CHECK_SYNC_BUILTINS
 LIBITM_CHECK_64BIT_SYNC_BUILTINS
 LIBITM_CHECK_AS_AVX
+LIBITM_CHECK_AS_RTM
 
 GCC_CHECK_ELF_STYLE_WEAKREF
 

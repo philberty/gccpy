@@ -24,13 +24,13 @@ import (
 // be used as dependencies by other rules.
 //
 // DO NOT CHANGE THIS DATA TO FIX BUILDS.
-// 
+//
 var pkgDeps = map[string][]string{
 	// L0 is the lowest level, core, nearly unavoidable packages.
 	"errors":      {},
 	"io":          {"errors", "sync"},
 	"runtime":     {"unsafe"},
-	"sync":        {"sync/atomic"},
+	"sync":        {"sync/atomic", "unsafe"},
 	"sync/atomic": {"unsafe"},
 	"unsafe":      {},
 
@@ -177,7 +177,7 @@ var pkgDeps = map[string][]string{
 	},
 
 	// One of a kind.
-	"archive/tar":         {"L4", "OS"},
+	"archive/tar":         {"L4", "OS", "syscall"},
 	"archive/zip":         {"L4", "OS", "compress/flate"},
 	"compress/bzip2":      {"L4"},
 	"compress/flate":      {"L4"},
@@ -249,18 +249,23 @@ var pkgDeps = map[string][]string{
 	"net/mail":      {"L4", "NET", "OS"},
 	"net/textproto": {"L4", "OS", "net"},
 
+	// Support libraries for crypto that aren't L2.
+	"CRYPTO-SUPPORT": {
+		"crypto/subtle",
+	},
+
 	// Core crypto.
 	"crypto/aes":    {"L3"},
 	"crypto/des":    {"L3"},
-	"crypto/hmac":   {"L3"},
+	"crypto/hmac":   {"L3", "CRYPTO-SUPPORT"},
 	"crypto/md5":    {"L3"},
 	"crypto/rc4":    {"L3"},
 	"crypto/sha1":   {"L3"},
 	"crypto/sha256": {"L3"},
 	"crypto/sha512": {"L3"},
-	"crypto/subtle": {"L3"},
 
 	"CRYPTO": {
+		"CRYPTO-SUPPORT",
 		"crypto/aes",
 		"crypto/des",
 		"crypto/hmac",
@@ -269,7 +274,6 @@ var pkgDeps = map[string][]string{
 		"crypto/sha1",
 		"crypto/sha256",
 		"crypto/sha512",
-		"crypto/subtle",
 	},
 
 	// Random byte, number generation.
@@ -300,7 +304,10 @@ var pkgDeps = map[string][]string{
 		"L4", "CRYPTO-MATH", "CGO", "OS",
 		"crypto/x509", "encoding/pem", "net", "syscall",
 	},
-	"crypto/x509":      {"L4", "CRYPTO-MATH", "OS", "CGO", "crypto/x509/pkix", "encoding/pem", "syscall"},
+	"crypto/x509": {
+		"L4", "CRYPTO-MATH", "OS", "CGO",
+		"crypto/x509/pkix", "encoding/pem", "encoding/hex", "syscall",
+	},
 	"crypto/x509/pkix": {"L4", "CRYPTO-MATH"},
 
 	// Simple net+crypto-aware packages.

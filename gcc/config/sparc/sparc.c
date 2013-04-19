@@ -1,8 +1,5 @@
 /* Subroutines for insn-output.c for SPARC.
-   Copyright (C) 1987, 1988, 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
    64-bit SPARC-V9 support by Michael Tiemann, Jim Wilson, and Doug Evans,
    at Cygnus Support.
@@ -49,13 +46,11 @@ along with GCC; see the file COPYING3.  If not see
 #include "target.h"
 #include "target-def.h"
 #include "common/common-target.h"
-#include "cfglayout.h"
 #include "gimple.h"
 #include "langhooks.h"
 #include "reload.h"
 #include "params.h"
 #include "df.h"
-#include "dwarf2out.h"
 #include "opts.h"
 
 /* Processor costs */
@@ -374,6 +369,30 @@ struct processor_costs niagara3_costs = {
   0, /* shift penalty */
 };
 
+static const
+struct processor_costs niagara4_costs = {
+  COSTS_N_INSNS (5), /* int load */
+  COSTS_N_INSNS (5), /* int signed load */
+  COSTS_N_INSNS (5), /* int zeroed load */
+  COSTS_N_INSNS (5), /* float load */
+  COSTS_N_INSNS (11), /* fmov, fneg, fabs */
+  COSTS_N_INSNS (11), /* fadd, fsub */
+  COSTS_N_INSNS (11), /* fcmp */
+  COSTS_N_INSNS (11), /* fmov, fmovr */
+  COSTS_N_INSNS (11), /* fmul */
+  COSTS_N_INSNS (24), /* fdivs */
+  COSTS_N_INSNS (37), /* fdivd */
+  COSTS_N_INSNS (24), /* fsqrts */
+  COSTS_N_INSNS (37), /* fsqrtd */
+  COSTS_N_INSNS (12), /* imul */
+  COSTS_N_INSNS (12), /* imulX */
+  0, /* imul bit factor */
+  COSTS_N_INSNS (50), /* idiv, average of 41 - 60 cycle range */
+  COSTS_N_INSNS (35), /* idivX, average of 26 - 44 cycle range */
+  COSTS_N_INSNS (1), /* movcc/movr */
+  0, /* shift penalty */
+};
+
 static const struct processor_costs *sparc_costs = &cypress_costs;
 
 #ifdef HAVE_AS_RELAX_OPTION
@@ -447,7 +466,7 @@ struct GTY(()) machine_function
 
   /* True if the current function is leaf and uses only leaf regs,
      so that the SPARC leaf function optimization can be applied.
-     Private version of current_function_uses_only_leaf_regs, see
+     Private version of crtl->uses_only_leaf_regs, see
      sparc_expand_prologue for the rationale.  */
   int leaf_function_p;
 
@@ -514,7 +533,7 @@ static void sparc_vis_init_builtins (void);
 static rtx sparc_expand_builtin (tree, rtx, rtx, enum machine_mode, int);
 static tree sparc_fold_builtin (tree, int, tree *, bool);
 static int sparc_vis_mul8x16 (int, int);
-static tree sparc_handle_vis_mul8x16 (int, tree, tree, tree);
+static void sparc_handle_vis_mul8x16 (tree *, int, tree, tree, tree);
 static void sparc_output_mi_thunk (FILE *, tree, HOST_WIDE_INT,
 				   HOST_WIDE_INT, tree);
 static bool sparc_can_output_mi_thunk (const_tree, HOST_WIDE_INT,
@@ -545,7 +564,7 @@ static rtx sparc_legitimize_tls_address (rtx);
 static rtx sparc_legitimize_pic_address (rtx, rtx);
 static rtx sparc_legitimize_address (rtx, rtx, enum machine_mode);
 static rtx sparc_delegitimize_address (rtx);
-static bool sparc_mode_dependent_address_p (const_rtx);
+static bool sparc_mode_dependent_address_p (const_rtx, addr_space_t);
 static bool sparc_pass_by_reference (cumulative_args_t,
 				     enum machine_mode, const_tree, bool);
 static void sparc_function_arg_advance (cumulative_args_t,
@@ -667,7 +686,7 @@ char sparc_hard_reg_printed[8];
 #undef TARGET_RTX_COSTS
 #define TARGET_RTX_COSTS sparc_rtx_costs
 #undef TARGET_ADDRESS_COST
-#define TARGET_ADDRESS_COST hook_int_rtx_bool_0
+#define TARGET_ADDRESS_COST hook_int_rtx_mode_as_bool_0
 #undef TARGET_REGISTER_MOVE_COST
 #define TARGET_REGISTER_MOVE_COST sparc_register_move_cost
 
@@ -818,6 +837,8 @@ dump_target_flag_bits (const int flags)
     fprintf (stderr, "VIS2 ");
   if (flags & MASK_VIS3)
     fprintf (stderr, "VIS3 ");
+  if (flags & MASK_CBCOND)
+    fprintf (stderr, "CBCOND ");
   if (flags & MASK_DEPRECATED_V8_INSNS)
     fprintf (stderr, "DEPRECATED_V8_INSNS ");
   if (flags & MASK_SPARCLET)
@@ -924,7 +945,7 @@ sparc_option_override (void)
       MASK_V9|MASK_POPC|MASK_VIS2|MASK_VIS3|MASK_FMAF },
     /* UltraSPARC T4 */
     { "niagara4",	MASK_ISA,
-      MASK_V9|MASK_POPC|MASK_VIS2|MASK_VIS3|MASK_FMAF },
+      MASK_V9|MASK_POPC|MASK_VIS2|MASK_VIS3|MASK_FMAF|MASK_CBCOND },
   };
   const struct cpu_table *cpu;
   unsigned int i;
@@ -1051,6 +1072,9 @@ sparc_option_override (void)
 #ifndef HAVE_AS_FMAF_HPC_VIS3
 		   & ~(MASK_FMAF | MASK_VIS3)
 #endif
+#ifndef HAVE_AS_SPARC4
+		   & ~MASK_CBCOND
+#endif
 		   );
 
   /* If -mfpu or -mno-fpu was explicitly used, don't override with
@@ -1066,7 +1090,8 @@ sparc_option_override (void)
   if (TARGET_VIS3)
     target_flags |= MASK_VIS2 | MASK_VIS;
 
-  /* Don't allow -mvis, -mvis2, -mvis3, or -mfmaf if FPU is disabled.  */
+  /* Don't allow -mvis, -mvis2, -mvis3, or -mfmaf if FPU is
+     disabled.  */
   if (! TARGET_FPU)
     target_flags &= ~(MASK_VIS | MASK_VIS2 | MASK_VIS3 | MASK_FMAF);
 
@@ -1157,8 +1182,10 @@ sparc_option_override (void)
       sparc_costs = &niagara2_costs;
       break;
     case PROCESSOR_NIAGARA3:
-    case PROCESSOR_NIAGARA4:
       sparc_costs = &niagara3_costs;
+      break;
+    case PROCESSOR_NIAGARA4:
+      sparc_costs = &niagara4_costs;
       break;
     case PROCESSOR_NATIVE:
       gcc_unreachable ();
@@ -1439,6 +1466,18 @@ sparc_expand_move (enum machine_mode mode, rtx *operands)
     case DImode:
       /* input_operand should have filtered out 32-bit mode.  */
       sparc_emit_set_const64 (operands[0], operands[1]);
+      return true;
+
+    case TImode:
+      {
+	rtx high, low;
+	/* TImode isn't available in 32-bit mode.  */
+	split_double (operands[1], &high, &low);
+	emit_insn (gen_movdi (operand_subword (operands[0], 0, 0, TImode),
+			      high));
+	emit_insn (gen_movdi (operand_subword (operands[0], 1, 0, TImode),
+			      low));
+      }
       return true;
 
     default:
@@ -2624,6 +2663,24 @@ emit_v9_brxx_insn (enum rtx_code code, rtx op0, rtx label)
 				    pc_rtx)));
 }
 
+/* Emit a conditional jump insn for the UA2011 architecture using
+   comparison code CODE and jump target LABEL.  This function exists
+   to take advantage of the UA2011 Compare and Branch insns.  */
+
+static void
+emit_cbcond_insn (enum rtx_code code, rtx op0, rtx op1, rtx label)
+{
+  rtx if_then_else;
+
+  if_then_else = gen_rtx_IF_THEN_ELSE (VOIDmode,
+				       gen_rtx_fmt_ee(code, GET_MODE(op0),
+						      op0, op1),
+				       gen_rtx_LABEL_REF (VOIDmode, label),
+				       pc_rtx);
+
+  emit_jump_insn (gen_rtx_SET (VOIDmode, pc_rtx, if_then_else));
+}
+
 void
 emit_conditional_branch_insn (rtx operands[])
 {
@@ -2636,6 +2693,20 @@ emit_conditional_branch_insn (rtx operands[])
 					      GET_CODE (operands[0]));
       operands[1] = XEXP (operands[0], 0);
       operands[2] = XEXP (operands[0], 1);
+    }
+
+  /* If we can tell early on that the comparison is against a constant
+     that won't fit in the 5-bit signed immediate field of a cbcond,
+     use one of the other v9 conditional branch sequences.  */
+  if (TARGET_CBCOND
+      && GET_CODE (operands[1]) == REG
+      && (GET_MODE (operands[1]) == SImode
+	  || (TARGET_ARCH64 && GET_MODE (operands[1]) == DImode))
+      && (GET_CODE (operands[2]) != CONST_INT
+	  || SPARC_SIMM5_P (INTVAL (operands[2]))))
+    {
+      emit_cbcond_insn (GET_CODE (operands[0]), operands[1], operands[2], operands[3]);
+      return;
     }
 
   if (TARGET_ARCH64 && operands[2] == const0_rtx
@@ -2712,7 +2783,7 @@ emit_soft_tfmode_libcall (const char *func_name, int nargs, rtx *operands)
 	    }
 	  else
 	    {
-	      this_slot = assign_stack_temp (TFmode, GET_MODE_SIZE (TFmode), 0);
+	      this_slot = assign_stack_temp (TFmode, GET_MODE_SIZE (TFmode));
 
 	      /* Operand 0 is the return value.  We'll copy it out later.  */
 	      if (i > 0)
@@ -2973,6 +3044,44 @@ empty_delay_slot (rtx insn)
 
   seq = NEXT_INSN (PREV_INSN (insn));
   if (GET_CODE (PATTERN (seq)) == SEQUENCE)
+    return 0;
+
+  return 1;
+}
+
+/* Return nonzero if we should emit a nop after a cbcond instruction.
+   The cbcond instruction does not have a delay slot, however there is
+   a severe performance penalty if a control transfer appears right
+   after a cbcond.  Therefore we emit a nop when we detect this
+   situation.  */
+
+int
+emit_cbcond_nop (rtx insn)
+{
+  rtx next = next_active_insn (insn);
+
+  if (!next)
+    return 1;
+
+  if (GET_CODE (next) == INSN
+      && GET_CODE (PATTERN (next)) == SEQUENCE)
+    next = XVECEXP (PATTERN (next), 0, 0);
+  else if (GET_CODE (next) == CALL_INSN
+	   && GET_CODE (PATTERN (next)) == PARALLEL)
+    {
+      rtx delay = XVECEXP (PATTERN (next), 0, 1);
+
+      if (GET_CODE (delay) == RETURN)
+	{
+	  /* It's a sibling call.  Do not emit the nop if we're going
+	     to emit something other than the jump itself as the first
+	     instruction of the sibcall sequence.  */
+	  if (sparc_leaf_function_p || TARGET_FLAT)
+	    return 0;
+	}
+    }
+
+  if (NONJUMP_INSN_P (next))
     return 0;
 
   return 1;
@@ -3468,6 +3577,10 @@ sparc_legitimate_address_p (enum machine_mode mode, rtx addr, bool strict)
 	      && ! (TARGET_ARCH64 && TARGET_HARD_QUAD))
 	    return 0;
 
+	  /* Likewise for TImode, but in all cases.  */
+	  if (mode == TImode)
+	    return 0;
+
 	  /* We prohibit REG + REG on ARCH32 if not optimizing for
 	     DFmode/DImode because then mem_min_alignment is likely to be zero
 	     after reload and the  forced split would lack a matching splitter
@@ -3840,7 +3953,7 @@ sparc_legitimize_pic_address (rtx orig, rtx reg)
       if (GET_CODE (offset) == CONST_INT)
 	{
 	  if (SMALL_INT (offset))
-	    return plus_constant (base, INTVAL (offset));
+	    return plus_constant (Pmode, base, INTVAL (offset));
 	  else if (can_create_pseudo_p ())
 	    offset = force_reg (Pmode, offset);
 	  else
@@ -4005,7 +4118,8 @@ sparc_legitimize_reload_address (rtx x, enum machine_mode mode,
 
 
 static bool
-sparc_mode_dependent_address_p (const_rtx addr)
+sparc_mode_dependent_address_p (const_rtx addr,
+				addr_space_t as ATTRIBUTE_UNUSED)
 {
   if (flag_pic && GET_CODE (addr) == PLUS)
     {
@@ -4525,6 +4639,22 @@ sparc_compute_frame_size (HOST_WIDE_INT size, int leaf_function)
   return frame_size;
 }
 
+/* Implement the macro INITIAL_ELIMINATION_OFFSET, return the OFFSET.  */
+
+int
+sparc_initial_elimination_offset (int to)
+{
+  int offset;
+
+  if (to == STACK_POINTER_REGNUM)
+    offset = sparc_compute_frame_size (get_frame_size (), crtl->is_leaf);
+  else
+    offset = 0;
+
+  offset += SPARC_STACK_BIAS;
+  return offset;
+}
+
 /* Output any necessary .register pseudo-ops.  */
 
 void
@@ -4579,7 +4709,7 @@ sparc_emit_probe_stack_range (HOST_WIDE_INT first, HOST_WIDE_INT size)
       emit_move_insn (g1, GEN_INT (first));
       emit_insn (gen_rtx_SET (VOIDmode, g1,
 			      gen_rtx_MINUS (Pmode, stack_pointer_rtx, g1)));
-      emit_stack_probe (plus_constant (g1, -size));
+      emit_stack_probe (plus_constant (Pmode, g1, -size));
     }
 
   /* The run-time loop is made up of 10 insns in the generic case while the
@@ -4599,11 +4729,12 @@ sparc_emit_probe_stack_range (HOST_WIDE_INT first, HOST_WIDE_INT size)
       for (i = 2 * PROBE_INTERVAL; i < size; i += PROBE_INTERVAL)
 	{
 	  emit_insn (gen_rtx_SET (VOIDmode, g1,
-				  plus_constant (g1, -PROBE_INTERVAL)));
+				  plus_constant (Pmode, g1, -PROBE_INTERVAL)));
 	  emit_stack_probe (g1);
 	}
 
-      emit_stack_probe (plus_constant (g1, (i - PROBE_INTERVAL) - size));
+      emit_stack_probe (plus_constant (Pmode, g1,
+				       (i - PROBE_INTERVAL) - size));
     }
 
   /* Otherwise, do the same as above, but in a loop.  Note that we must be
@@ -4656,7 +4787,7 @@ sparc_emit_probe_stack_range (HOST_WIDE_INT first, HOST_WIDE_INT size)
 	 that SIZE is equal to ROUNDED_SIZE.  */
 
       if (size != rounded_size)
-	emit_stack_probe (plus_constant (g4, rounded_size - size));
+	emit_stack_probe (plus_constant (Pmode, g4, rounded_size - size));
     }
 
   /* Make sure nothing is scheduled before we are done.  */
@@ -4733,7 +4864,8 @@ emit_save_or_restore_regs (unsigned int low, unsigned int high, rtx base,
 	{
 	  if (save_p (i, leaf_function))
 	    {
-	      mem = gen_frame_mem (DImode, plus_constant (base, offset));
+	      mem = gen_frame_mem (DImode, plus_constant (Pmode,
+							  base, offset));
 	      if (action_true == SORR_SAVE)
 		{
 		  insn = emit_move_insn (mem, gen_rtx_REG (DImode, i));
@@ -4758,7 +4890,7 @@ emit_save_or_restore_regs (unsigned int low, unsigned int high, rtx base,
 
       if (fp_offset >= 0)
 	{
-	  mem = gen_frame_mem (DImode, plus_constant (base, fp_offset));
+	  mem = gen_frame_mem (DImode, plus_constant (Pmode, base, fp_offset));
 	  emit_move_insn (hard_frame_pointer_rtx, mem);
 	}
     }
@@ -4794,7 +4926,7 @@ emit_save_or_restore_regs (unsigned int low, unsigned int high, rtx base,
 	      continue;
 	    }
 
-	  mem = gen_frame_mem (mode, plus_constant (base, offset));
+	  mem = gen_frame_mem (mode, plus_constant (Pmode, base, offset));
 	  if (action_true == SORR_SAVE)
 	    {
 	      insn = emit_move_insn (mem, gen_rtx_REG (mode, regno));
@@ -4802,12 +4934,14 @@ emit_save_or_restore_regs (unsigned int low, unsigned int high, rtx base,
 	      if (mode == DImode)
 		{
 		  rtx set1, set2;
-		  mem = gen_frame_mem (SImode, plus_constant (base, offset));
+		  mem = gen_frame_mem (SImode, plus_constant (Pmode, base,
+							      offset));
 		  set1 = gen_rtx_SET (VOIDmode, mem,
 				      gen_rtx_REG (SImode, regno));
 		  RTX_FRAME_RELATED_P (set1) = 1;
 		  mem
-		    = gen_frame_mem (SImode, plus_constant (base, offset + 4));
+		    = gen_frame_mem (SImode, plus_constant (Pmode, base,
+							    offset + 4));
 		  set2 = gen_rtx_SET (VOIDmode, mem,
 				      gen_rtx_REG (SImode, regno + 1));
 		  RTX_FRAME_RELATED_P (set2) = 1;
@@ -4897,7 +5031,7 @@ emit_window_save (rtx increment)
 
   /* The CFA is %fp, the hard frame pointer.  */
   add_reg_note (insn, REG_CFA_DEF_CFA,
-		plus_constant (hard_frame_pointer_rtx,
+		plus_constant (Pmode, hard_frame_pointer_rtx,
 			       INCOMING_FRAME_SP_OFFSET));
 
   return insn;
@@ -4915,18 +5049,6 @@ gen_stack_pointer_inc (rtx increment)
 				    increment));
 }
 
-/* Generate a decrement for the stack pointer.  */
-
-static rtx
-gen_stack_pointer_dec (rtx decrement)
-{
-  return gen_rtx_SET (VOIDmode,
-		      stack_pointer_rtx,
-		      gen_rtx_MINUS (Pmode,
-				     stack_pointer_rtx,
-				     decrement));
-}
-
 /* Expand the function prologue.  The prologue is responsible for reserving
    storage for the frame, saving the call-saved registers and loading the
    GOT register if needed.  */
@@ -4937,7 +5059,7 @@ sparc_expand_prologue (void)
   HOST_WIDE_INT size;
   rtx insn;
 
-  /* Compute a snapshot of current_function_uses_only_leaf_regs.  Relying
+  /* Compute a snapshot of crtl->uses_only_leaf_regs.  Relying
      on the final value of the flag means deferring the prologue/epilogue
      expansion until just before the second scheduling pass, which is too
      late to emit multiple epilogues or return insns.
@@ -4960,7 +5082,7 @@ sparc_expand_prologue (void)
      example, the regrename pass has special provisions to not rename to
      non-leaf registers in a leaf function.  */
   sparc_leaf_function_p
-    = optimize > 0 && current_function_is_leaf && only_leaf_regs_used ();
+    = optimize > 0 && crtl->is_leaf && only_leaf_regs_used ();
 
   size = sparc_compute_frame_size (get_frame_size(), sparc_leaf_function_p);
 
@@ -5062,7 +5184,7 @@ sparc_flat_expand_prologue (void)
   HOST_WIDE_INT size;
   rtx insn;
 
-  sparc_leaf_function_p = optimize > 0 && current_function_is_leaf;
+  sparc_leaf_function_p = optimize > 0 && crtl->is_leaf;
 
   size = sparc_compute_frame_size (get_frame_size(), sparc_leaf_function_p);
 
@@ -5119,7 +5241,7 @@ sparc_flat_expand_prologue (void)
 
 	  add_reg_note (insn, REG_CFA_ADJUST_CFA,
 			gen_rtx_SET (VOIDmode, hard_frame_pointer_rtx,
-				     plus_constant (stack_pointer_rtx,
+				     plus_constant (Pmode, stack_pointer_rtx,
 						    size)));
 	}
 
@@ -5173,7 +5295,7 @@ sparc_asm_function_prologue (FILE *file, HOST_WIDE_INT size ATTRIBUTE_UNUSED)
 {
   /* Check that the assumption we made in sparc_expand_prologue is valid.  */
   if (!TARGET_FLAT)
-    gcc_assert (sparc_leaf_function_p == current_function_uses_only_leaf_regs);
+    gcc_assert (sparc_leaf_function_p == crtl->uses_only_leaf_regs);
 
   sparc_output_scratch_registers (file);
 }
@@ -5197,17 +5319,17 @@ sparc_expand_epilogue (bool for_eh)
   else if (sparc_leaf_function_p)
     {
       if (size <= 4096)
-	emit_insn (gen_stack_pointer_dec (GEN_INT (-size)));
+	emit_insn (gen_stack_pointer_inc (GEN_INT (size)));
       else if (size <= 8192)
 	{
-	  emit_insn (gen_stack_pointer_dec (GEN_INT (-4096)));
-	  emit_insn (gen_stack_pointer_dec (GEN_INT (4096 - size)));
+	  emit_insn (gen_stack_pointer_inc (GEN_INT (4096)));
+	  emit_insn (gen_stack_pointer_inc (GEN_INT (size - 4096)));
 	}
       else
 	{
 	  rtx reg = gen_rtx_REG (Pmode, 1);
-	  emit_move_insn (reg, GEN_INT (-size));
-	  emit_insn (gen_stack_pointer_dec (reg));
+	  emit_move_insn (reg, GEN_INT (size));
+	  emit_insn (gen_stack_pointer_inc (reg));
 	}
     }
 }
@@ -5257,17 +5379,17 @@ sparc_flat_expand_epilogue (bool for_eh)
       emit_insn (gen_blockage ());
 
       if (size <= 4096)
-	emit_insn (gen_stack_pointer_dec (GEN_INT (-size)));
+	emit_insn (gen_stack_pointer_inc (GEN_INT (size)));
       else if (size <= 8192)
 	{
-	  emit_insn (gen_stack_pointer_dec (GEN_INT (-4096)));
-	  emit_insn (gen_stack_pointer_dec (GEN_INT (4096 - size)));
+	  emit_insn (gen_stack_pointer_inc (GEN_INT (4096)));
+	  emit_insn (gen_stack_pointer_inc (GEN_INT (size - 4096)));
 	}
       else
 	{
 	  rtx reg = gen_rtx_REG (Pmode, 1);
-	  emit_move_insn (reg, GEN_INT (-size));
-	  emit_insn (gen_stack_pointer_dec (reg));
+	  emit_move_insn (reg, GEN_INT (size));
+	  emit_insn (gen_stack_pointer_inc (reg));
 	}
     }
 }
@@ -6710,10 +6832,10 @@ sparc_struct_value_rtx (tree fndecl, int incoming)
       rtx mem;
 
       if (incoming)
-	mem = gen_frame_mem (Pmode, plus_constant (frame_pointer_rtx,
+	mem = gen_frame_mem (Pmode, plus_constant (Pmode, frame_pointer_rtx,
 						   STRUCT_VALUE_OFFSET));
       else
-	mem = gen_frame_mem (Pmode, plus_constant (stack_pointer_rtx,
+	mem = gen_frame_mem (Pmode, plus_constant (Pmode, stack_pointer_rtx,
 						   STRUCT_VALUE_OFFSET));
 
       /* Only follow the SPARC ABI for fixed-size structure returns.
@@ -6744,7 +6866,8 @@ sparc_struct_value_rtx (tree fndecl, int incoming)
 	     it's an unimp instruction (the most significant 10 bits
 	     will be zero).  */
 	  emit_move_insn (scratch, gen_rtx_MEM (SImode,
-						plus_constant (ret_reg, 8)));
+						plus_constant (Pmode,
+							       ret_reg, 8)));
 	  /* Assume the size is valid and pre-adjust */
 	  emit_insn (gen_add3_insn (ret_reg, ret_reg, GEN_INT (4)));
 	  emit_cmp_and_jump_insns (scratch, size_rtx, EQ, const0_rtx, SImode,
@@ -7052,19 +7175,49 @@ sparc_preferred_simd_mode (enum machine_mode mode)
    DEST is the destination insn (i.e. the label), INSN is the source.  */
 
 const char *
-output_ubranch (rtx dest, int label, rtx insn)
+output_ubranch (rtx dest, rtx insn)
 {
   static char string[64];
   bool v9_form = false;
+  int delta;
   char *p;
 
-  if (TARGET_V9 && INSN_ADDRESSES_SET_P ())
+  /* Even if we are trying to use cbcond for this, evaluate
+     whether we can use V9 branches as our backup plan.  */
+
+  delta = 5000000;
+  if (INSN_ADDRESSES_SET_P ())
+    delta = (INSN_ADDRESSES (INSN_UID (dest))
+	     - INSN_ADDRESSES (INSN_UID (insn)));
+
+  /* Leave some instructions for "slop".  */
+  if (TARGET_V9 && delta >= -260000 && delta < 260000)
+    v9_form = true;
+
+  if (TARGET_CBCOND)
     {
-      int delta = (INSN_ADDRESSES (INSN_UID (dest))
-		   - INSN_ADDRESSES (INSN_UID (insn)));
-      /* Leave some instructions for "slop".  */
-      if (delta >= -260000 && delta < 260000)
-	v9_form = true;
+      bool emit_nop = emit_cbcond_nop (insn);
+      bool far = false;
+      const char *rval;
+
+      if (delta < -500 || delta > 500)
+	far = true;
+
+      if (far)
+	{
+	  if (v9_form)
+	    rval = "ba,a,pt\t%%xcc, %l0";
+	  else
+	    rval = "b,a\t%l0";
+	}
+      else
+	{
+	  if (emit_nop)
+	    rval = "cwbe\t%%g0, %%g0, %l0\n\tnop";
+	  else
+	    rval = "cwbe\t%%g0, %%g0, %l0";
+	}
+      return rval;
     }
 
   if (v9_form)
@@ -7075,7 +7228,7 @@ output_ubranch (rtx dest, int label, rtx insn)
   p = strchr (string, '\0');
   *p++ = '%';
   *p++ = 'l';
-  *p++ = '0' + label;
+  *p++ = '0';
   *p++ = '%';
   *p++ = '(';
   *p = '\0';
@@ -7400,7 +7553,7 @@ sparc_emit_float_lib_cmp (rtx x, rtx y, enum rtx_code comparison)
 	}
       else
 	{
-	  slot0 = assign_stack_temp (TFmode, GET_MODE_SIZE(TFmode), 0);
+	  slot0 = assign_stack_temp (TFmode, GET_MODE_SIZE(TFmode));
 	  emit_move_insn (slot0, x);
 	}
 
@@ -7413,7 +7566,7 @@ sparc_emit_float_lib_cmp (rtx x, rtx y, enum rtx_code comparison)
 	}
       else
 	{
-	  slot1 = assign_stack_temp (TFmode, GET_MODE_SIZE(TFmode), 0);
+	  slot1 = assign_stack_temp (TFmode, GET_MODE_SIZE(TFmode));
 	  emit_move_insn (slot1, y);
 	}
 
@@ -7552,6 +7705,125 @@ sparc_emit_fixunsdi (rtx *operands, enum machine_mode mode)
   emit_insn (gen_xordi3 (out, i0, i1));
 
   emit_label (donelab);
+}
+
+/* Return the string to output a compare and branch instruction to DEST.
+   DEST is the destination insn (i.e. the label), INSN is the source,
+   and OP is the conditional expression.  */
+
+const char *
+output_cbcond (rtx op, rtx dest, rtx insn)
+{
+  enum machine_mode mode = GET_MODE (XEXP (op, 0));
+  enum rtx_code code = GET_CODE (op);
+  const char *cond_str, *tmpl;
+  int far, emit_nop, len;
+  static char string[64];
+  char size_char;
+
+  /* Compare and Branch is limited to +-2KB.  If it is too far away,
+     change
+
+     cxbne X, Y, .LC30
+
+     to
+
+     cxbe X, Y, .+16
+     nop
+     ba,pt xcc, .LC30
+      nop  */
+
+  len = get_attr_length (insn);
+
+  far = len == 4;
+  emit_nop = len == 2;
+
+  if (far)
+    code = reverse_condition (code);
+
+  size_char = ((mode == SImode) ? 'w' : 'x');
+
+  switch (code)
+    {
+    case NE:
+      cond_str = "ne";
+      break;
+
+    case EQ:
+      cond_str = "e";
+      break;
+
+    case GE:
+      if (mode == CC_NOOVmode || mode == CCX_NOOVmode)
+	cond_str = "pos";
+      else
+	cond_str = "ge";
+      break;
+
+    case GT:
+      cond_str = "g";
+      break;
+
+    case LE:
+      cond_str = "le";
+      break;
+
+    case LT:
+      if (mode == CC_NOOVmode || mode == CCX_NOOVmode)
+	cond_str = "neg";
+      else
+	cond_str = "l";
+      break;
+
+    case GEU:
+      cond_str = "cc";
+      break;
+
+    case GTU:
+      cond_str = "gu";
+      break;
+
+    case LEU:
+      cond_str = "leu";
+      break;
+
+    case LTU:
+      cond_str = "cs";
+      break;
+
+    default:
+      gcc_unreachable ();
+    }
+
+  if (far)
+    {
+      int veryfar = 1, delta;
+
+      if (INSN_ADDRESSES_SET_P ())
+	{
+	  delta = (INSN_ADDRESSES (INSN_UID (dest))
+		   - INSN_ADDRESSES (INSN_UID (insn)));
+	  /* Leave some instructions for "slop".  */
+	  if (delta >= -260000 && delta < 260000)
+	    veryfar = 0;
+	}
+
+      if (veryfar)
+	tmpl = "c%cb%s\t%%1, %%2, .+16\n\tnop\n\tb\t%%3\n\tnop";
+      else
+	tmpl = "c%cb%s\t%%1, %%2, .+16\n\tnop\n\tba,pt\t%%%%xcc, %%3\n\tnop";
+    }
+  else
+    {
+      if (emit_nop)
+	tmpl = "c%cb%s\t%%1, %%2, %%3\n\tnop";
+      else
+	tmpl = "c%cb%s\t%%1, %%2, %%3";
+    }
+
+  snprintf (string, sizeof(string), tmpl, size_char, cond_str);
+
+  return string;
 }
 
 /* Return the string to output a conditional branch to LABEL, testing
@@ -8015,29 +8287,18 @@ register_ok_for_ldd (rtx reg)
   return 1;
 }
 
-/* Return 1 if OP is a memory whose address is known to be
-   aligned to 8-byte boundary, or a pseudo during reload.
-   This makes it suitable for use in ldd and std insns.  */
+/* Return 1 if OP, a MEM, has an address which is known to be
+   aligned to an 8-byte boundary.  */
 
 int
 memory_ok_for_ldd (rtx op)
 {
-  if (MEM_P (op))
-    {
-      /* In 64-bit mode, we assume that the address is word-aligned.  */
-      if (TARGET_ARCH32 && !mem_min_alignment (op, 8))
-	return 0;
+  /* In 64-bit mode, we assume that the address is word-aligned.  */
+  if (TARGET_ARCH32 && !mem_min_alignment (op, 8))
+    return 0;
 
-      if (! can_create_pseudo_p ()
-	  && !strict_memory_address_p (Pmode, XEXP (op, 0)))
-	return 0;
-    }
-  else if (REG_P (op) && REGNO (op) >= FIRST_PSEUDO_REGISTER)
-    {
-      if (!(reload_in_progress && reg_renumber [REGNO (op)] < 0))
-	return 0;
-    }
-  else
+  if (! can_create_pseudo_p ()
+      && !strict_memory_address_p (Pmode, XEXP (op, 0)))
     return 0;
 
   return 1;
@@ -8905,9 +9166,10 @@ sparc_use_sched_lookahead (void)
 {
   if (sparc_cpu == PROCESSOR_NIAGARA
       || sparc_cpu == PROCESSOR_NIAGARA2
-      || sparc_cpu == PROCESSOR_NIAGARA3
-      || sparc_cpu == PROCESSOR_NIAGARA4)
+      || sparc_cpu == PROCESSOR_NIAGARA3)
     return 0;
+  if (sparc_cpu == PROCESSOR_NIAGARA4)
+    return 2;
   if (sparc_cpu == PROCESSOR_ULTRASPARC
       || sparc_cpu == PROCESSOR_ULTRASPARC3)
     return 4;
@@ -8926,9 +9188,9 @@ sparc_issue_rate (void)
     case PROCESSOR_NIAGARA:
     case PROCESSOR_NIAGARA2:
     case PROCESSOR_NIAGARA3:
-    case PROCESSOR_NIAGARA4:
     default:
       return 1;
+    case PROCESSOR_NIAGARA4:
     case PROCESSOR_V9:
       /* Assume V9 processors are capable of at least dual-issue.  */
       return 2;
@@ -9250,7 +9512,14 @@ sparc_solaris_elf_asm_named_section (const char *name, unsigned int flags,
   if (flags & SECTION_CODE)
     fputs (",#execinstr", asm_out_file);
 
-  /* ??? Handle SECTION_BSS.  */
+  /* Sun as only supports #nobits/#progbits since Solaris 10.  */
+  if (HAVE_AS_SPARC_NOBITS)
+    {
+      if (flags & SECTION_BSS)
+	fputs (",#nobits", asm_out_file);
+      else
+	fputs (",#progbits", asm_out_file);
+    }
 
   fputc ('\n', asm_out_file);
 }
@@ -9912,67 +10181,57 @@ sparc_vis_mul8x16 (int e8, int e16)
   return (e8 * e16 + 128) / 256;
 }
 
-/* Multiply the vector elements in ELTS0 to the elements in ELTS1 as specified
-   by FNCODE.  All of the elements in ELTS0 and ELTS1 lists must be integer
-   constants.  A tree list with the results of the multiplications is returned,
-   and each element in the list is of INNER_TYPE.  */
+/* Multiply the VECTOR_CSTs CST0 and CST1 as specified by FNCODE and put
+   the result into the array N_ELTS, whose elements are of INNER_TYPE.  */
 
-static tree
-sparc_handle_vis_mul8x16 (int fncode, tree inner_type, tree elts0, tree elts1)
+static void
+sparc_handle_vis_mul8x16 (tree *n_elts, int fncode, tree inner_type,
+			  tree cst0, tree cst1)
 {
-  tree n_elts = NULL_TREE;
+  unsigned i, num = VECTOR_CST_NELTS (cst0);
   int scale;
 
   switch (fncode)
     {
     case CODE_FOR_fmul8x16_vis:
-      for (; elts0 && elts1;
-	   elts0 = TREE_CHAIN (elts0), elts1 = TREE_CHAIN (elts1))
+      for (i = 0; i < num; ++i)
 	{
 	  int val
-	    = sparc_vis_mul8x16 (TREE_INT_CST_LOW (TREE_VALUE (elts0)),
-				 TREE_INT_CST_LOW (TREE_VALUE (elts1)));
-	  n_elts = tree_cons (NULL_TREE,
-			      build_int_cst (inner_type, val),
-			      n_elts);
+	    = sparc_vis_mul8x16 (TREE_INT_CST_LOW (VECTOR_CST_ELT (cst0, i)),
+				 TREE_INT_CST_LOW (VECTOR_CST_ELT (cst1, i)));
+	  n_elts[i] = build_int_cst (inner_type, val);
 	}
       break;
 
     case CODE_FOR_fmul8x16au_vis:
-      scale = TREE_INT_CST_LOW (TREE_VALUE (elts1));
+      scale = TREE_INT_CST_LOW (VECTOR_CST_ELT (cst1, 0));
 
-      for (; elts0; elts0 = TREE_CHAIN (elts0))
+      for (i = 0; i < num; ++i)
 	{
 	  int val
-	    = sparc_vis_mul8x16 (TREE_INT_CST_LOW (TREE_VALUE (elts0)),
+	    = sparc_vis_mul8x16 (TREE_INT_CST_LOW (VECTOR_CST_ELT (cst0, i)),
 				 scale);
-	  n_elts = tree_cons (NULL_TREE,
-			      build_int_cst (inner_type, val),
-			      n_elts);
+	  n_elts[i] = build_int_cst (inner_type, val);
 	}
       break;
 
     case CODE_FOR_fmul8x16al_vis:
-      scale = TREE_INT_CST_LOW (TREE_VALUE (TREE_CHAIN (elts1)));
+      scale = TREE_INT_CST_LOW (VECTOR_CST_ELT (cst1, 1));
 
-      for (; elts0; elts0 = TREE_CHAIN (elts0))
+      for (i = 0; i < num; ++i)
 	{
 	  int val
-	    = sparc_vis_mul8x16 (TREE_INT_CST_LOW (TREE_VALUE (elts0)),
+	    = sparc_vis_mul8x16 (TREE_INT_CST_LOW (VECTOR_CST_ELT (cst0, i)),
 				 scale);
-	  n_elts = tree_cons (NULL_TREE,
-			      build_int_cst (inner_type, val),
-			      n_elts);
+	  n_elts[i] = build_int_cst (inner_type, val);
 	}
       break;
 
     default:
       gcc_unreachable ();
     }
-
-  return nreverse (n_elts);
-
 }
+
 /* Handle TARGET_FOLD_BUILTIN target hook.
    Fold builtin functions for SPARC intrinsics.  If IGNORE is true the
    result of the function call is ignored.  NULL_TREE is returned if the
@@ -10016,17 +10275,15 @@ sparc_fold_builtin (tree fndecl, int n_args ATTRIBUTE_UNUSED,
       if (TREE_CODE (arg0) == VECTOR_CST)
 	{
 	  tree inner_type = TREE_TYPE (rtype);
-	  tree elts = TREE_VECTOR_CST_ELTS (arg0);
-	  tree n_elts = NULL_TREE;
+	  tree *n_elts;
+	  unsigned i;
 
-	  for (; elts; elts = TREE_CHAIN (elts))
-	    {
-	      unsigned int val = TREE_INT_CST_LOW (TREE_VALUE (elts)) << 4;
-	      n_elts = tree_cons (NULL_TREE,
-				  build_int_cst (inner_type, val),
-				  n_elts);
-	    }
-	  return build_vector (rtype, nreverse (n_elts));
+	  n_elts = XALLOCAVEC (tree, VECTOR_CST_NELTS (arg0));
+	  for (i = 0; i < VECTOR_CST_NELTS (arg0); ++i)
+	    n_elts[i] = build_int_cst (inner_type,
+				       TREE_INT_CST_LOW
+				         (VECTOR_CST_ELT (arg0, i)) << 4);
+	  return build_vector (rtype, n_elts);
 	}
       break;
 
@@ -10041,11 +10298,8 @@ sparc_fold_builtin (tree fndecl, int n_args ATTRIBUTE_UNUSED,
       if (TREE_CODE (arg0) == VECTOR_CST && TREE_CODE (arg1) == VECTOR_CST)
 	{
 	  tree inner_type = TREE_TYPE (rtype);
-	  tree elts0 = TREE_VECTOR_CST_ELTS (arg0);
-	  tree elts1 = TREE_VECTOR_CST_ELTS (arg1);
-	  tree n_elts = sparc_handle_vis_mul8x16 (icode, inner_type, elts0,
-						  elts1);
-
+	  tree *n_elts = XALLOCAVEC (tree, VECTOR_CST_NELTS (arg0));
+	  sparc_handle_vis_mul8x16 (n_elts, icode, inner_type, arg0, arg1);
 	  return build_vector (rtype, n_elts);
 	}
       break;
@@ -10058,18 +10312,15 @@ sparc_fold_builtin (tree fndecl, int n_args ATTRIBUTE_UNUSED,
 
       if (TREE_CODE (arg0) == VECTOR_CST && TREE_CODE (arg1) == VECTOR_CST)
 	{
-	  tree elts0 = TREE_VECTOR_CST_ELTS (arg0);
-	  tree elts1 = TREE_VECTOR_CST_ELTS (arg1);
-	  tree n_elts = NULL_TREE;
-
-	  for (; elts0 && elts1;
-	       elts0 = TREE_CHAIN (elts0), elts1 = TREE_CHAIN (elts1))
+	  tree *n_elts = XALLOCAVEC (tree, 2 * VECTOR_CST_NELTS (arg0));
+	  unsigned i;
+	  for (i = 0; i < VECTOR_CST_NELTS (arg0); ++i)
 	    {
-	      n_elts = tree_cons (NULL_TREE, TREE_VALUE (elts0), n_elts);
-	      n_elts = tree_cons (NULL_TREE, TREE_VALUE (elts1), n_elts);
+	      n_elts[2*i] = VECTOR_CST_ELT (arg0, i);
+	      n_elts[2*i+1] = VECTOR_CST_ELT (arg1, i);
 	    }
 
-	  return build_vector (rtype, nreverse (n_elts));
+	  return build_vector (rtype, n_elts);
 	}
       break;
 
@@ -10085,35 +10336,30 @@ sparc_fold_builtin (tree fndecl, int n_args ATTRIBUTE_UNUSED,
 	  && TREE_CODE (arg1) == VECTOR_CST
 	  && TREE_CODE (arg2) == INTEGER_CST)
 	{
-	  int overflow = 0;
-	  unsigned HOST_WIDE_INT low = TREE_INT_CST_LOW (arg2);
-	  HOST_WIDE_INT high = TREE_INT_CST_HIGH (arg2);
-	  tree elts0 = TREE_VECTOR_CST_ELTS (arg0);
-	  tree elts1 = TREE_VECTOR_CST_ELTS (arg1);
+	  bool overflow = false;
+	  double_int result = TREE_INT_CST (arg2);
+	  double_int tmp;
+	  unsigned i;
 
-	  for (; elts0 && elts1;
-	       elts0 = TREE_CHAIN (elts0), elts1 = TREE_CHAIN (elts1))
+	  for (i = 0; i < VECTOR_CST_NELTS (arg0); ++i)
 	    {
-	      unsigned HOST_WIDE_INT
-		low0 = TREE_INT_CST_LOW (TREE_VALUE (elts0)),
-		low1 = TREE_INT_CST_LOW (TREE_VALUE (elts1));
-	      HOST_WIDE_INT high0 = TREE_INT_CST_HIGH (TREE_VALUE (elts0));
-	      HOST_WIDE_INT high1 = TREE_INT_CST_HIGH (TREE_VALUE (elts1));
+	      double_int e0 = TREE_INT_CST (VECTOR_CST_ELT (arg0, i));
+	      double_int e1 = TREE_INT_CST (VECTOR_CST_ELT (arg1, i));
 
-	      unsigned HOST_WIDE_INT l;
-	      HOST_WIDE_INT h;
+	      bool neg1_ovf, neg2_ovf, add1_ovf, add2_ovf;
 
-	      overflow |= neg_double (low1, high1, &l, &h);
-	      overflow |= add_double (low0, high0, l, h, &l, &h);
-	      if (h < 0)
-		overflow |= neg_double (l, h, &l, &h);
+	      tmp = e1.neg_with_overflow (&neg1_ovf);
+	      tmp = e0.add_with_sign (tmp, false, &add1_ovf);
+	      if (tmp.is_negative ())
+		tmp = tmp.neg_with_overflow (&neg2_ovf);
 
-	      overflow |= add_double (low, high, l, h, &low, &high);
+	      result = result.add_with_sign (tmp, false, &add2_ovf);
+	      overflow |= neg1_ovf | neg2_ovf | add1_ovf | add2_ovf;
 	    }
 
-	  gcc_assert (overflow == 0);
+	  gcc_assert (!overflow);
 
-	  return build_int_cst_wide (rtype, low, high);
+	  return build_int_cst_wide (rtype, result.low, result.high);
 	}
 
     default:
@@ -10411,10 +10657,10 @@ emit_and_preserve (rtx seq, rtx reg, rtx reg2)
   HOST_WIDE_INT size = SPARC_STACK_ALIGN (offset + 2*UNITS_PER_WORD);
 
   rtx slot
-    = gen_rtx_MEM (word_mode, plus_constant (stack_pointer_rtx,
+    = gen_rtx_MEM (word_mode, plus_constant (Pmode, stack_pointer_rtx,
 					     SPARC_STACK_BIAS + offset));
 
-  emit_insn (gen_stack_pointer_dec (GEN_INT (size)));
+  emit_insn (gen_stack_pointer_inc (GEN_INT (-size)));
   emit_insn (gen_rtx_SET (VOIDmode, slot, reg));
   if (reg2)
     emit_insn (gen_rtx_SET (VOIDmode,
@@ -10458,7 +10704,7 @@ sparc_output_mi_thunk (FILE *file, tree thunk_fndecl ATTRIBUTE_UNUSED,
     {
       /* We will emit a regular sibcall below, so we need to instruct
 	 output_sibcall that we are in a leaf function.  */
-      sparc_leaf_function_p = current_function_uses_only_leaf_regs = 1;
+      sparc_leaf_function_p = crtl->uses_only_leaf_regs = 1;
 
       /* This will cause final.c to invoke leaf_renumber_regs so we
 	 must behave as if we were in a not-yet-leafified function.  */
@@ -10468,7 +10714,7 @@ sparc_output_mi_thunk (FILE *file, tree thunk_fndecl ATTRIBUTE_UNUSED,
     {
       /* We will emit the sibcall manually below, so we will need to
 	 manually spill non-leaf registers.  */
-      sparc_leaf_function_p = current_function_uses_only_leaf_regs = 0;
+      sparc_leaf_function_p = crtl->uses_only_leaf_regs = 0;
 
       /* We really are in a leaf function.  */
       int_arg_first = SPARC_OUTGOING_INT_ARG_FIRST;
@@ -10626,7 +10872,6 @@ sparc_output_mi_thunk (FILE *file, tree thunk_fndecl ATTRIBUTE_UNUSED,
      instruction scheduling worth while.  Note that use_thunk calls
      assemble_start_function and assemble_end_function.  */
   insn = get_insns ();
-  insn_locators_alloc ();
   shorten_branches (insn);
   final_start_function (insn, file, 1);
   final (insn, file, 1);
@@ -11257,7 +11502,7 @@ sparc_frame_pointer_required (void)
     return false;
 
   /* Otherwise, the frame pointer is required if the function isn't leaf.  */
-  return !(current_function_is_leaf && only_leaf_regs_used ());
+  return !(crtl->is_leaf && only_leaf_regs_used ());
 }
 
 /* The way this is structured, we can't eliminate SFP in favor of SP
@@ -11620,7 +11865,7 @@ sparc_expand_vector_init (rtx target, rtx vals)
 	}
     }
 
-  mem = assign_stack_temp (mode, GET_MODE_SIZE (mode), 0);
+  mem = assign_stack_temp (mode, GET_MODE_SIZE (mode));
   for (i = 0; i < n_elts; i++)
     emit_move_insn (adjust_address_nv (mem, inner_mode,
 				       i * GET_MODE_SIZE (inner_mode)),

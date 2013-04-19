@@ -1,6 +1,6 @@
 /* LTO IL options.
 
-   Copyright 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2009-2013 Free Software Foundation, Inc.
    Contributed by Simon Baldwin <simonb@google.com>
 
 This file is part of GCC.
@@ -44,7 +44,7 @@ append_to_collect_gcc_options (struct obstack *ob,
 			       bool *first_p, const char *opt)
 {
   const char *p, *q = opt;
-  if (!first_p)
+  if (!*first_p)
     obstack_grow (ob, " ", 1);
   obstack_grow (ob, "'", 1);
   while ((p = strchr (q, '\'')))

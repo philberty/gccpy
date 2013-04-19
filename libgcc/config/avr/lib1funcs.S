@@ -1,6 +1,5 @@
 /*  -*- Mode: Asm -*-  */
-/* Copyright (C) 1998, 1999, 2000, 2007, 2008, 2009
-   Free Software Foundation, Inc.
+/* Copyright (C) 1998-2013 Free Software Foundation, Inc.
    Contributed by Denis Chertykov <chertykov@gmail.com>
 
 This file is free software; you can redistribute it and/or modify it
@@ -91,6 +90,44 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 .endfunc
 .endm
 
+.macro FALIAS name
+.global \name
+.func \name
+\name:
+.size \name, .-\name
+.endfunc
+.endm
+
+;; Negate a 2-byte value held in consecutive registers
+.macro NEG2  reg
+    com     \reg+1
+    neg     \reg
+    sbci    \reg+1, -1
+.endm
+
+;; Negate a 4-byte value held in consecutive registers
+;; Sets the V flag for signed overflow tests if REG >= 16
+.macro NEG4  reg
+    com     \reg+3
+    com     \reg+2
+    com     \reg+1
+.if \reg >= 16
+    neg     \reg
+    sbci    \reg+1, -1
+    sbci    \reg+2, -1
+    sbci    \reg+3, -1
+.else
+    com     \reg
+    adc     \reg,   __zero_reg__
+    adc     \reg+1, __zero_reg__
+    adc     \reg+2, __zero_reg__
+    adc     \reg+3, __zero_reg__
+.endif
+.endm
+
+#define exp_lo(N)  hlo8 ((N) << 23)
+#define exp_hi(N)  hhi8 ((N) << 23)
+
 
 .section .text.libgcc.mul, "ax", @progbits
 
@@ -113,194 +150,265 @@ __mulqi3_loop:
 	add	r_res,r_arg2
 	add	r_arg2,r_arg2	; shift multiplicand
 	breq	__mulqi3_exit	; while multiplicand != 0
-	lsr	r_arg1		; 
+	lsr	r_arg1		;
 	brne	__mulqi3_loop	; exit if multiplier = 0
 __mulqi3_exit:	
 	mov	r_arg1,r_res	; result to return register
 	ret
 ENDF __mulqi3
 
-#undef r_arg2  
-#undef r_arg1  
-#undef r_res   
+#undef r_arg2
+#undef r_arg1
+#undef r_res
 	
 #endif 	/* defined (L_mulqi3) */
 
-#if defined (L_mulqihi3)
-DEFUN __mulqihi3
-	clr	r25
-	sbrc	r24, 7
-	dec	r25
-	clr	r23
-	sbrc	r22, 7
-	dec	r22
-	XJMP	__mulhi3
-ENDF __mulqihi3:
-#endif /* defined (L_mulqihi3) */
-
-#if defined (L_umulqihi3)
-DEFUN __umulqihi3
-	clr	r25
-	clr	r23
-	XJMP	__mulhi3
-ENDF __umulqihi3
-#endif /* defined (L_umulqihi3) */
 
 /*******************************************************
+    Widening Multiplication  16 = 8 x 8  without MUL
     Multiplication  16 x 16  without MUL
 *******************************************************/
+
+#define A0  r22
+#define A1  r23
+#define B0  r24
+#define BB0 r20
+#define B1  r25
+;; Output overlaps input, thus expand result in CC0/1
+#define C0  r24
+#define C1  r25
+#define CC0  __tmp_reg__
+#define CC1  R21
+
+#if defined (L_umulqihi3)
+;;; R25:R24 = (unsigned int) R22 * (unsigned int) R24
+;;; (C1:C0) = (unsigned int) A0  * (unsigned int) B0
+;;; Clobbers: __tmp_reg__, R21..R23
+DEFUN __umulqihi3
+    clr     A1
+    clr     B1
+    XJMP    __mulhi3
+ENDF __umulqihi3
+#endif /* L_umulqihi3 */
+
+#if defined (L_mulqihi3)
+;;; R25:R24 = (signed int) R22 * (signed int) R24
+;;; (C1:C0) = (signed int) A0  * (signed int) B0
+;;; Clobbers: __tmp_reg__, R20..R23
+DEFUN __mulqihi3
+    ;; Sign-extend B0
+    clr     B1
+    sbrc    B0, 7
+    com     B1
+    ;; The multiplication runs twice as fast if A1 is zero, thus:
+    ;; Zero-extend A0
+    clr     A1
+#ifdef __AVR_HAVE_JMP_CALL__
+    ;; Store  B0 * sign of A
+    clr     BB0
+    sbrc    A0, 7
+    mov     BB0, B0
+    call    __mulhi3
+#else /* have no CALL */
+    ;; Skip sign-extension of A if A >= 0
+    ;; Same size as with the first alternative but avoids errata skip
+    ;; and is faster if A >= 0
+    sbrs    A0, 7
+    rjmp    __mulhi3
+    ;; If  A < 0  store B
+    mov     BB0, B0
+    rcall   __mulhi3
+#endif /* HAVE_JMP_CALL */
+    ;; 1-extend A after the multiplication
+    sub     C1, BB0
+    ret
+ENDF __mulqihi3
+#endif /* L_mulqihi3 */
+
 #if defined (L_mulhi3)
-#define	r_arg1L	r24		/* multiplier Low */
-#define	r_arg1H	r25		/* multiplier High */
-#define	r_arg2L	r22		/* multiplicand Low */
-#define	r_arg2H	r23		/* multiplicand High */
-#define r_resL	__tmp_reg__	/* result Low */
-#define r_resH  r21		/* result High */
-
+;;; R25:R24 = R23:R22 * R25:R24
+;;; (C1:C0) = (A1:A0) * (B1:B0)
+;;; Clobbers: __tmp_reg__, R21..R23
 DEFUN __mulhi3
-	clr	r_resH		; clear result
-	clr	r_resL		; clear result
-__mulhi3_loop:
-	sbrs	r_arg1L,0
-	rjmp	__mulhi3_skip1
-	add	r_resL,r_arg2L	; result + multiplicand
-	adc	r_resH,r_arg2H
-__mulhi3_skip1:	
-	add	r_arg2L,r_arg2L	; shift multiplicand
-	adc	r_arg2H,r_arg2H
 
-	cp	r_arg2L,__zero_reg__
-	cpc	r_arg2H,__zero_reg__
-	breq	__mulhi3_exit	; while multiplicand != 0
+    ;; Clear result
+    clr     CC0
+    clr     CC1
+    rjmp 3f
+1:
+    ;; Bit n of A is 1  -->  C += B << n
+    add     CC0, B0
+    adc     CC1, B1
+2:
+    lsl     B0
+    rol     B1
+3:
+    ;; If B == 0 we are ready
+    sbiw    B0, 0
+    breq 9f
 
-	lsr	r_arg1H		; gets LSB of multiplier
-	ror	r_arg1L
-	sbiw	r_arg1L,0
-	brne	__mulhi3_loop	; exit if multiplier = 0
-__mulhi3_exit:
-	mov	r_arg1H,r_resH	; result to return register
-	mov	r_arg1L,r_resL
-	ret
-ENDF __mulhi3
+    ;; Carry = n-th bit of A
+    lsr     A1
+    ror     A0
+    ;; If bit n of A is set, then go add  B * 2^n  to  C
+    brcs 1b
 
-#undef r_arg1L
-#undef r_arg1H
-#undef r_arg2L
-#undef r_arg2H
-#undef r_resL 	
-#undef r_resH 
+    ;; Carry = 0  -->  The ROR above acts like  CP A0, 0
+    ;; Thus, it is sufficient to CPC the high part to test A against 0
+    cpc     A1, __zero_reg__
+    ;; Only proceed if A != 0
+    brne    2b
+9:
+    ;; Move Result into place
+    mov     C0, CC0
+    mov     C1, CC1
+    ret
+ENDF  __mulhi3
+#endif /* L_mulhi3 */
 
-#endif /* defined (L_mulhi3) */
+#undef A0
+#undef A1
+#undef B0
+#undef BB0
+#undef B1
+#undef C0
+#undef C1
+#undef CC0
+#undef CC1
+
+
+#define A0 22
+#define A1 A0+1
+#define A2 A0+2
+#define A3 A0+3
+
+#define B0 18
+#define B1 B0+1
+#define B2 B0+2
+#define B3 B0+3
+
+#define CC0 26
+#define CC1 CC0+1
+#define CC2 30
+#define CC3 CC2+1
+
+#define C0 22
+#define C1 C0+1
+#define C2 C0+2
+#define C3 C0+3
 
 /*******************************************************
     Widening Multiplication  32 = 16 x 16  without MUL
 *******************************************************/
 
-#if defined (L_mulhisi3)
-DEFUN __mulhisi3
-;;; FIXME: This is dead code (noone calls it)
-    mov_l   r18, r24
-    mov_h   r19, r25
-    clr     r24
-    sbrc    r23, 7
-    dec     r24
-    mov     r25, r24
-    clr     r20
-    sbrc    r19, 7
-    dec     r20
-    mov     r21, r20
-    XJMP    __mulsi3
-ENDF __mulhisi3
-#endif /* defined (L_mulhisi3) */
-
 #if defined (L_umulhisi3)
 DEFUN __umulhisi3
-;;; FIXME: This is dead code (noone calls it)
-    mov_l   r18, r24
-    mov_h   r19, r25
-    clr     r24
-    clr     r25
-    mov_l   r20, r24
-    mov_h   r21, r25
+    wmov    B0, 24
+    ;; Zero-extend B
+    clr     B2
+    clr     B3
+    ;; Zero-extend A
+    wmov    A2, B2
     XJMP    __mulsi3
 ENDF __umulhisi3
-#endif /* defined (L_umulhisi3) */
+#endif /* L_umulhisi3 */
 
-#if defined (L_mulsi3)
+#if defined (L_mulhisi3)
+DEFUN __mulhisi3
+    wmov    B0, 24
+    ;; Sign-extend B
+    lsl     r25
+    sbc     B2, B2
+    mov     B3, B2
+#ifdef __AVR_ERRATA_SKIP_JMP_CALL__
+    ;; Sign-extend A
+    clr     A2
+    sbrc    A1, 7
+    com     A2
+    mov     A3, A2
+    XJMP __mulsi3
+#else /*  no __AVR_ERRATA_SKIP_JMP_CALL__ */
+    ;; Zero-extend A and __mulsi3 will run at least twice as fast
+    ;; compared to a sign-extended A.
+    clr     A2
+    clr     A3
+    sbrs    A1, 7
+    XJMP __mulsi3
+    ;; If  A < 0  then perform the  B * 0xffff.... before the
+    ;; very multiplication by initializing the high part of the
+    ;; result CC with -B.
+    wmov    CC2, A2
+    sub     CC2, B0
+    sbc     CC3, B1
+    XJMP __mulsi3_helper
+#endif /*  __AVR_ERRATA_SKIP_JMP_CALL__ */
+ENDF __mulhisi3
+#endif /* L_mulhisi3 */
+
+
 /*******************************************************
     Multiplication  32 x 32  without MUL
 *******************************************************/
-#define r_arg1L  r22		/* multiplier Low */
-#define r_arg1H  r23
-#define	r_arg1HL r24
-#define	r_arg1HH r25		/* multiplier High */
 
-#define	r_arg2L  r18		/* multiplicand Low */
-#define	r_arg2H  r19	
-#define	r_arg2HL r20
-#define	r_arg2HH r21		/* multiplicand High */
-	
-#define r_resL	 r26		/* result Low */
-#define r_resH   r27
-#define r_resHL	 r30
-#define r_resHH  r31		/* result High */
-
+#if defined (L_mulsi3)
 DEFUN __mulsi3
-	clr	r_resHH		; clear result
-	clr	r_resHL		; clear result
-	clr	r_resH		; clear result
-	clr	r_resL		; clear result
-__mulsi3_loop:
-	sbrs	r_arg1L,0
-	rjmp	__mulsi3_skip1
-	add	r_resL,r_arg2L		; result + multiplicand
-	adc	r_resH,r_arg2H
-	adc	r_resHL,r_arg2HL
-	adc	r_resHH,r_arg2HH
-__mulsi3_skip1:
-	add	r_arg2L,r_arg2L		; shift multiplicand
-	adc	r_arg2H,r_arg2H
-	adc	r_arg2HL,r_arg2HL
-	adc	r_arg2HH,r_arg2HH
-	
-	lsr	r_arg1HH	; gets LSB of multiplier
-	ror	r_arg1HL
-	ror	r_arg1H
-	ror	r_arg1L
-	brne	__mulsi3_loop
-	sbiw	r_arg1HL,0
-	cpc	r_arg1H,r_arg1L
-	brne	__mulsi3_loop		; exit if multiplier = 0
-__mulsi3_exit:
-	mov_h	r_arg1HH,r_resHH	; result to return register
-	mov_l	r_arg1HL,r_resHL
-	mov_h	r_arg1H,r_resH
-	mov_l	r_arg1L,r_resL
-	ret
-ENDF __mulsi3
+    ;; Clear result
+    clr     CC2
+    clr     CC3
+    ;; FALLTHRU
+ENDF  __mulsi3
 
-#undef r_arg1L 
-#undef r_arg1H 
-#undef r_arg1HL
-#undef r_arg1HH
-             
-#undef r_arg2L 
-#undef r_arg2H 
-#undef r_arg2HL
-#undef r_arg2HH
-             
-#undef r_resL  
-#undef r_resH  
-#undef r_resHL 
-#undef r_resHH 
+DEFUN __mulsi3_helper
+    clr     CC0
+    clr     CC1
+    rjmp 3f
 
-#endif /* defined (L_mulsi3) */
+1:  ;; If bit n of A is set, then add  B * 2^n  to the result in CC
+    ;; CC += B
+    add  CC0,B0  $  adc  CC1,B1  $  adc  CC2,B2  $  adc  CC3,B3
+
+2:  ;; B <<= 1
+    lsl  B0      $  rol  B1      $  rol  B2      $  rol  B3
+
+3:  ;; A >>= 1:  Carry = n-th bit of A
+    lsr  A3      $  ror  A2      $  ror  A1      $  ror  A0
+
+    brcs 1b
+    ;; Only continue if  A != 0
+    sbci    A1, 0
+    brne 2b
+    sbiw    A2, 0
+    brne 2b
+
+    ;; All bits of A are consumed:  Copy result to return register C
+    wmov    C0, CC0
+    wmov    C2, CC2
+    ret
+ENDF __mulsi3_helper
+#endif /* L_mulsi3 */
+
+#undef A0
+#undef A1
+#undef A2
+#undef A3
+#undef B0
+#undef B1
+#undef B2
+#undef B3
+#undef C0
+#undef C1
+#undef C2
+#undef C3
+#undef CC0
+#undef CC1
+#undef CC2
+#undef CC3
 
 #endif /* !defined (__AVR_HAVE_MUL__) */
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-#if defined (__AVR_HAVE_MUL__)    
+#if defined (__AVR_HAVE_MUL__)
 #define A0 26
 #define B0 18
 #define C0 22
@@ -316,9 +424,9 @@ ENDF __mulsi3
 #define C3 C0+3
 
 /*******************************************************
-    Widening Multiplication  32 = 16 x 16
+    Widening Multiplication  32 = 16 x 16  with MUL
 *******************************************************/
-                              
+
 #if defined (L_mulhisi3)
 ;;; R25:R22 = (signed long) R27:R26 * (signed long) R19:R18
 ;;; C3:C0   = (signed long) A1:A0   * (signed long) B1:B0
@@ -364,7 +472,17 @@ DEFUN __umulhisi3
     mul     A1, B1
     movw    C2, r0
     mul     A0, B1
+#ifdef __AVR_HAVE_JMP_CALL__
+    ;; This function is used by many other routines, often multiple times.
+    ;; Therefore, if the flash size is not too limited, avoid the RCALL
+    ;; and inverst 6 Bytes to speed things up.
+    add     C1, r0
+    adc     C2, r1
+    clr     __zero_reg__
+    adc     C3, __zero_reg__
+#else
     rcall   1f
+#endif
     mul     A1, B0
 1:  add     C1, r0
     adc     C2, r1
@@ -375,7 +493,7 @@ ENDF __umulhisi3
 #endif /* L_umulhisi3 */
 
 /*******************************************************
-    Widening Multiplication  32 = 16 x 32
+    Widening Multiplication  32 = 16 x 32  with MUL
 *******************************************************/
 
 #if defined (L_mulshisi3)
@@ -393,7 +511,7 @@ DEFUN __mulshisi3
     XJMP    __muluhisi3
     ;; FALLTHRU
 ENDF __mulshisi3
-    
+
 ;;; R25:R22 = (one-extended long) R27:R26 * R21:R18
 ;;; (C3:C0) = (one-extended long) A1:A0   * B3:B0
 ;;; Clobbers: __tmp_reg__
@@ -425,7 +543,7 @@ ENDF __muluhisi3
 #endif /* L_muluhisi3 */
 
 /*******************************************************
-    Multiplication  32 x 32
+    Multiplication  32 x 32  with MUL
 *******************************************************/
 
 #if defined (L_mulsi3)
@@ -468,7 +586,7 @@ ENDF __mulsi3
 #endif /* __AVR_HAVE_MUL__ */
 
 /*******************************************************
-       Multiplication 24 x 24
+       Multiplication 24 x 24 with MUL
 *******************************************************/
 
 #if defined (L_mulpsi3)
@@ -528,23 +646,23 @@ DEFUN __mulpsi3
     ;; C[] = 0
     clr     __tmp_reg__
     clr     C2
-    
+
 0:  ;; Shift N-th Bit of B[] into Carry.  N = 24 - Loop
     LSR  B2     $  ror  B1     $  ror  B0
-    
+
     ;; If the N-th Bit of B[] was set...
     brcc    1f
-    
+
     ;; ...then add A[] * 2^N to the Result C[]
     ADD  C0,A0  $  adc  C1,A1  $  adc  C2,A2
-    
+
 1:  ;; Multiply A[] by 2
     LSL  A0     $  rol  A1     $  rol  A2
-    
+
     ;; Loop until B[] is 0
     subi B0,0   $  sbci B1,0   $  sbci B2,0
     brne    0b
-    
+
     ;; Copy C[] to the return Register A[]
     wmov    A0, C0
     mov     A2, C2
@@ -883,7 +1001,7 @@ __udivmodqi4_ep:
 	rol	r_arg1		; shift dividend (with CARRY)
 	dec	r_cnt		; decrement loop counter
 	brne	__udivmodqi4_loop
-	com	r_arg1		; complement result 
+	com	r_arg1		; complement result
 				; because C flag was complemented in loop
 	ret
 ENDF __udivmodqi4
@@ -993,14 +1111,14 @@ __divmodhi4_exit:
 ENDF __divmodhi4
 #endif /* defined (L_divmodhi4) */
 
-#undef r_remH  
-#undef r_remL  
-             
-#undef r_arg1H 
-#undef r_arg1L 
-             
-#undef r_arg2H 
-#undef r_arg2L 
+#undef r_remH
+#undef r_remL
+
+#undef r_arg1H
+#undef r_arg1L
+
+#undef r_arg2H
+#undef r_arg2L
              	
 #undef r_cnt   	
 
@@ -1215,7 +1333,7 @@ DEFUN __divmodsi4
     bst     r_arg1HH,7          ; store sign of dividend
     brtc    0f
     com     __tmp_reg__         ; r0.7 is sign of result
-    rcall   __divmodsi4_neg1    ; dividend negative: negate
+    XCALL   __negsi2            ; dividend negative: negate
 0:
     sbrc    r_arg2HH,7
     rcall   __divmodsi4_neg2    ; divisor negative: negate
@@ -1223,16 +1341,7 @@ DEFUN __divmodsi4
     sbrc    __tmp_reg__, 7      ; correct quotient sign
     rcall   __divmodsi4_neg2
     brtc    __divmodsi4_exit    ; correct remainder sign
-__divmodsi4_neg1:
-    ;; correct dividend/remainder sign
-    com     r_arg1HH
-    com     r_arg1HL
-    com     r_arg1H
-    neg     r_arg1L
-    sbci    r_arg1H, 0xff
-    sbci    r_arg1HL,0xff
-    sbci    r_arg1HH,0xff
-    ret
+    XJMP    __negsi2
 __divmodsi4_neg2:
     ;; correct divisor/quotient sign
     com     r_arg2HH
@@ -1247,6 +1356,29 @@ __divmodsi4_exit:
 ENDF __divmodsi4
 #endif /* defined (L_divmodsi4) */
 
+#if defined (L_negsi2)
+;; (set (reg:SI 22)
+;;      (neg:SI (reg:SI 22)))
+;; Sets the V flag for signed overflow tests
+DEFUN __negsi2
+    NEG4    22
+    ret
+ENDF __negsi2
+#endif /* L_negsi2 */
+
+#undef r_remHH
+#undef r_remHL
+#undef r_remH
+#undef r_remL
+#undef r_arg1HH
+#undef r_arg1HL
+#undef r_arg1H
+#undef r_arg1L
+#undef r_arg2HH
+#undef r_arg2HL
+#undef r_arg2H
+#undef r_arg2L
+#undef r_cnt
 
 /*******************************************************
        Division 64 / 64
@@ -1368,8 +1500,8 @@ DEFUN __udivmod64
 
 1:  ;; Compare shifted Devidend against Divisor
     ;; If -- even after Shifting -- it is smaller...
-    CP  A7,B0  $  cpc C0,B1  $  cpc C1,B2  $  cpc C2,B3  
-    cpc C3,B4  $  cpc C4,B5  $  cpc C5,B6  $  cpc C6,B7  
+    CP  A7,B0  $  cpc C0,B1  $  cpc C1,B2  $  cpc C2,B3
+    cpc C3,B4  $  cpc C4,B5  $  cpc C5,B6  $  cpc C6,B7
     brcc    2f
 
     ;; ...then we can subtract it.  Thus, it is legal to shift left
@@ -1463,7 +1595,7 @@ DEFUN __udivmod64
 
 ENDF __udivmod64
 #endif /* L_udivmod64 */
-    
+
 
 #if defined (L_divdi3)
 
@@ -1489,7 +1621,7 @@ DEFUN  __divdi3_moddi3
     brmi    0f
     ;; Both Signs are 0:  the following Complexitiy is not needed
     XJMP    __udivdi3_umoddi3
-#endif /* SPEED_DIV */    
+#endif /* SPEED_DIV */
 
 0:  ;; The Prologue
     ;; Save 12 Registers:  Y, 17...8
@@ -1512,7 +1644,7 @@ DEFUN  __divdi3_moddi3
 #else
     brpl    21f
 #endif /* SPEED_DIV */
-   
+
     XCALL   __negdi2
 
     ;; Adjust Divisor's Sign and SS.7 as needed
@@ -1552,11 +1684,11 @@ DEFUN  __divdi3_moddi3
 
 ENDF __divdi3_moddi3
 
+#endif /* L_divdi3 */
+
 #undef R_cnt
 #undef SS
 #undef NN
-
-#endif /* L_divdi3 */
 
 .section .text.libgcc, "ax", @progbits
 
@@ -1566,6 +1698,8 @@ ENDF __divdi3_moddi3
 ;; (set (reg:DI 18)
 ;;      (plus:DI (reg:DI 18)
 ;;               (reg:DI 10)))
+;; Sets the V flag for signed overflow tests
+;; Sets the C flag for unsigned overflow tests
 DEFUN __adddi3
     ADD A0,B0  $  adc A1,B1  $  adc A2,B2  $  adc A3,B3
     adc A4,B4  $  adc A5,B5  $  adc A6,B6  $  adc A7,B7
@@ -1577,6 +1711,8 @@ ENDF __adddi3
 ;; (set (reg:DI 18)
 ;;      (plus:DI (reg:DI 18)
 ;;               (sign_extend:SI (reg:QI 26))))
+;; Sets the V flag for signed overflow tests
+;; Sets the C flag for unsigned overflow tests provided 0 <= R26 < 128
 DEFUN __adddi3_s8
     clr     TT
     sbrc    r26, 7
@@ -1591,6 +1727,8 @@ ENDF __adddi3_s8
 ;; (set (reg:DI 18)
 ;;      (minus:DI (reg:DI 18)
 ;;                (reg:DI 10)))
+;; Sets the V flag for signed overflow tests
+;; Sets the C flag for unsigned overflow tests
 DEFUN __subdi3
     SUB A0,B0  $  sbc A1,B1  $  sbc A2,B2  $  sbc A3,B3
     sbc A4,B4  $  sbc A5,B5  $  sbc A6,B6  $  sbc A7,B7
@@ -1624,6 +1762,9 @@ ENDF __cmpdi2_s8
 #endif /* L_cmpdi2_s8 */
 
 #if defined (L_negdi2)
+;; (set (reg:DI 18)
+;;      (neg:DI (reg:DI 18)))
+;; Sets the V flag for signed overflow tests
 DEFUN __negdi2
 
     com  A4    $  com  A5    $  com  A6    $  com  A7
@@ -1667,7 +1808,7 @@ ENDF __negdi2
 
 
 .section .text.libgcc.prologue, "ax", @progbits
-    
+
 /**********************************
  * This is a prologue subroutine
  **********************************/
@@ -1802,7 +1943,7 @@ _cleanup:
 
 
 .section .text.libgcc, "ax", @progbits
-    
+
 #ifdef L_tablejump
 DEFUN __tablejump2__
 	lsl	r30
@@ -2004,7 +2145,7 @@ ENDF __do_global_dtors
 #endif /* L_dtors */
 
 .section .text.libgcc, "ax", @progbits
-    
+
 #ifdef L_tablejump_elpm
 DEFUN __tablejump_elpm__
 #if defined (__AVR_HAVE_ELPMX__)
@@ -2342,7 +2483,7 @@ DEFUN __loop_ffsqi2
     brcc __loop_ffsqi2
     mov  r24, r26
     clr  r25
-    ret    
+    ret
 ENDF __loop_ffsqi2
 #endif /* defined (L_loop_ffsqi2) */
 
@@ -2444,7 +2585,7 @@ ENDF __clzhi2
 
 
 /**********************************
- * Parity 
+ * Parity
  **********************************/
 
 #if defined (L_paritydi2)
@@ -2560,20 +2701,20 @@ ENDF __popcountdi2
 DEFUN __popcountqi2
     mov  __tmp_reg__, r24
     andi r24, 1
-    lsr  __tmp_reg__    
-    lsr  __tmp_reg__    
+    lsr  __tmp_reg__
+    lsr  __tmp_reg__
     adc  r24, __zero_reg__
-    lsr  __tmp_reg__    
+    lsr  __tmp_reg__
     adc  r24, __zero_reg__
-    lsr  __tmp_reg__    
+    lsr  __tmp_reg__
     adc  r24, __zero_reg__
-    lsr  __tmp_reg__    
+    lsr  __tmp_reg__
     adc  r24, __zero_reg__
-    lsr  __tmp_reg__    
+    lsr  __tmp_reg__
     adc  r24, __zero_reg__
-    lsr  __tmp_reg__    
-    adc  r24, __tmp_reg__    
-    ret    
+    lsr  __tmp_reg__
+    adc  r24, __tmp_reg__
+    ret
 ENDF __popcountqi2
 #endif /* defined (L_popcountqi2) */
 
@@ -2708,10 +2849,10 @@ ENDF __rotldi3
 
 .section .text.libgcc.fmul, "ax", @progbits
 
-/***********************************************************/    
+/***********************************************************/
 ;;; Softmul versions of FMUL, FMULS and FMULSU to implement
 ;;; __builtin_avr_fmul* if !AVR_HAVE_MUL
-/***********************************************************/    
+/***********************************************************/
 
 #define A1 24
 #define B1 25
@@ -2757,9 +2898,7 @@ DEFUN __fmulsu_exit
     XJMP  __fmul
 1:  XCALL __fmul
     ;; C = -C iff A0.7 = 1
-    com  C1
-    neg  C0
-    sbci C1, -1
+    NEG2 C0
     ret
 ENDF __fmulsu_exit
 #endif /* L_fmulsu */
@@ -2794,3 +2933,5 @@ ENDF __fmul
 #undef B1
 #undef C0
 #undef C1
+
+#include "lib1funcs-fixed.S"

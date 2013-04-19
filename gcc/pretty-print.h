@@ -1,6 +1,5 @@
 /* Various declarations for language-independent pretty-print subroutines.
-   Copyright (C) 2002, 2003, 2004, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Gabriel Dos Reis <gdr@integrable-solutions.net>
 
 This file is part of GCC.
@@ -132,7 +131,6 @@ typedef struct
 /* The type of a hook that formats client-specific data onto a pretty_pinter.
    A client-supplied formatter returns true if everything goes well,
    otherwise it returns false.  */
-typedef struct pretty_print_info pretty_printer;
 typedef bool (*printer_fn) (pretty_printer *, text_info *, const char *,
 			    int, bool, bool, bool);
 
@@ -201,6 +199,9 @@ struct pretty_print_info
 #define pp_set_line_maximum_length(PP, L) \
    pp_base_set_line_maximum_length (pp_base (PP), L)
 #define pp_set_prefix(PP, P)    pp_base_set_prefix (pp_base (PP), P)
+#define pp_get_prefix(PP)       pp_base_get_prefix (pp_base (PP))
+static inline const char *
+pp_base_get_prefix (const pretty_printer *pp) { return pp->prefix; }
 #define pp_destroy_prefix(PP)   pp_base_destroy_prefix (pp_base (PP))
 #define pp_remaining_character_count_for_line(PP) \
   pp_base_remaining_character_count_for_line (pp_base (PP))
@@ -253,6 +254,12 @@ struct pretty_print_info
 #define pp_quote(PP)            pp_character (PP, '\'')
 #define pp_backquote(PP)        pp_character (PP, '`')
 #define pp_doublequote(PP)      pp_character (PP, '"')
+#define pp_newline_and_flush(PP)     \
+  do {                               \
+    pp_newline (PP);                 \
+    pp_flush (PP);                   \
+    pp_needs_newline (PP) = false;   \
+  } while (0)
 #define pp_newline_and_indent(PP, N) \
   do {                               \
     pp_indentation (PP) += N;        \
@@ -334,7 +341,8 @@ extern void pp_base_indent (pretty_printer *);
 extern void pp_base_newline (pretty_printer *);
 extern void pp_base_character (pretty_printer *, int);
 extern void pp_base_string (pretty_printer *, const char *);
-extern void pp_write_text_to_stream (pretty_printer *pp);
+extern void pp_write_text_to_stream (pretty_printer *);
+extern void pp_write_text_as_dot_label_to_stream (pretty_printer *, bool);
 extern void pp_base_maybe_space (pretty_printer *);
 
 /* Switch into verbatim mode and return the old mode.  */

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -27,6 +27,7 @@ with Csets;    use Csets;
 with Namet.Sp; use Namet.Sp;
 with Stylesw;  use Stylesw;
 with Uintp;    use Uintp;
+with Warnsw;   use Warnsw;
 
 with GNAT.Spelling_Checker; use GNAT.Spelling_Checker;
 
@@ -185,7 +186,7 @@ package body Util is
            or else (Token_Name = Name_Interface
                      and then Prev_Token /= Tok_Pragma)
          then
-            Error_Msg_N ("& is a reserved word in Ada 2005?", Token_Node);
+            Error_Msg_N ("& is a reserved word in Ada 2005?y?", Token_Node);
          end if;
       end if;
 
@@ -195,7 +196,7 @@ package body Util is
         and then Warn_On_Ada_2012_Compatibility
       then
          if Token_Name = Name_Some then
-            Error_Msg_N ("& is a reserved word in Ada 2012?", Token_Node);
+            Error_Msg_N ("& is a reserved word in Ada 2012?y?", Token_Node);
          end if;
       end if;
 
@@ -634,6 +635,10 @@ package body Util is
 
    procedure No_Constraint is
    begin
+      --  If we have a token that could start a constraint on the same line
+      --  then cnsider this an illegal constraint. It seems unlikely it could
+      --  be anything else if it is on the same line.
+
       if Token in Token_Class_Consk then
          Error_Msg_SC ("constraint not allowed here");
          Discard_Junk_Node (P_Constraint_Opt);
@@ -715,20 +720,7 @@ package body Util is
 
    procedure Signal_Bad_Attribute is
    begin
-      Error_Msg_N ("unrecognized attribute&", Token_Node);
-
-      --  Check for possible misspelling
-
-      Error_Msg_Name_1 := First_Attribute_Name;
-      while Error_Msg_Name_1 <= Last_Attribute_Name loop
-         if Is_Bad_Spelling_Of (Token_Name, Error_Msg_Name_1) then
-            Error_Msg_N -- CODEFIX
-              ("\possible misspelling of %", Token_Node);
-            exit;
-         end if;
-
-         Error_Msg_Name_1 := Error_Msg_Name_1 + 1;
-      end loop;
+      Bad_Attribute (Token_Node, Token_Name, Warn => False);
    end Signal_Bad_Attribute;
 
    -----------------------------
@@ -761,5 +753,22 @@ package body Util is
    begin
       return (Token_Ptr = First_Non_Blank_Location or else Token = Tok_EOF);
    end Token_Is_At_Start_Of_Line;
+
+   -----------------------------------
+   -- Warn_If_Standard_Redefinition --
+   -----------------------------------
+
+   procedure Warn_If_Standard_Redefinition (N : Node_Id) is
+   begin
+      if Warn_On_Standard_Redefinition then
+         declare
+            C : constant Entity_Id := Current_Entity (N);
+         begin
+            if Present (C) and then Sloc (C) = Standard_Location then
+               Error_Msg_N ("redefinition of entity& in Standard?K?", N);
+            end if;
+         end;
+      end if;
+   end Warn_If_Standard_Redefinition;
 
 end Util;

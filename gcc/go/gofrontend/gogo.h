@@ -37,8 +37,6 @@ class Channel_type;
 class Interface_type;
 class Named_type;
 class Forward_declaration_type;
-class Method;
-class Methods;
 class Named_object;
 class Label;
 class Translate_context;
@@ -379,6 +377,11 @@ class Gogo
   void
   add_named_object(Named_object*);
 
+  // Add an identifier to the list of names seen in the file block.
+  void
+  add_file_block_name(const std::string& name, Location location)
+  { this->file_block_names_[name] = location; }
+
   // Mark all local variables in current bindings as used.  This is
   // used when there is a parse error to avoid useless errors.
   void
@@ -558,7 +561,7 @@ class Gogo
 	       tree rettype, ...);
 
   // Build a call to the runtime error function.
-  static tree
+  tree
   runtime_error(int code, Location);
 
   // Build a builtin struct with a list of fields.
@@ -680,6 +683,10 @@ class Gogo
   // This is used for initialization dependency analysis.
   typedef std::map<Variable*, Named_object*> Var_deps;
 
+  // Type used to map identifiers in the file block to the location
+  // where they were defined.
+  typedef Unordered_map(std::string, Location) File_block_names;
+
   // Type used to queue writing a type specific function.
   struct Specific_type_function
   {
@@ -712,6 +719,8 @@ class Gogo
   // The global binding contour.  This includes the builtin functions
   // and the package we are compiling.
   Bindings* globals_;
+  // The list of names we have seen in the file block.
+  File_block_names file_block_names_;
   // Mapping from import file names to packages.
   Imports imports_;
   // Whether the magic unsafe package was imported.
@@ -911,6 +920,24 @@ class Function
   results_are_named() const
   { return this->results_are_named_; }
 
+  // Whether this method should not be included in the type
+  // descriptor.
+  bool
+  nointerface() const
+  {
+    go_assert(this->is_method());
+    return this->nointerface_;
+  }
+
+  // Record that this method should not be included in the type
+  // descriptor.
+  void
+  set_nointerface()
+  {
+    go_assert(this->is_method());
+    this->nointerface_ = true;
+  }
+
   // Add a new field to the closure variable.
   void
   add_closure_field(Named_object* var, Location loc)
@@ -1014,6 +1041,11 @@ class Function
   set_has_recover_thunk()
   { this->has_recover_thunk_ = true; }
 
+  // Mark the function as going into a unique section.
+  void
+  set_in_unique_section()
+  { this->in_unique_section_ = true; }
+
   // Swap with another function.  Used only for the thunk which calls
   // recover.
   void
@@ -1113,12 +1145,17 @@ class Function
   Temporary_statement* defer_stack_;
   // True if the result variables are named.
   bool results_are_named_;
+  // True if this method should not be included in the type descriptor.
+  bool nointerface_;
   // True if this function calls the predeclared recover function.
   bool calls_recover_;
   // True if this a thunk built for a function which calls recover.
   bool is_recover_thunk_;
   // True if this function already has a recover thunk.
   bool has_recover_thunk_;
+  // True if this function should be put in a unique section.  This is
+  // turned on for field tracking.
+  bool in_unique_section_ : 1;
 };
 
 // A snapshot of the current binding state.
@@ -1394,6 +1431,14 @@ class Variable
   set_is_type_switch_var()
   { this->is_type_switch_var_ = true; }
 
+  // Mark the variable as going into a unique section.
+  void
+  set_in_unique_section()
+  {
+    go_assert(this->is_global_);
+    this->in_unique_section_ = true;
+  }
+
   // Traverse the initializer expression.
   int
   traverse_expression(Traverse*, unsigned int traverse_mask);
@@ -1484,6 +1529,9 @@ class Variable
   bool is_type_switch_var_ : 1;
   // True if we have determined types.
   bool determined_type_ : 1;
+  // True if this variable should be put in a unique section.  This is
+  // used for field tracking.
+  bool in_unique_section_ : 1;
 };
 
 // A variable which is really the name for a function return value, or
@@ -1699,6 +1747,11 @@ class Type_declaration
   bool
   has_methods() const;
 
+  // Return the methods.
+  const std::vector<Named_object*>*
+  methods() const
+  { return &this->methods_; }
+
   // Define methods when the real type is known.
   void
   define_methods(Named_type*);
@@ -1709,8 +1762,6 @@ class Type_declaration
   using_type();
 
  private:
-  typedef std::vector<Named_object*> Methods;
-
   // The location of the type declaration.
   Location location_;
   // If this type is declared in a function, a pointer back to the
@@ -1719,7 +1770,7 @@ class Type_declaration
   // The index of this type in IN_FUNCTION_.
   unsigned int in_function_index_;
   // Methods defined before the type is defined.
-  Methods methods_;
+  std::vector<Named_object*> methods_;
   // True if we have issued a warning about a use of this type
   // declaration when it is undefined.
   bool issued_warning_;
@@ -2225,7 +2276,7 @@ class Bindings
 
   // Clear all names in file scope from the bindings.
   void
-  clear_file_scope();
+  clear_file_scope(Gogo*);
 
   // Look up a name in this binding contour and in any enclosing
   // binding contours.  This returns NULL if the name is not found.

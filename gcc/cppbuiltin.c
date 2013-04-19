@@ -1,6 +1,5 @@
 /* Define builtin-in macros for all front ends that perform preprocessing
-   Copyright (C) 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -90,6 +89,9 @@ define_builtin_macros_for_compilation_flags (cpp_reader *pfile)
       cpp_define_formatted (pfile, "__pie__=%d", flag_pie);
       cpp_define_formatted (pfile, "__PIE__=%d", flag_pie);
     }
+
+  if (flag_asan)
+    cpp_define (pfile, "__SANITIZE_ADDRESS__");
 
   if (optimize_size)
     cpp_define (pfile, "__OPTIMIZE_SIZE__");

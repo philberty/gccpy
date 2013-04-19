@@ -7,7 +7,7 @@
 // IPv4 addresses are 4 bytes; IPv6 addresses are 16 bytes.
 // An IPv4 address can be converted to an IPv6 address by
 // adding a canonical prefix (10 zeros, 2 0xFFs).
-// This library accepts either size of byte array but always
+// This library accepts either size of byte slice but always
 // returns 16-byte addresses.
 
 package net
@@ -18,14 +18,14 @@ const (
 	IPv6len = 16
 )
 
-// An IP is a single IP address, an array of bytes.
+// An IP is a single IP address, a slice of bytes.
 // Functions in this package accept either 4-byte (IPv4)
-// or 16-byte (IPv6) arrays as input.
+// or 16-byte (IPv6) slices as input.
 //
 // Note that in this documentation, referring to an
 // IP address as an IPv4 address or an IPv6 address
 // is a semantic property of the address, not just the
-// length of the byte array: a 16-byte array can still
+// length of the byte slice: a 16-byte slice can still
 // be an IPv4 address.
 type IP []byte
 
@@ -36,6 +36,7 @@ type IPMask []byte
 type IPNet struct {
 	IP   IP     // network number
 	Mask IPMask // network mask
+	Zone string // IPv6 scoped addressing zone
 }
 
 // IPv4 returns the IP address (in 16-byte form) of the
@@ -645,5 +646,5 @@ func ParseCIDR(s string) (IP, *IPNet, error) {
 		return nil, nil, &ParseError{"CIDR address", s}
 	}
 	m := CIDRMask(n, 8*iplen)
-	return ip, &IPNet{ip.Mask(m), m}, nil
+	return ip, &IPNet{IP: ip.Mask(m), Mask: m}, nil
 }

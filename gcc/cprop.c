@@ -1,6 +1,5 @@
 /* Global constant/copy propagation for RTL.
-   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1997-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -34,7 +33,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "insn-config.h"
 #include "recog.h"
 #include "basic-block.h"
-#include "output.h"
 #include "function.h"
 #include "expr.h"
 #include "except.h"
@@ -42,12 +40,12 @@ along with GCC; see the file COPYING3.  If not see
 #include "cselib.h"
 #include "intl.h"
 #include "obstack.h"
-#include "timevar.h"
 #include "tree-pass.h"
 #include "hashtab.h"
 #include "df.h"
 #include "dbgcnt.h"
 #include "target.h"
+#include "cfgloop.h"
 
 
 /* An obstack for our working variables.  */
@@ -66,8 +64,6 @@ struct occr
 };
 
 typedef struct occr *occr_t;
-DEF_VEC_P (occr_t);
-DEF_VEC_ALLOC_P (occr_t, heap);
 
 /* Hash table entry for assignment expressions.  */
 
@@ -173,10 +169,7 @@ reg_available_p (const_rtx x, const_rtx insn ATTRIBUTE_UNUSED)
 static unsigned int
 hash_set (int regno, int hash_table_size)
 {
-  unsigned int hash;
-
-  hash = regno;
-  return hash % hash_table_size;
+  return (unsigned) regno % hash_table_size;
 }
 
 /* Insert assignment DEST:=SET from INSN in the hash table.
@@ -601,8 +594,8 @@ compute_local_properties (sbitmap *kill, sbitmap *comp,
   unsigned int i;
 
   /* Initialize the bitmaps that were passed in.  */
-  sbitmap_vector_zero (kill, last_basic_block);
-  sbitmap_vector_zero (comp, last_basic_block);
+  bitmap_vector_clear (kill, last_basic_block);
+  bitmap_vector_clear (comp, last_basic_block);
 
   for (i = 0; i < table->size; i++)
     {
@@ -618,20 +611,20 @@ compute_local_properties (sbitmap *kill, sbitmap *comp,
 	     is killed in the block where the definition is.  */
 	  for (def = DF_REG_DEF_CHAIN (REGNO (expr->dest));
 	       def; def = DF_REF_NEXT_REG (def))
-	    SET_BIT (kill[DF_REF_BB (def)->index], indx);
+	    bitmap_set_bit (kill[DF_REF_BB (def)->index], indx);
 
 	  /* If the source is a pseudo-reg, for each definition of the source,
 	     the expression is killed in the block where the definition is.  */
 	  if (REG_P (expr->src))
 	    for (def = DF_REG_DEF_CHAIN (REGNO (expr->src));
 		 def; def = DF_REF_NEXT_REG (def))
-	      SET_BIT (kill[DF_REF_BB (def)->index], indx);
+	      bitmap_set_bit (kill[DF_REF_BB (def)->index], indx);
 
 	  /* The occurrences recorded in avail_occr are exactly those that
 	     are locally available in the block where they are.  */
 	  for (occr = expr->avail_occr; occr != NULL; occr = occr->next)
 	    {
-	      SET_BIT (comp[BLOCK_FOR_INSN (occr->insn)->index], indx);
+	      bitmap_set_bit (comp[BLOCK_FOR_INSN (occr->insn)->index], indx);
 	    }
 	}
     }
@@ -659,7 +652,7 @@ compute_cprop_data (void)
     {
       int index = implicit_set_indexes[bb->index];
       if (index != -1)
-	SET_BIT (cprop_avin[bb->index], index);
+	bitmap_set_bit (cprop_avin[bb->index], index);
     }
 }
 
@@ -831,7 +824,7 @@ find_avail_set (int regno, rtx insn)
 	 which contains INSN.  */
       while (set)
 	{
-	  if (TEST_BIT (cprop_avin[BLOCK_FOR_INSN (insn)->index],
+	  if (bitmap_bit_p (cprop_avin[BLOCK_FOR_INSN (insn)->index],
 			set->bitmap_index))
 	    break;
 	  set = next_set (regno, set);
@@ -1328,7 +1321,7 @@ implicit_set_cond_p (const_rtx cond)
 	 the optimization can't be performed.  */
       /* ??? The complex and vector checks are not implemented yet.  We just
 	 always return zero for them.  */
-      if (GET_CODE (cst) == CONST_DOUBLE)
+      if (CONST_DOUBLE_AS_FLOAT_P (cst))
 	{
 	  REAL_VALUE_TYPE d;
 	  REAL_VALUE_FROM_CONST_DOUBLE (d, cst);
@@ -1448,7 +1441,7 @@ find_bypass_set (int regno, int bb)
 
       while (set)
 	{
-	  if (TEST_BIT (cprop_avout[bb], set->bitmap_index))
+	  if (bitmap_bit_p (cprop_avout[bb], set->bitmap_index))
 	    break;
 	  set = next_set (regno, set);
 	}
@@ -1502,7 +1495,7 @@ bypass_block (basic_block bb, rtx setcc, rtx jump)
   rtx insn, note;
   edge e, edest;
   int change;
-  int may_be_loop_header;
+  int may_be_loop_header = false;
   unsigned removed_p;
   unsigned i;
   edge_iterator ei;
@@ -1516,13 +1509,23 @@ bypass_block (basic_block bb, rtx setcc, rtx jump)
   if (note)
     find_used_regs (&XEXP (note, 0), NULL);
 
-  may_be_loop_header = false;
-  FOR_EACH_EDGE (e, ei, bb->preds)
-    if (e->flags & EDGE_DFS_BACK)
-      {
-	may_be_loop_header = true;
-	break;
-      }
+  if (current_loops)
+    {
+      /* If we are to preserve loop structure then do not bypass
+         a loop header.  This will either rotate the loop, create
+	 multiple entry loops or even irreducible regions.  */
+      if (bb == bb->loop_father->header)
+	return 0;
+    }
+  else
+    {
+      FOR_EACH_EDGE (e, ei, bb->preds)
+	if (e->flags & EDGE_DFS_BACK)
+	  {
+	    may_be_loop_header = true;
+	    break;
+	  }
+    }
 
   change = 0;
   for (ei = ei_start (bb->preds); (e = ei_safe_edge (ei)); )
@@ -1627,8 +1630,10 @@ bypass_block (basic_block bb, rtx setcc, rtx jump)
 				      "in jump_insn %d equals constant ",
 			   regno, INSN_UID (jump));
 		  print_rtl (dump_file, set->src);
-		  fprintf (dump_file, "\nBypass edge from %d->%d to %d\n",
-			   e->src->index, old_dest->index, dest->index);
+		  fprintf (dump_file, "\n\t     when BB %d is entered from "
+				      "BB %d.  Redirect edge %d->%d to %d.\n",
+			   old_dest->index, e->src->index, e->src->index,
+			   old_dest->index, dest->index);
 		}
 	      change = 1;
 	      removed_p = 1;
@@ -1904,7 +1909,7 @@ execute_rtl_cprop (void)
   changed = one_cprop_pass ();
   flag_rerun_cse_after_global_opts |= changed;
   if (changed)
-    cleanup_cfg (0);
+    cleanup_cfg (CLEANUP_CFG_CHANGED);
   return 0;
 }
 
@@ -1913,6 +1918,7 @@ struct rtl_opt_pass pass_rtl_cprop =
  {
   RTL_PASS,
   "cprop",                              /* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_rtl_cprop,                       /* gate */
   execute_rtl_cprop,  			/* execute */
   NULL,                                 /* sub */

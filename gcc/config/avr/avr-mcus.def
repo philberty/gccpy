@@ -1,6 +1,5 @@
 /* AVR MCUs.
-   Copyright (C) 2009 -- 2013
-   Free Software Foundation, Inc.
+   Copyright (C) 2009-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -26,12 +25,12 @@
 
    -  $(srcdir)/config/avr/t-multilib
    -  $(srcdir)/config/avr/avr-tables.opt
+   -  $(srcdir)/doc/avr-mmcu.texi
 
    After that, rebuild everything and check-in the new sources to the repo.
    The device list below has to be kept in sync with the following places:
 
    -  here
-   -  gcc/doc/invoke.texi
    -  gas/config/tc-avr.c
    -  avr-libc
 
@@ -40,7 +39,7 @@
    AVR_MCU (NAME, ARCH, MACRO, SHORT_SP, ERRATA_SKIP, DATA_SEC, N_FLASH,
             LIBRARY_NAME)
 
-   where the arguments are the fields of struct mcu_type_s:
+   where the arguments are the fields of avr_mcu_t:
    
        NAME         Accept -mmcu=<NAME>
 

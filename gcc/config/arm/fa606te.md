@@ -1,5 +1,5 @@
 ;; Faraday FA606TE Pipeline Description
-;; Copyright (C) 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2013 Free Software Foundation, Inc.
 ;; Written by Mingfeng Wu, based on ARM926EJ-S Pipeline Description.
 ;;
 ;; This file is part of GCC.
@@ -62,7 +62,7 @@
 ;; ALU operations
 (define_insn_reservation "606te_alu_op" 1
  (and (eq_attr "tune" "fa606te")
-      (eq_attr "type" "alu,alu_shift,alu_shift_reg"))
+      (eq_attr "type" "alu_reg,simple_alu_imm,simple_alu_shift,alu_shift,alu_shift_reg"))
  "fa606te_core")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 )
 
-// These replacements permit compatibility with old numeric entities that 
+// These replacements permit compatibility with old numeric entities that
 // assumed Windows-1252 encoding.
 // http://www.whatwg.org/specs/web-apps/current-work/multipage/tokenization.html#consume-a-character-reference
 var replacementTable = [...]rune{
@@ -46,7 +46,7 @@ var replacementTable = [...]rune{
 	'\u009D',
 	'\u017E',
 	'\u0178', // Last entry is 0x9F.
-	// 0x00->'\uFFFD' is handled programmatically. 
+	// 0x00->'\uFFFD' is handled programmatically.
 	// 0x0D->'\u000D' is a no-op.
 }
 
@@ -163,14 +163,15 @@ func unescapeEntity(b []byte, dst, src int, attribute bool) (dst1, src1 int) {
 }
 
 // unescape unescapes b's entities in-place, so that "a&lt;b" becomes "a<b".
-func unescape(b []byte) []byte {
+// attribute should be true if parsing an attribute value.
+func unescape(b []byte, attribute bool) []byte {
 	for i, c := range b {
 		if c == '&' {
-			dst, src := unescapeEntity(b, i, i, false)
+			dst, src := unescapeEntity(b, i, i, attribute)
 			for src < len(b) {
 				c := b[src]
 				if c == '&' {
-					dst, src = unescapeEntity(b, dst, src, false)
+					dst, src = unescapeEntity(b, dst, src, attribute)
 				} else {
 					b[dst] = c
 					dst, src = dst+1, src+1
@@ -192,7 +193,7 @@ func lower(b []byte) []byte {
 	return b
 }
 
-const escapedChars = `&'<>"`
+const escapedChars = "&'<>\"\r"
 
 func escape(w writer, s string) error {
 	i := strings.IndexAny(s, escapedChars)
@@ -205,13 +206,17 @@ func escape(w writer, s string) error {
 		case '&':
 			esc = "&amp;"
 		case '\'':
-			esc = "&apos;"
+			// "&#39;" is shorter than "&apos;" and apos was not in HTML until HTML5.
+			esc = "&#39;"
 		case '<':
 			esc = "&lt;"
 		case '>':
 			esc = "&gt;"
 		case '"':
-			esc = "&quot;"
+			// "&#34;" is shorter than "&quot;".
+			esc = "&#34;"
+		case '\r':
+			esc = "&#13;"
 		default:
 			panic("unrecognized escape character")
 		}
@@ -226,7 +231,7 @@ func escape(w writer, s string) error {
 }
 
 // EscapeString escapes special characters like "<" to become "&lt;". It
-// escapes only five such characters: amp, apos, lt, gt and quot.
+// escapes only five such characters: <, >, &, ' and ".
 // UnescapeString(EscapeString(s)) == s always holds, but the converse isn't
 // always true.
 func EscapeString(s string) string {
@@ -246,7 +251,7 @@ func EscapeString(s string) string {
 func UnescapeString(s string) string {
 	for _, c := range s {
 		if c == '&' {
-			return string(unescape([]byte(s)))
+			return string(unescape([]byte(s), false))
 		}
 	}
 	return s

@@ -1,5 +1,4 @@
-/* Copyright (C) 2002, 2003, 2005, 2007, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+/* Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of the GNU Fortran runtime library (libgfortran).
@@ -414,6 +413,27 @@ inquire_via_unit (st_parameter_inquire *iqp, gfc_unit * u)
 	      *iqp->size = ssize (u->s);
 	    }
 	}
+
+      if ((cf2 & IOPARM_INQUIRE_HAS_IQSTREAM) != 0)
+	{
+	  if (u == NULL)
+	    p = "UNKNOWN";
+	  else
+	    switch (u->flags.access)
+	      {
+	      case ACCESS_SEQUENTIAL:
+	      case ACCESS_DIRECT:
+		p = "NO";
+		break;
+	      case ACCESS_STREAM:
+		p = "YES";
+		break;
+	      default:
+		internal_error (&iqp->common, "inquire_via_unit(): Bad pad");
+	      }
+    
+	  cf_strcpy (iqp->iqstream, iqp->iqstream_len, p);
+	}
     }
 
   if ((cf & IOPARM_INQUIRE_HAS_POSITION) != 0)
@@ -659,6 +679,9 @@ inquire_via_filename (st_parameter_inquire *iqp)
 
       if ((cf2 & IOPARM_INQUIRE_HAS_SIZE) != 0)
 	*iqp->size = file_size (iqp->file, iqp->file_len);
+
+      if ((cf2 & IOPARM_INQUIRE_HAS_IQSTREAM) != 0)
+	cf_strcpy (iqp->iqstream, iqp->iqstream_len, "UNKNOWN");
     }
 
   if ((cf & IOPARM_INQUIRE_HAS_POSITION) != 0)

@@ -159,6 +159,7 @@
     Standard Contents
   </title>
 </info>
+<?dbhtml filename="std_contents.html"?>
 
 
 <!-- Chapter 01 : Support -->
@@ -221,6 +222,7 @@
 <part xml:id="appendix" xreflabel="Appendices"><info><title>
   Appendices
 </title></info>
+<?dbhtml filename="appendix.html"?>
 
 
 <!-- Appendix A -->

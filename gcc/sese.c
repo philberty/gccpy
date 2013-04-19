@@ -1,6 +1,5 @@
 /* Single entry single exit control flow regions.
-   Copyright (C) 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2008-2013 Free Software Foundation, Inc.
    Contributed by Jan Sjodin <jan.sjodin@amd.com> and
    Sebastian Pop <sebastian.pop@amd.com>.
 
@@ -133,7 +132,7 @@ eq_ivtype_map_elts (const void *e1, const void *e2)
 
 
 
-/* Record LOOP as occuring in REGION.  */
+/* Record LOOP as occurring in REGION.  */
 
 static void
 sese_record_loop (sese region, loop_p loop)
@@ -142,7 +141,7 @@ sese_record_loop (sese region, loop_p loop)
     return;
 
   bitmap_set_bit (SESE_LOOPS (region), loop->num);
-  VEC_safe_push (loop_p, heap, SESE_LOOP_NEST (region), loop);
+  SESE_LOOP_NEST (region).safe_push (loop);
 }
 
 /* Build the loop nests contained in REGION.  Returns true when the
@@ -169,16 +168,16 @@ build_sese_loop_nests (sese region)
   /* Make sure that the loops in the SESE_LOOP_NEST are ordered.  It
      can be the case that an inner loop is inserted before an outer
      loop.  To avoid this, semi-sort once.  */
-  FOR_EACH_VEC_ELT (loop_p, SESE_LOOP_NEST (region), i, loop0)
+  FOR_EACH_VEC_ELT (SESE_LOOP_NEST (region), i, loop0)
     {
-      if (VEC_length (loop_p, SESE_LOOP_NEST (region)) == i + 1)
+      if (SESE_LOOP_NEST (region).length () == i + 1)
 	break;
 
-      loop1 = VEC_index (loop_p, SESE_LOOP_NEST (region), i + 1);
+      loop1 = SESE_LOOP_NEST (region)[i + 1];
       if (loop0->num > loop1->num)
 	{
-	  VEC_replace (loop_p, SESE_LOOP_NEST (region), i, loop1);
-	  VEC_replace (loop_p, SESE_LOOP_NEST (region), i + 1, loop0);
+	  SESE_LOOP_NEST (region)[i] = loop1;
+	  SESE_LOOP_NEST (region)[i + 1] = loop0;
 	}
     }
 }
@@ -304,7 +303,7 @@ sese_build_liveouts (sese region, bitmap liveouts)
 
   FOR_EACH_BB (bb)
     sese_build_liveouts_bb (region, liveouts, bb);
-  if (MAY_HAVE_DEBUG_INSNS)
+  if (MAY_HAVE_DEBUG_STMTS)
     FOR_EACH_BB (bb)
       sese_reset_debug_liveouts_bb (region, liveouts, bb);
 }
@@ -319,9 +318,9 @@ new_sese (edge entry, edge exit)
   SESE_ENTRY (region) = entry;
   SESE_EXIT (region) = exit;
   SESE_LOOPS (region) = BITMAP_ALLOC (NULL);
-  SESE_LOOP_NEST (region) = VEC_alloc (loop_p, heap, 3);
+  SESE_LOOP_NEST (region).create (3);
   SESE_ADD_PARAMS (region) = true;
-  SESE_PARAMS (region) = VEC_alloc (tree, heap, 3);
+  SESE_PARAMS (region).create (3);
 
   return region;
 }
@@ -334,8 +333,8 @@ free_sese (sese region)
   if (SESE_LOOPS (region))
     SESE_LOOPS (region) = BITMAP_ALLOC (NULL);
 
-  VEC_free (tree, heap, SESE_PARAMS (region));
-  VEC_free (loop_p, heap, SESE_LOOP_NEST (region));
+  SESE_PARAMS (region).release ();
+  SESE_LOOP_NEST (region).release ();
 
   XDELETE (region);
 }
@@ -345,10 +344,8 @@ free_sese (sese region)
 static void
 sese_add_exit_phis_edge (basic_block exit, tree use, edge false_e, edge true_e)
 {
-  gimple phi = create_phi_node (use, exit);
-
-  create_new_def_for (gimple_phi_result (phi), phi,
-		      gimple_phi_result_ptr (phi));
+  gimple phi = create_phi_node (NULL_TREE, exit);
+  create_new_def_for (use, phi, gimple_phi_result_ptr (phi));
   add_phi_arg (phi, use, false_e, UNKNOWN_LOCATION);
   add_phi_arg (phi, use, true_e, UNKNOWN_LOCATION);
 }
@@ -463,7 +460,7 @@ set_rename (htab_t rename_map, tree old_name, tree expr)
 
 static bool
 rename_uses (gimple copy, htab_t rename_map, gimple_stmt_iterator *gsi_tgt,
-	     sese region, loop_p loop, VEC (tree, heap) *iv_map,
+	     sese region, loop_p loop, vec<tree> iv_map,
 	     bool *gloog_error)
 {
   use_operand_p use_p;
@@ -482,14 +479,13 @@ rename_uses (gimple copy, htab_t rename_map, gimple_stmt_iterator *gsi_tgt,
       return false;
     }
 
-  FOR_EACH_SSA_USE_OPERAND (use_p, copy, op_iter, SSA_OP_ALL_USES)
+  FOR_EACH_SSA_USE_OPERAND (use_p, copy, op_iter, SSA_OP_USE)
     {
       tree old_name = USE_FROM_PTR (use_p);
       tree new_expr, scev;
       gimple_seq stmts;
 
       if (TREE_CODE (old_name) != SSA_NAME
-	  || !is_gimple_reg (old_name)
 	  || SSA_NAME_IS_DEFAULT_DEF (old_name))
 	continue;
 
@@ -501,16 +497,14 @@ rename_uses (gimple copy, htab_t rename_map, gimple_stmt_iterator *gsi_tgt,
 	  tree type_new_expr = TREE_TYPE (new_expr);
 
 	  if (type_old_name != type_new_expr
-	      || (TREE_CODE (new_expr) != SSA_NAME
-		  && is_gimple_reg (old_name)))
+	      || TREE_CODE (new_expr) != SSA_NAME)
 	    {
 	      tree var = create_tmp_var (type_old_name, "var");
 
-	      if (type_old_name != type_new_expr)
+	      if (!useless_type_conversion_p (type_old_name, type_new_expr))
 		new_expr = fold_convert (type_old_name, new_expr);
 
-	      new_expr = build2 (MODIFY_EXPR, type_old_name, var, new_expr);
-	      new_expr = force_gimple_operand (new_expr, &stmts, true, NULL);
+	      new_expr = force_gimple_operand (new_expr, &stmts, true, var);
 	      gsi_insert_seq_before (gsi_tgt, stmts, GSI_SAME_STMT);
 	    }
 
@@ -572,7 +566,7 @@ rename_uses (gimple copy, htab_t rename_map, gimple_stmt_iterator *gsi_tgt,
 static void
 graphite_copy_stmts_from_block (basic_block bb, basic_block new_bb,
 				htab_t rename_map,
-				VEC (tree, heap) *iv_map, sese region,
+				vec<tree> iv_map, sese region,
 				bool *gloog_error)
 {
   gimple_stmt_iterator gsi, gsi_tgt;
@@ -604,7 +598,6 @@ graphite_copy_stmts_from_block (basic_block bb, basic_block new_bb,
 	 operands.  */
       copy = gimple_copy (stmt);
       gsi_insert_after (&gsi_tgt, copy, GSI_NEW_STMT);
-      mark_sym_for_renaming (gimple_vop (cfun));
 
       maybe_duplicate_eh_stmt (copy, stmt);
       gimple_duplicate_stmt_histograms (cfun, copy, cfun, stmt);
@@ -636,7 +629,7 @@ graphite_copy_stmts_from_block (basic_block bb, basic_block new_bb,
 
 edge
 copy_bb_and_scalar_dependences (basic_block bb, sese region,
-				edge next_e, VEC (tree, heap) *iv_map,
+				edge next_e, vec<tree> iv_map,
 				bool *gloog_error)
 {
   basic_block new_bb = split_edge (next_e);

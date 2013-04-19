@@ -1,8 +1,6 @@
 // Iostreams base classes -*- C++ -*-
 
-// Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-// 2006, 2007, 2008, 2009, 2010, 2011
-// Free Software Foundation, Inc.
+// Copyright (C) 1997-2013 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -52,10 +50,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return *__f;
     }
 
-  // 27.4.5  Template class basic_ios
   /**
-   *  @brief  Virtual base class for all stream classes.
+   *  @brief Template class basic_ios, virtual base class for all
+   *  stream classes. 
    *  @ingroup io
+   *
+   *  @tparam _CharT  Type of character stream.
+   *  @tparam _Traits  Traits for character type, defaults to
+   *                   char_traits<_CharT>.
    *
    *  Most of the member functions called dispatched on stream objects
    *  (e.g., @c std::cout.foo(bar);) are consolidated in this class.
@@ -110,8 +112,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  This allows you to write constructs such as
        *  <code>if (!a_stream) ...</code> and <code>while (a_stream) ...</code>
       */
+#if __cplusplus >= 201103L
+      explicit operator bool() const
+      { return !this->fail(); }
+#else
       operator void*() const
       { return this->fail() ? 0 : const_cast<basic_ios*>(this); }
+#endif
 
       bool
       operator!() const

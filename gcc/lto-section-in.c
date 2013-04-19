@@ -1,6 +1,6 @@
 /* Input functions for reading LTO sections.
 
-   Copyright 2009, 2010 Free Software Foundation, Inc.
+   Copyright (C) 2009-2013 Free Software Foundation, Inc.
    Contributed by Kenneth Zadeck <zadeck@naturalbridge.com>
 
 This file is part of GCC.
@@ -38,7 +38,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "except.h"
 #include "vec.h"
 #include "timevar.h"
-#include "output.h"
 #include "lto-streamer.h"
 #include "lto-compress.h"
 #include "ggc.h"
@@ -50,17 +49,17 @@ const char *lto_section_name[LTO_N_SECTION_TYPES] =
   "decls",
   "function_body",
   "statics",
-  "cgraph",
-  "vars",
+  "symtab",
   "refs",
   "asm",
   "jmpfuncs",
   "pureconst",
   "reference",
-  "symtab",
+  "symbol_nodes",
   "opts",
   "cgraphopt",
-  "inline"
+  "inline",
+  "ipcp_trans"
 };
 
 

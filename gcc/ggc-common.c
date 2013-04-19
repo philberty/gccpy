@@ -1,6 +1,5 @@
 /* Simple garbage collection for the GNU compiler.
-   Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010 Free Software Foundation, Inc.
+   Copyright (C) 1999-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -79,9 +78,7 @@ ggc_htab_delete (void **slot, void *info)
    tables, for instance from some plugins; this vector is on the heap
    since it is used by GGC internally.  */
 typedef const struct ggc_root_tab *const_ggc_root_tab_t;
-DEF_VEC_P(const_ggc_root_tab_t);
-DEF_VEC_ALLOC_P(const_ggc_root_tab_t, heap);
-static VEC(const_ggc_root_tab_t, heap) *extra_root_vec;
+static vec<const_ggc_root_tab_t> extra_root_vec;
 
 /* Dynamically register a new GGC root table RT. This is useful for
    plugins. */
@@ -90,7 +87,7 @@ void
 ggc_register_root_tab (const struct ggc_root_tab* rt)
 {
   if (rt)
-    VEC_safe_push (const_ggc_root_tab_t, heap, extra_root_vec, rt);
+    extra_root_vec.safe_push (rt);
 }
 
 /* This extra vector of dynamically registered cache_tab-s is used by
@@ -98,9 +95,7 @@ ggc_register_root_tab (const struct ggc_root_tab* rt)
    tables, for instance from some plugins; this vector is on the heap
    since it is used by GGC internally.  */
 typedef const struct ggc_cache_tab *const_ggc_cache_tab_t;
-DEF_VEC_P(const_ggc_cache_tab_t);
-DEF_VEC_ALLOC_P(const_ggc_cache_tab_t, heap);
-static VEC(const_ggc_cache_tab_t, heap) *extra_cache_vec;
+static vec<const_ggc_cache_tab_t> extra_cache_vec;
 
 /* Dynamically register a new GGC cache table CT. This is useful for
    plugins. */
@@ -109,7 +104,7 @@ void
 ggc_register_cache_tab (const struct ggc_cache_tab* ct)
 {
   if (ct)
-    VEC_safe_push (const_ggc_cache_tab_t, heap, extra_cache_vec, ct);
+    extra_cache_vec.safe_push (ct);
 }
 
 /* Scan a hash table that has objects which are to be deleted if they are not
@@ -160,7 +155,7 @@ ggc_mark_roots (void)
   for (rt = gt_ggc_rtab; *rt; rt++)
     ggc_mark_root_tab (*rt);
 
-  FOR_EACH_VEC_ELT (const_ggc_root_tab_t, extra_root_vec, i, rtp)
+  FOR_EACH_VEC_ELT (extra_root_vec, i, rtp)
     ggc_mark_root_tab (rtp);
 
   if (ggc_protect_identifiers)
@@ -171,7 +166,7 @@ ggc_mark_roots (void)
   for (ct = gt_ggc_cache_rtab; *ct; ct++)
     ggc_scan_cache_tab (*ct);
 
-  FOR_EACH_VEC_ELT (const_ggc_cache_tab_t, extra_cache_vec, i, ctp)
+  FOR_EACH_VEC_ELT (extra_cache_vec, i, ctp)
     ggc_scan_cache_tab (ctp);
 
   if (! ggc_protect_identifiers)
@@ -255,8 +250,7 @@ ggc_cleared_alloc_ptr_array_two_args (size_t c, size_t n)
 
 /* These are for splay_tree_new_ggc.  */
 void *
-ggc_splay_alloc (enum gt_types_enum obj_type ATTRIBUTE_UNUSED, int sz,
-		 void *nl)
+ggc_splay_alloc (int sz, void *nl)
 {
   gcc_assert (!nl);
   return ggc_internal_alloc (sz);
@@ -305,7 +299,6 @@ struct ptr_data
   gt_handle_reorder reorder_fn;
   size_t size;
   void *new_addr;
-  enum gt_types_enum type;
 };
 
 #define POINTER_HASH(x) (hashval_t)((intptr_t)x >> 3)
@@ -314,8 +307,7 @@ struct ptr_data
 
 int
 gt_pch_note_object (void *obj, void *note_ptr_cookie,
-		    gt_note_pointers note_ptr_fn,
-		    enum gt_types_enum type)
+		    gt_note_pointers note_ptr_fn)
 {
   struct ptr_data **slot;
 
@@ -340,7 +332,6 @@ gt_pch_note_object (void *obj, void *note_ptr_cookie,
     (*slot)->size = strlen ((const char *)obj) + 1;
   else
     (*slot)->size = ggc_get_size (obj);
-  (*slot)->type = type;
   return 1;
 }
 
@@ -396,8 +387,7 @@ call_count (void **slot, void *state_p)
   struct traversal_state *state = (struct traversal_state *)state_p;
 
   ggc_pch_count_object (state->d, d->obj, d->size,
-			d->note_ptr_fn == gt_pch_p_S,
-			d->type);
+			d->note_ptr_fn == gt_pch_p_S);
   state->count++;
   return 1;
 }
@@ -409,8 +399,7 @@ call_alloc (void **slot, void *state_p)
   struct traversal_state *state = (struct traversal_state *)state_p;
 
   d->new_addr = ggc_pch_alloc_object (state->d, d->obj, d->size,
-				      d->note_ptr_fn == gt_pch_p_S,
-				      d->type);
+				      d->note_ptr_fn == gt_pch_p_S);
   state->ptrs[state->ptrs_i++] = d;
   return 1;
 }
@@ -845,8 +834,6 @@ init_ggc_heuristics (void)
 #endif
 }
 
-#ifdef GATHER_STATISTICS
-
 /* Datastructure used to store per-call-site statistics.  */
 struct loc_descriptor
 {
@@ -1040,15 +1027,17 @@ add_statistics (void **slot, void *b)
 }
 
 /* Dump per-site memory statistics.  */
-#endif
+
 void
-dump_ggc_loc_statistics (bool final ATTRIBUTE_UNUSED)
+dump_ggc_loc_statistics (bool final)
 {
-#ifdef GATHER_STATISTICS
   int nentries = 0;
   char s[4096];
   size_t collected = 0, freed = 0, allocated = 0, overhead = 0, times = 0;
   int i;
+
+  if (! GATHER_STATISTICS)
+    return;
 
   ggc_force_collect = true;
   ggc_collect ();
@@ -1102,5 +1091,4 @@ dump_ggc_loc_statistics (bool final ATTRIBUTE_UNUSED)
 	   "source location", "Garbage", "Freed", "Leak", "Overhead", "Times");
   fprintf (stderr, "-------------------------------------------------------\n");
   ggc_force_collect = false;
-#endif
 }

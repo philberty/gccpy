@@ -6,7 +6,7 @@
  *                                                                          *
  *                              C Header File                               *
  *                                                                          *
- *          Copyright (C) 1992-2011, Free Software Foundation, Inc.         *
+ *          Copyright (C) 1992-2012, Free Software Foundation, Inc.         *
  *                                                                          *
  * GNAT is free software;  you can  redistribute it  and/or modify it under *
  * terms of the  GNU General Public License as published  by the Free Soft- *
@@ -80,6 +80,10 @@ extern Boolean Is_Entity_Name		(Node_Id);
 #define Get_Attribute_Definition_Clause einfo__get_attribute_definition_clause
 extern Node_Id Get_Attribute_Definition_Clause (Entity_Id, char);
 
+/* atree: */
+
+#define Serious_Errors_Detected atree__serious_errors_detected
+
 /* errout: */
 
 #define Error_Msg_N               errout__error_msg_n
@@ -95,7 +99,6 @@ extern void Set_Identifier_Casing (Char *, const Char *);
 #define Error_Msg_Node_2        err_vars__error_msg_node_2
 #define Error_Msg_Uint_1        err_vars__error_msg_uint_1
 #define Error_Msg_Uint_2        err_vars__error_msg_uint_2
-#define Serious_Errors_Detected err_vars__serious_errors_detected
 
 extern Entity_Id Error_Msg_Node_2;
 extern Uint      Error_Msg_Uint_1;
@@ -106,9 +109,11 @@ extern Nat       Serious_Errors_Detected;
 
 #define Get_Local_Raise_Call_Entity exp_ch11__get_local_raise_call_entity
 #define Get_RT_Exception_Entity exp_ch11__get_rt_exception_entity
+#define Get_RT_Exception_Name exp_ch11__get_rt_exception_name
 
 extern Entity_Id Get_Local_Raise_Call_Entity (void);
 extern Entity_Id Get_RT_Exception_Entity (int);
+extern void Get_RT_Exception_Name (int);
 
 /* exp_code:  */
 
@@ -154,6 +159,11 @@ extern void Get_External_Name_With_Suffix	(Entity_Id, Fat_Pointer);
 
 extern Boolean Is_Fully_Repped_Tagged_Type      (Entity_Id);
 
+/* exp_vfpt: */
+
+#define Get_Vax_Real_Literal_As_Signed exp_vfpt__get_vax_real_literal_as_signed
+extern Ureal Get_Vax_Real_Literal_As_Signed (Node_Id);
+
 /* lib: */
 
 #define Cunit 				lib__cunit
@@ -168,19 +178,21 @@ extern Boolean In_Same_Source_Unit              (Node_Id, Node_Id);
 
 /* opt: */
 
-#define Global_Discard_Names           opt__global_discard_names
+#define Back_Annotate_Rep_Info         opt__back_annotate_rep_info
 #define Exception_Extra_Info           opt__exception_extra_info
 #define Exception_Locations_Suppressed opt__exception_locations_suppressed
 #define Exception_Mechanism            opt__exception_mechanism
-#define Back_Annotate_Rep_Info         opt__back_annotate_rep_info
+#define Generate_SCO_Instance_Table    opt__generate_sco_instance_table
+#define Global_Discard_Names           opt__global_discard_names
 
 typedef enum {Setjmp_Longjmp, Back_End_Exceptions} Exception_Mechanism_Type;
 
-extern Boolean Global_Discard_Names;
+extern Boolean Back_Annotate_Rep_Info;
 extern Boolean Exception_Extra_Info;
 extern Boolean Exception_Locations_Suppressed;
 extern Exception_Mechanism_Type Exception_Mechanism;
-extern Boolean Back_Annotate_Rep_Info;
+extern Boolean Generate_SCO_Instance_Table;
+extern Boolean Global_Discard_Names;
 
 /* restrict: */
 

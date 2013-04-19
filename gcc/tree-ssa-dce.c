@@ -1,6 +1,5 @@
 /* Dead code elimination pass for the GNU compiler.
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Ben Elliston <bje@redhat.com>
    and Andrew MacLeod <amacleod@redhat.com>
    Adapted to use control dependence by Steven Bosscher, SUSE Labs.
@@ -49,14 +48,11 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm.h"
 
 #include "tree.h"
-#include "tree-pretty-print.h"
 #include "gimple-pretty-print.h"
 #include "basic-block.h"
 #include "tree-flow.h"
 #include "gimple.h"
-#include "tree-dump.h"
 #include "tree-pass.h"
-#include "timevar.h"
 #include "flags.h"
 #include "cfgloop.h"
 #include "tree-scalar-evolution.h"
@@ -71,7 +67,7 @@ static struct stmt_stats
 
 #define STMT_NECESSARY GF_PLF_1
 
-static VEC(gimple,heap) *worklist;
+static vec<gimple> worklist;
 
 /* Vector indicating an SSA name has already been processed and marked
    as necessary.  */
@@ -215,9 +211,9 @@ mark_stmt_necessary (gimple stmt, bool add_to_worklist)
 
   gimple_set_plf (stmt, STMT_NECESSARY, true);
   if (add_to_worklist)
-    VEC_safe_push (gimple, heap, worklist, stmt);
+    worklist.safe_push (stmt);
   if (bb_contains_live_stmts && !is_gimple_debug (stmt))
-    SET_BIT (bb_contains_live_stmts, gimple_bb (stmt)->index);
+    bitmap_set_bit (bb_contains_live_stmts, gimple_bb (stmt)->index);
 }
 
 
@@ -232,14 +228,14 @@ mark_operand_necessary (tree op)
   gcc_assert (op);
 
   ver = SSA_NAME_VERSION (op);
-  if (TEST_BIT (processed, ver))
+  if (bitmap_bit_p (processed, ver))
     {
       stmt = SSA_NAME_DEF_STMT (op);
       gcc_assert (gimple_nop_p (stmt)
 		  || gimple_plf (stmt, STMT_NECESSARY));
       return;
     }
-  SET_BIT (processed, ver);
+  bitmap_set_bit (processed, ver);
 
   stmt = SSA_NAME_DEF_STMT (op);
   gcc_assert (stmt);
@@ -257,8 +253,8 @@ mark_operand_necessary (tree op)
 
   gimple_set_plf (stmt, STMT_NECESSARY, true);
   if (bb_contains_live_stmts)
-    SET_BIT (bb_contains_live_stmts, gimple_bb (stmt)->index);
-  VEC_safe_push (gimple, heap, worklist, stmt);
+    bitmap_set_bit (bb_contains_live_stmts, gimple_bb (stmt)->index);
+  worklist.safe_push (stmt);
 }
 
 
@@ -272,8 +268,10 @@ static void
 mark_stmt_if_obviously_necessary (gimple stmt, bool aggressive)
 {
   /* With non-call exceptions, we have to assume that all statements could
-     throw.  If a statement may throw, it is inherently necessary.  */
-  if (cfun->can_throw_non_call_exceptions && stmt_could_throw_p (stmt))
+     throw.  If a statement could throw, it can be deemed necessary.  */
+  if (cfun->can_throw_non_call_exceptions
+      && !cfun->can_delete_dead_exceptions
+      && stmt_could_throw_p (stmt))
     {
       mark_stmt_necessary (stmt, true);
       return;
@@ -370,7 +368,7 @@ mark_stmt_if_obviously_necessary (gimple stmt, bool aggressive)
       return;
     }
 
-  if (is_hidden_global_store (stmt))
+  if (stmt_may_clobber_global_p (stmt))
     {
       mark_stmt_necessary (stmt, true);
       return;
@@ -387,8 +385,8 @@ mark_last_stmt_necessary (basic_block bb)
 {
   gimple stmt = last_stmt (bb);
 
-  SET_BIT (last_stmt_necessary, bb->index);
-  SET_BIT (bb_contains_live_stmts, bb->index);
+  bitmap_set_bit (last_stmt_necessary, bb->index);
+  bitmap_set_bit (bb_contains_live_stmts, bb->index);
 
   /* We actually mark the statement only if it is a control statement.  */
   if (stmt && is_ctrl_stmt (stmt))
@@ -424,12 +422,12 @@ mark_control_dependent_edges_necessary (basic_block bb, struct edge_list *el,
 	  continue;
 	}
 
-      if (!TEST_BIT (last_stmt_necessary, cd_bb->index))
+      if (!bitmap_bit_p (last_stmt_necessary, cd_bb->index))
 	mark_last_stmt_necessary (cd_bb);
     }
 
   if (!skipped)
-    SET_BIT (visited_control_parents, bb->index);
+    bitmap_set_bit (visited_control_parents, bb->index);
 }
 
 
@@ -618,7 +616,7 @@ mark_all_reaching_defs_necessary_1 (ao_ref *ref ATTRIBUTE_UNUSED,
   /* We have to skip already visited (and thus necessary) statements
      to make the chaining work after we dropped back to simple mode.  */
   if (chain_ovfl
-      && TEST_BIT (processed, SSA_NAME_VERSION (vdef)))
+      && bitmap_bit_p (processed, SSA_NAME_VERSION (vdef)))
     {
       gcc_assert (gimple_nop_p (def_stmt)
 		  || gimple_plf (def_stmt, STMT_NECESSARY));
@@ -695,10 +693,10 @@ propagate_necessity (struct edge_list *el)
   if (dump_file && (dump_flags & TDF_DETAILS))
     fprintf (dump_file, "\nProcessing worklist:\n");
 
-  while (VEC_length (gimple, worklist) > 0)
+  while (worklist.length () > 0)
     {
       /* Take STMT from worklist.  */
-      stmt = VEC_pop (gimple, worklist);
+      stmt = worklist.pop ();
 
       if (dump_file && (dump_flags & TDF_DETAILS))
 	{
@@ -714,14 +712,14 @@ propagate_necessity (struct edge_list *el)
 	     already done so.  */
 	  basic_block bb = gimple_bb (stmt);
 	  if (bb != ENTRY_BLOCK_PTR
-	      && !TEST_BIT (visited_control_parents, bb->index))
+	      && !bitmap_bit_p (visited_control_parents, bb->index))
 	    mark_control_dependent_edges_necessary (bb, el, false);
 	}
 
       if (gimple_code (stmt) == GIMPLE_PHI
 	  /* We do not process virtual PHI nodes nor do we track their
 	     necessity.  */
-	  && is_gimple_reg (gimple_phi_result (stmt)))
+	  && !virtual_operand_p (gimple_phi_result (stmt)))
 	{
 	  /* PHI nodes are somewhat special in that each PHI alternative has
 	     data and control dependencies.  All the statements feeding the
@@ -816,11 +814,11 @@ propagate_necessity (struct edge_list *el)
 		  if (gimple_bb (stmt)
 		      != get_immediate_dominator (CDI_POST_DOMINATORS, arg_bb))
 		    {
-		      if (!TEST_BIT (last_stmt_necessary, arg_bb->index))
+		      if (!bitmap_bit_p (last_stmt_necessary, arg_bb->index))
 			mark_last_stmt_necessary (arg_bb);
 		    }
 		  else if (arg_bb != ENTRY_BLOCK_PTR
-		           && !TEST_BIT (visited_control_parents,
+		           && !bitmap_bit_p (visited_control_parents,
 					 arg_bb->index))
 		    mark_control_dependent_edges_necessary (arg_bb, el, true);
 		}
@@ -996,31 +994,32 @@ propagate_necessity (struct edge_list *el)
 }
 
 /* Replace all uses of NAME by underlying variable and mark it
-   for renaming.  */
+   for renaming.  This assumes the defining statement of NAME is
+   going to be removed.  */
 
 void
 mark_virtual_operand_for_renaming (tree name)
 {
+  tree name_var = SSA_NAME_VAR (name);
   bool used = false;
   imm_use_iterator iter;
   use_operand_p use_p;
   gimple stmt;
-  tree name_var;
 
-  name_var = SSA_NAME_VAR (name);
+  gcc_assert (VAR_DECL_IS_VIRTUAL_OPERAND (name_var));
   FOR_EACH_IMM_USE_STMT (stmt, iter, name)
     {
       FOR_EACH_IMM_USE_ON_STMT (use_p, iter)
         SET_USE (use_p, name_var);
-      update_stmt (stmt);
       used = true;
     }
   if (used)
-    mark_sym_for_renaming (name_var);
+    mark_virtual_operands_for_renaming (cfun);
 }
 
-/* Replace all uses of result of PHI by underlying variable and mark it
-   for renaming.  */
+/* Replace all uses of the virtual PHI result by its underlying variable
+   and mark it for renaming.  This assumes the PHI node is going to be
+   removed.  */
 
 void
 mark_virtual_phi_result_for_renaming (gimple phi)
@@ -1042,19 +1041,17 @@ static bool
 remove_dead_phis (basic_block bb)
 {
   bool something_changed = false;
-  gimple_seq phis;
   gimple phi;
   gimple_stmt_iterator gsi;
-  phis = phi_nodes (bb);
 
-  for (gsi = gsi_start (phis); !gsi_end_p (gsi);)
+  for (gsi = gsi_start_phis (bb); !gsi_end_p (gsi);)
     {
       stats.total_phis++;
       phi = gsi_stmt (gsi);
 
       /* We do not track necessity of virtual PHI nodes.  Instead do
          very simple dead PHI removal here.  */
-      if (!is_gimple_reg (gimple_phi_result (phi)))
+      if (virtual_operand_p (gimple_phi_result (phi)))
 	{
 	  /* Virtual PHI nodes with one or identical arguments
 	     can be removed.  */
@@ -1132,7 +1129,7 @@ forward_edge_to_pdom (edge e, basic_block post_dom_bb)
 
 	  /* PHIs for virtuals have no control dependency relation on them.
 	     We are lost here and must force renaming of the symbol.  */
-	  if (!is_gimple_reg (gimple_phi_result (phi)))
+	  if (virtual_operand_p (gimple_phi_result (phi)))
 	    {
 	      mark_virtual_phi_result_for_renaming (phi);
 	      remove_phi_node (&gsi, true);
@@ -1258,7 +1255,7 @@ eliminate_unnecessary_stmts (void)
   gimple_stmt_iterator gsi, psi;
   gimple stmt;
   tree call;
-  VEC (basic_block, heap) *h;
+  vec<basic_block> h;
 
   if (dump_file && (dump_flags & TDF_DETAILS))
     fprintf (dump_file, "\nEliminating unnecessary statements:\n");
@@ -1290,9 +1287,9 @@ eliminate_unnecessary_stmts (void)
   gcc_assert (dom_info_available_p (CDI_DOMINATORS));
   h = get_all_dominated_blocks (CDI_DOMINATORS, single_succ (ENTRY_BLOCK_PTR));
 
-  while (VEC_length (basic_block, h))
+  while (h.length ())
     {
-      bb = VEC_pop (basic_block, h);
+      bb = h.pop ();
 
       /* Remove dead statements.  */
       for (gsi = gsi_last_bb (bb); !gsi_end_p (gsi); gsi = psi)
@@ -1344,7 +1341,7 @@ eliminate_unnecessary_stmts (void)
 		 call (); saving one operand.  */
 	      if (name
 		  && TREE_CODE (name) == SSA_NAME
-		  && !TEST_BIT (processed, SSA_NAME_VERSION (name))
+		  && !bitmap_bit_p (processed, SSA_NAME_VERSION (name))
 		  /* Avoid doing so for allocation calls which we
 		     did not mark as necessary, it will confuse the
 		     special logic we apply to malloc/free pair removal.  */
@@ -1373,7 +1370,7 @@ eliminate_unnecessary_stmts (void)
 	}
     }
 
-  VEC_free (basic_block, heap, h);
+  h.release ();
 
   /* Since we don't track liveness of virtual PHI nodes, it is possible that we
      rendered some PHI nodes unreachable while they are still in use.
@@ -1389,11 +1386,11 @@ eliminate_unnecessary_stmts (void)
 	{
 	  prev_bb = bb->prev_bb;
 
-	  if (!TEST_BIT (bb_contains_live_stmts, bb->index)
+	  if (!bitmap_bit_p (bb_contains_live_stmts, bb->index)
 	      || !(bb->flags & BB_REACHABLE))
 	    {
 	      for (gsi = gsi_start_phis (bb); !gsi_end_p (gsi); gsi_next (&gsi))
-		if (!is_gimple_reg (gimple_phi_result (gsi_stmt (gsi))))
+		if (virtual_operand_p (gimple_phi_result (gsi_stmt (gsi))))
 		  {
 		    bool found = false;
 		    imm_use_iterator iter;
@@ -1426,9 +1423,9 @@ eliminate_unnecessary_stmts (void)
 		    {
 		      h = get_all_dominated_blocks (CDI_DOMINATORS, bb);
 
-		      while (VEC_length (basic_block, h))
+		      while (h.length ())
 			{
-			  bb = VEC_pop (basic_block, h);
+			  bb = h.pop ();
 			  prev_bb = bb->prev_bb;
 			  /* Rearrangements to the CFG may have failed
 			     to update the dominators tree, so that
@@ -1439,7 +1436,7 @@ eliminate_unnecessary_stmts (void)
 			  delete_basic_block (bb);
 			}
 
-		      VEC_free (basic_block, heap, h);
+		      h.release ();
 		    }
 		}
 	    }
@@ -1491,15 +1488,15 @@ tree_dce_init (bool aggressive)
 	control_dependence_map[i] = BITMAP_ALLOC (NULL);
 
       last_stmt_necessary = sbitmap_alloc (last_basic_block);
-      sbitmap_zero (last_stmt_necessary);
+      bitmap_clear (last_stmt_necessary);
       bb_contains_live_stmts = sbitmap_alloc (last_basic_block);
-      sbitmap_zero (bb_contains_live_stmts);
+      bitmap_clear (bb_contains_live_stmts);
     }
 
   processed = sbitmap_alloc (num_ssa_names + 1);
-  sbitmap_zero (processed);
+  bitmap_clear (processed);
 
-  worklist = VEC_alloc (gimple, heap, 64);
+  worklist.create (64);
   cfg_altered = false;
 }
 
@@ -1524,7 +1521,7 @@ tree_dce_done (bool aggressive)
 
   sbitmap_free (processed);
 
-  VEC_free (gimple, heap, worklist);
+  worklist.release ();
 }
 
 /* Main routine to eliminate dead code.
@@ -1568,7 +1565,7 @@ perform_tree_ssa_dce (bool aggressive)
       timevar_pop (TV_CONTROL_DEPENDENCES);
 
       visited_control_parents = sbitmap_alloc (last_basic_block);
-      sbitmap_zero (visited_control_parents);
+      bitmap_clear (visited_control_parents);
 
       mark_dfs_back_edges ();
     }
@@ -1653,6 +1650,7 @@ struct gimple_opt_pass pass_dce =
  {
   GIMPLE_PASS,
   "dce",				/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_dce,				/* gate */
   tree_ssa_dce,				/* execute */
   NULL,					/* sub */
@@ -1672,6 +1670,7 @@ struct gimple_opt_pass pass_dce_loop =
  {
   GIMPLE_PASS,
   "dceloop",				/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_dce,				/* gate */
   tree_ssa_dce_loop,			/* execute */
   NULL,					/* sub */
@@ -1691,6 +1690,7 @@ struct gimple_opt_pass pass_cd_dce =
  {
   GIMPLE_PASS,
   "cddce",				/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_dce,				/* gate */
   tree_ssa_cd_dce,			/* execute */
   NULL,					/* sub */

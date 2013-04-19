@@ -11,7 +11,7 @@ import (
 )
 
 //sysnb	raw_prctl(option int, arg2 int, arg3 int, arg4 int, arg5 int) (ret int, err Errno)
-//prctl(option int, arg2 _C_long, arg3 _C_long, arg4 _C_long, arg5 _C_long) int
+//prctl(option _C_int, arg2 _C_long, arg3 _C_long, arg4 _C_long, arg5 _C_long) _C_int
 
 type SysProcAttr struct {
 	Chroot     string      // Chroot.
@@ -19,8 +19,9 @@ type SysProcAttr struct {
 	Ptrace     bool        // Enable tracing.
 	Setsid     bool        // Create session.
 	Setpgid    bool        // Set process group ID to new pid (SYSV setpgrp)
-	Setctty    bool        // Set controlling terminal to fd 0
+	Setctty    bool        // Set controlling terminal to fd Ctty (only meaningful if Setsid is set)
 	Noctty     bool        // Detach fd 0 from controlling terminal
+	Ctty       int         // Controlling TTY fd (Linux only)
 	Pdeathsig  Signal      // Signal that the process will get when its parent dies (Linux only)
 }
 
@@ -227,8 +228,8 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	// Make fd 0 the tty
-	if sys.Setctty {
-		_, err1 = raw_ioctl(0, TIOCSCTTY, 0)
+	if sys.Setctty && sys.Ctty >= 0 {
+		_, err1 = raw_ioctl(0, TIOCSCTTY, sys.Ctty)
 		if err1 != 0 {
 			goto childerror
 		}
@@ -248,4 +249,21 @@ childerror:
 	// but the for loop above won't break
 	// and this shuts up the compiler.
 	panic("unreached")
+}
+
+// Try to open a pipe with O_CLOEXEC set on both file descriptors.
+func forkExecPipe(p []int) (err error) {
+	err = Pipe2(p, O_CLOEXEC)
+	// pipe2 was added in 2.6.27 and our minimum requirement is 2.6.23, so it
+	// might not be implemented.
+	if err == ENOSYS {
+		if err = Pipe(p); err != nil {
+			return
+		}
+		if _, err = fcntl(p[0], F_SETFD, FD_CLOEXEC); err != nil {
+			return
+		}
+		_, err = fcntl(p[1], F_SETFD, FD_CLOEXEC)
+	}
+	return
 }

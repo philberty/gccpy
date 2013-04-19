@@ -1,6 +1,5 @@
 /* Language independent return value optimizations
-   Copyright (C) 2004, 2005, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2004-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -27,8 +26,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "basic-block.h"
 #include "tree-pretty-print.h"
 #include "tree-flow.h"
-#include "timevar.h"
-#include "tree-dump.h"
 #include "tree-pass.h"
 #include "langhooks.h"
 #include "flags.h"	/* For "optimize" in gate_pass_return_slot.
@@ -244,6 +241,7 @@ tree_nrv (void)
 	    {
 	      unlink_stmt_vdef (stmt);
 	      gsi_remove (&gsi, true);
+	      release_defs (stmt);
 	    }
 	  else
 	    {
@@ -262,8 +260,6 @@ tree_nrv (void)
   SET_DECL_VALUE_EXPR (found, result);
   DECL_HAS_VALUE_EXPR_P (found) = 1;
 
-  /* FOUND is no longer used.  Ensure it gets removed.  */
-  clear_is_used (found);
   return 0;
 }
 
@@ -278,6 +274,7 @@ struct gimple_opt_pass pass_nrv =
  {
   GIMPLE_PASS,
   "nrv",				/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_pass_return_slot,		/* gate */
   tree_nrv,				/* execute */
   NULL,					/* sub */
@@ -363,6 +360,7 @@ struct gimple_opt_pass pass_return_slot =
  {
   GIMPLE_PASS,
   "retslot",				/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   NULL,					/* gate */
   execute_return_slot_opt,		/* execute */
   NULL,					/* sub */

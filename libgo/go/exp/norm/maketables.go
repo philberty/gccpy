@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 func main() {
@@ -38,7 +39,7 @@ func main() {
 }
 
 var url = flag.String("url",
-	"http://www.unicode.org/Public/6.0.0/ucd/",
+	"http://www.unicode.org/Public/"+unicode.Version+"/ucd/",
 	"URL of Unicode database directory")
 var tablelist = flag.String("tables",
 	"all",
@@ -85,7 +86,7 @@ const (
 // Quick Check properties of runes allow us to quickly
 // determine whether a rune may occur in a normal form.
 // For a given normal form, a rune may be guaranteed to occur
-// verbatim (QC=Yes), may or may not combine with another 
+// verbatim (QC=Yes), may or may not combine with another
 // rune (QC=Maybe), or may not occur (QC=No).
 type QCResult int
 
@@ -573,7 +574,19 @@ func makeEntry(f *FormInfo) uint16 {
 
 // decompSet keeps track of unique decompositions, grouped by whether
 // the decomposition is followed by a trailing and/or leading CCC.
-type decompSet [4]map[string]bool
+type decompSet [6]map[string]bool
+
+const (
+	normalDecomp = iota
+	firstMulti
+	firstCCC
+	endMulti
+	firstLeadingCCC
+	firstCCCZeroExcept
+	lastDecomp
+)
+
+var cname = []string{"firstMulti", "firstCCC", "endMulti", "firstLeadingCCC", "firstCCCZeroExcept", "lastDecomp"}
 
 func makeDecompSet() decompSet {
 	m := decompSet{}
@@ -605,18 +618,38 @@ func printCharInfoTables() int {
 
 		lccc := ccc(d[0])
 		tccc := ccc(d[len(d)-1])
+		cc := ccc(r)
+		if cc != 0 && lccc == 0 && tccc == 0 {
+			logger.Fatalf("%U: trailing and leading ccc are 0 for non-zero ccc %d", r, cc)
+		}
 		if tccc < lccc && lccc != 0 {
 			const msg = "%U: lccc (%d) must be <= tcc (%d)"
 			logger.Fatalf(msg, r, lccc, tccc)
 		}
-		index := 0
+		index := normalDecomp
 		if tccc > 0 || lccc > 0 {
 			s += string([]byte{tccc})
-			index = 1
+			index = endMulti
+			for _, r := range d[1:] {
+				if ccc(r) == 0 {
+					index = firstCCC
+				}
+			}
 			if lccc > 0 {
 				s += string([]byte{lccc})
-				index |= 2
+				if index == firstCCC {
+					logger.Fatalf("%U: multi-segment decomposition not supported for decompositions with leading CCC != 0", r)
+				}
+				index = firstLeadingCCC
 			}
+			if cc != lccc {
+				if cc != 0 {
+					logger.Fatalf("%U: for lccc != ccc, expected ccc to be 0; was %d", r, cc)
+				}
+				index = firstCCCZeroExcept
+			}
+		} else if len(d) > 1 {
+			index = firstMulti
 		}
 		return index, s
 	}
@@ -642,7 +675,6 @@ func printCharInfoTables() int {
 	size := 0
 	positionMap := make(map[string]uint16)
 	decompositions.WriteString("\000")
-	cname := []string{"firstCCC", "firstLeadingCCC", "", "lastDecomp"}
 	fmt.Println("const (")
 	for i, m := range decompSet {
 		sa := []string{}

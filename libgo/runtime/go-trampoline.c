@@ -106,8 +106,8 @@ __go_allocate_trampoline (uintptr_t size, void *closure)
    no other references to it.  */
 
 void
-runtime_trampoline_scan (void (*scan) (byte *, int64))
+runtime_trampoline_scan (void (*addroot) (Obj))
 {
   if (trampoline_page != NULL)
-    scan ((byte *) &trampoline_page, sizeof trampoline_page);
+    addroot ((Obj){(byte *) &trampoline_page, sizeof trampoline_page, 0});
 }

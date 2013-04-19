@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---            Copyright (C) 2006-2011, Free Software Foundation, Inc.       --
+--            Copyright (C) 2006-2013, Free Software Foundation, Inc.       --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -119,6 +119,7 @@ package Prj.Conf is
 
    procedure Get_Or_Create_Configuration_File
      (Project                    : Prj.Project_Id;
+      Conf_Project               : Project_Id;
       Project_Tree               : Prj.Project_Tree_Ref;
       Project_Node_Tree          : Prj.Tree.Project_Node_Tree_Ref;
       Env                        : in out Prj.Tree.Environment;
@@ -134,7 +135,9 @@ package Prj.Conf is
       On_Load_Config             : Config_File_Hook := null);
    --  Compute the name of the configuration file that should be used. If no
    --  default configuration file is found, a new one will be automatically
-   --  generated if Allow_Automatic_Generation is true.
+   --  generated if Allow_Automatic_Generation is true. This configuration
+   --  project file will be generated in the object directory of project
+   --  Conf_Project.
    --
    --  Any error in generating or parsing the config file is reported via the
    --  Invalid_Config exception, with an appropriate message.
@@ -160,7 +163,7 @@ package Prj.Conf is
    --
    --  If a project file could be found, it is automatically parsed and
    --  processed (and Packages_To_Check is used to indicate which packages
-   --  should be processed)
+   --  should be processed).
 
    procedure Add_Default_GNAT_Naming_Scheme
      (Config_File  : in out Prj.Tree.Project_Node_Id;
@@ -188,5 +191,13 @@ package Prj.Conf is
 
    function Runtime_Name_Set_For (Language : Name_Id) return Boolean;
    --  Returns True only if Set_Runtime_For has been called for the Language
+
+   procedure Locate_Runtime
+     (Language     : Name_Id;
+      Project_Tree : Prj.Project_Tree_Ref);
+   --  If RTS_Name is a base name (a name without path separator), then
+   --  do nothing. Otherwise, convert it to an absolute path (possibly by
+   --  searching it in the project path) and call Set_Runtime_For with the
+   --  absolute path. Fail the program if the path does not exist.
 
 end Prj.Conf;

@@ -45,7 +45,7 @@ const (
 //     - a field with tag "name,attr" becomes an attribute with
 //       the given name in the XML element.
 //     - a field with tag ",attr" becomes an attribute with the
-//       field name in the in the XML element.
+//       field name in the XML element.
 //     - a field with tag ",chardata" is written as character data,
 //       not as an XML element.
 //     - a field with tag ",innerxml" is written verbatim, not subject
@@ -57,8 +57,8 @@ const (
 //       if the field value is empty. The empty values are false, 0, any
 //       nil pointer or interface value, and any array, slice, map, or
 //       string of length zero.
-//     - a non-pointer anonymous struct field is handled as if the
-//       fields of its value were part of the outer struct.
+//     - an anonymous struct field is handled as if the fields of its
+//       value were part of the outer struct.
 //
 // If a field uses a tag "a>b>c", then the element c will be nested inside
 // parent elements a and b.  Fields that appear next to each other that name
@@ -83,9 +83,7 @@ func MarshalIndent(v interface{}, prefix, indent string) ([]byte, error) {
 	enc := NewEncoder(&b)
 	enc.prefix = prefix
 	enc.indent = indent
-	err := enc.marshalValue(reflect.ValueOf(v), nil)
-	enc.Flush()
-	if err != nil {
+	if err := enc.Encode(v); err != nil {
 		return nil, err
 	}
 	return b.Bytes(), nil
@@ -107,8 +105,10 @@ func NewEncoder(w io.Writer) *Encoder {
 // of Go values to XML.
 func (enc *Encoder) Encode(v interface{}) error {
 	err := enc.marshalValue(reflect.ValueOf(v), nil)
-	enc.Flush()
-	return err
+	if err != nil {
+		return err
+	}
+	return enc.Flush()
 }
 
 type printer struct {
@@ -164,7 +164,7 @@ func (p *printer) marshalValue(val reflect.Value, finfo *fieldInfo) error {
 		xmlname := tinfo.xmlname
 		if xmlname.name != "" {
 			xmlns, name = xmlname.xmlns, xmlname.name
-		} else if v, ok := val.FieldByIndex(xmlname.idx).Interface().(Name); ok && v.Local != "" {
+		} else if v, ok := xmlname.value(val).Interface().(Name); ok && v.Local != "" {
 			xmlns, name = v.Space, v.Local
 		}
 	}
@@ -195,7 +195,7 @@ func (p *printer) marshalValue(val reflect.Value, finfo *fieldInfo) error {
 		if finfo.flags&fAttr == 0 {
 			continue
 		}
-		fv := val.FieldByIndex(finfo.idx)
+		fv := finfo.value(val)
 		if finfo.flags&fOmitEmpty != 0 && isEmptyValue(fv) {
 			continue
 		}
@@ -224,7 +224,7 @@ func (p *printer) marshalValue(val reflect.Value, finfo *fieldInfo) error {
 	p.WriteString(name)
 	p.WriteByte('>')
 
-	return nil
+	return p.cachedWriteError()
 }
 
 var timeType = reflect.TypeOf(time.Time{})
@@ -241,7 +241,7 @@ func (p *printer) marshalSimple(typ reflect.Type, val reflect.Value) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		p.WriteString(strconv.FormatUint(val.Uint(), 10))
 	case reflect.Float32, reflect.Float64:
-		p.WriteString(strconv.FormatFloat(val.Float(), 'g', -1, 64))
+		p.WriteString(strconv.FormatFloat(val.Float(), 'g', -1, val.Type().Bits()))
 	case reflect.String:
 		// TODO: Add EscapeString.
 		Escape(p, []byte(val.String()))
@@ -260,31 +260,44 @@ func (p *printer) marshalSimple(typ reflect.Type, val reflect.Value) error {
 	default:
 		return &UnsupportedTypeError{typ}
 	}
-	return nil
+	return p.cachedWriteError()
 }
 
 var ddBytes = []byte("--")
 
 func (p *printer) marshalStruct(tinfo *typeInfo, val reflect.Value) error {
 	if val.Type() == timeType {
-		p.WriteString(val.Interface().(time.Time).Format(time.RFC3339Nano))
-		return nil
+		_, err := p.WriteString(val.Interface().(time.Time).Format(time.RFC3339Nano))
+		return err
 	}
 	s := parentStack{printer: p}
 	for i := range tinfo.fields {
 		finfo := &tinfo.fields[i]
-		if finfo.flags&(fAttr|fAny) != 0 {
+		if finfo.flags&(fAttr) != 0 {
 			continue
 		}
-		vf := val.FieldByIndex(finfo.idx)
+		vf := finfo.value(val)
 		switch finfo.flags & fMode {
 		case fCharData:
+			var scratch [64]byte
 			switch vf.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				Escape(p, strconv.AppendInt(scratch[:0], vf.Int(), 10))
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				Escape(p, strconv.AppendUint(scratch[:0], vf.Uint(), 10))
+			case reflect.Float32, reflect.Float64:
+				Escape(p, strconv.AppendFloat(scratch[:0], vf.Float(), 'g', -1, vf.Type().Bits()))
+			case reflect.Bool:
+				Escape(p, strconv.AppendBool(scratch[:0], vf.Bool()))
 			case reflect.String:
 				Escape(p, []byte(vf.String()))
 			case reflect.Slice:
 				if elem, ok := vf.Interface().([]byte); ok {
 					Escape(p, elem)
+				}
+			case reflect.Struct:
+				if vf.Type() == timeType {
+					Escape(p, []byte(vf.Interface().(time.Time).Format(time.RFC3339Nano)))
 				}
 			}
 			continue
@@ -340,7 +353,7 @@ func (p *printer) marshalStruct(tinfo *typeInfo, val reflect.Value) error {
 				continue
 			}
 
-		case fElement:
+		case fElement, fElement | fAny:
 			s.trim(finfo.parents)
 			if len(finfo.parents) > len(s.stack) {
 				if vf.Kind() != reflect.Ptr && vf.Kind() != reflect.Interface || !vf.IsNil() {
@@ -353,7 +366,13 @@ func (p *printer) marshalStruct(tinfo *typeInfo, val reflect.Value) error {
 		}
 	}
 	s.trim(nil)
-	return nil
+	return p.cachedWriteError()
+}
+
+// return the bufio Writer's cached write error
+func (p *printer) cachedWriteError() error {
+	_, err := p.Write(nil)
+	return err
 }
 
 func (p *printer) writeIndent(depthDelta int) {

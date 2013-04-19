@@ -1,6 +1,5 @@
 @ignore
-Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2012
-Free Software Foundation, Inc.
+Copyright (C) 2005-2013 Free Software Foundation, Inc.
 This is part of the GNU Fortran manual.   
 For copying conditions, see the file gfortran.texi.
 
@@ -63,6 +62,7 @@ Some basic guidelines for editing this document:
 * @code{ATANH}:         ATANH,     Inverse hyperbolic tangent function
 * @code{ATOMIC_DEFINE}: ATOMIC_DEFINE, Setting a variable atomically
 * @code{ATOMIC_REF}:    ATOMIC_REF, Obtaining the value of a variable atomically
+* @code{BACKTRACE}:     BACKTRACE, Show a backtrace
 * @code{BESSEL_J0}:     BESSEL_J0, Bessel function of the first kind of order 0
 * @code{BESSEL_J1}:     BESSEL_J1, Bessel function of the first kind of order 1
 * @code{BESSEL_JN}:     BESSEL_JN, Bessel function of the first kind
@@ -349,6 +349,7 @@ the applicable standard for each intrinsic procedure is noted.
 @item @emph{Description}:
 @code{ABORT} causes immediate termination of the program.  On operating
 systems that support a core dump, @code{ABORT} will produce a core dump.
+It will also print a backtrace, unless @code{-fno-backtrace} is given.
 
 @item @emph{Standard}:
 GNU extension
@@ -371,7 +372,7 @@ end program test_abort
 @end smallexample
 
 @item @emph{See also}:
-@ref{EXIT}, @ref{KILL}
+@ref{EXIT}, @ref{KILL}, @ref{BACKTRACE}
 
 @end table
 
@@ -1644,6 +1645,35 @@ end program atomic
 
 
 
+@node BACKTRACE
+@section @code{BACKTRACE} --- Show a backtrace
+@fnindex BACKTRACE
+@cindex backtrace
+
+@table @asis
+@item @emph{Description}:
+@code{BACKTRACE} shows a backtrace at an arbitrary place in user code. Program
+execution continues normally afterwards. The backtrace information is printed
+to the unit corresponding to @code{ERROR_UNIT} in @code{ISO_FORTRAN_ENV}.
+
+@item @emph{Standard}:
+GNU Extension
+
+@item @emph{Class}:
+Subroutine
+
+@item @emph{Syntax}:
+@code{CALL BACKTRACE}
+
+@item @emph{Arguments}:
+None
+
+@item @emph{See also}:
+@ref{ABORT}
+@end table
+
+
+
 @node BESSEL_J0
 @section @code{BESSEL_J0} --- Bessel function of the first kind of order 0
 @fnindex BESSEL_J0
@@ -2362,9 +2392,8 @@ end program main
 
 @table @asis
 @item @emph{Description}:
-@code{C_F_POINTER(CPTR, FPTR[, SHAPE])} Assign the target the C pointer
-@var{CPTR} to the Fortran pointer @var{FPTR} and specify its
-shape.
+@code{C_F_POINTER(CPTR, FPTR[, SHAPE])} assigns the target of the C pointer
+@var{CPTR} to the Fortran pointer @var{FPTR} and specifies its shape.
 
 @item @emph{Standard}:
 Fortran 2003 and later
@@ -8991,8 +9020,7 @@ cases, the result is of the same type and kind as @var{ARRAY}.
 
 @table @asis
 @item @emph{Description}:
-@code{MOD(A,P)} computes the remainder of the division of A by P@. It is
-calculated as @code{A - (INT(A/P) * P)}.
+@code{MOD(A,P)} computes the remainder of the division of A by P@. 
 
 @item @emph{Standard}:
 Fortran 77 and later
@@ -9005,14 +9033,16 @@ Elemental function
 
 @item @emph{Arguments}:
 @multitable @columnfractions .15 .70
-@item @var{A} @tab Shall be a scalar of type @code{INTEGER} or @code{REAL}
-@item @var{P} @tab Shall be a scalar of the same type as @var{A} and not
-equal to zero
+@item @var{A} @tab Shall be a scalar of type @code{INTEGER} or @code{REAL}.
+@item @var{P} @tab Shall be a scalar of the same type and kind as @var{A} 
+and not equal to zero.
 @end multitable
 
 @item @emph{Return value}:
-The kind of the return value is the result of cross-promoting
-the kinds of the arguments.
+The return value is the result of @code{A - (INT(A/P) * P)}. The type
+and kind of the return value is the same as that of the arguments. The
+returned value has the same sign as A and a magnitude less than the
+magnitude of P.
 
 @item @emph{Example}:
 @smallexample
@@ -9041,6 +9071,10 @@ end program test_mod
 @item @code{AMOD(A,P)} @tab @code{REAL(4) A,P} @tab @code{REAL(4)} @tab Fortran 95 and later
 @item @code{DMOD(A,P)} @tab @code{REAL(8) A,P} @tab @code{REAL(8)} @tab Fortran 95 and later
 @end multitable
+
+@item @emph{See also}:
+@ref{MODULO}
+
 @end table
 
 
@@ -9066,8 +9100,9 @@ Elemental function
 
 @item @emph{Arguments}:
 @multitable @columnfractions .15 .70
-@item @var{A} @tab Shall be a scalar of type @code{INTEGER} or @code{REAL}
-@item @var{P} @tab Shall be a scalar of the same type and kind as @var{A}
+@item @var{A} @tab Shall be a scalar of type @code{INTEGER} or @code{REAL}.
+@item @var{P} @tab Shall be a scalar of the same type and kind as @var{A}. 
+It shall not be zero.
 @end multitable
 
 @item @emph{Return value}:
@@ -9080,7 +9115,8 @@ The type and kind of the result are those of the arguments.
 @item If @var{A} and @var{P} are of type @code{REAL}:
 @code{MODULO(A,P)} has the value of @code{A - FLOOR (A / P) * P}.
 @end table
-In all cases, if @var{P} is zero the result is processor-dependent.
+The returned value has the same sign as P and a magnitude less than
+the magnitude of P.
 
 @item @emph{Example}:
 @smallexample
@@ -9095,6 +9131,9 @@ program test_modulo
   print *, modulo(17.5,-5.5)
 end program
 @end smallexample
+
+@item @emph{See also}:
+@ref{MOD}
 
 @end table
 
@@ -12005,12 +12044,11 @@ nanosecond resolution.  If a high resolution monotonic clock is not
 available, the implementation falls back to a potentially lower
 resolution realtime clock.
 
-@var{COUNT_RATE} and @var{COUNT_MAX} vary depending on the kind of the
-arguments.  For @var{kind=8} arguments, @var{COUNT} represents
-nanoseconds, and for @var{kind=4} arguments, @var{COUNT} represents
-milliseconds. Other than the kind dependency, @var{COUNT_RATE} and
-@var{COUNT_MAX} are constant, however the particular values are
-specific to @command{gfortran}.
+@var{COUNT_RATE} is system dependent and can vary depending on the kind of the
+arguments. For @var{kind=4} arguments, @var{COUNT} usually represents
+milliseconds, while for @var{kind=8} arguments, @var{COUNT} typically
+represents micro- or nanoseconds. @var{COUNT_MAX} usually equals
+@code{HUGE(COUNT_MAX)}.
 
 If there is no clock, @var{COUNT} is set to @code{-HUGE(COUNT)}, and
 @var{COUNT_RATE} and @var{COUNT_MAX} are set to zero.
@@ -13019,11 +13057,11 @@ The @code{ISO_C_BINDING} module provides the following named constants of
 type default integer, which can be used as KIND type parameters.
 
 In addition to the integer named constants required by the Fortran 2003 
-standard, GNU Fortran provides as an extension named constants for the 
-128-bit integer types supported by the C compiler: @code{C_INT128_T, 
-C_INT_LEAST128_T, C_INT_FAST128_T}. Furthermore, if @code{__float} is
-supported in C, the named constants @code{C_FLOAT128, C_FLOAT128_COMPLEX}
-are defined.
+standard and @code{C_PTRDIFF_T} of TS 29113, GNU Fortran provides as an
+extension named constants for the 128-bit integer types supported by the
+C compiler: @code{C_INT128_T, C_INT_LEAST128_T, C_INT_FAST128_T}.
+Furthermore, if @code{__float128} is supported in C, the named constants
+@code{C_FLOAT128, C_FLOAT128_COMPLEX} are defined.
 
 @multitable @columnfractions .15 .35 .35 .35
 @item Fortran Type  @tab Named constant         @tab C type                                @tab Extension
@@ -13050,6 +13088,7 @@ are defined.
 @item @code{INTEGER}@tab @code{C_INT_FAST128_T} @tab @code{int_fast128_t}                 @tab Ext.
 @item @code{INTEGER}@tab @code{C_INTMAX_T}      @tab @code{intmax_t}
 @item @code{INTEGER}@tab @code{C_INTPTR_T}      @tab @code{intptr_t}
+@item @code{INTEGER}@tab @code{C_PTRDIFF_T}     @tab @code{intptr_t}                      @tab TS 29113
 @item @code{REAL}   @tab @code{C_FLOAT}         @tab @code{float}
 @item @code{REAL}   @tab @code{C_DOUBLE}        @tab @code{double}
 @item @code{REAL}   @tab @code{C_LONG_DOUBLE}   @tab @code{long double}

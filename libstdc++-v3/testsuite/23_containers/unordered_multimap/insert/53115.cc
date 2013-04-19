@@ -1,6 +1,6 @@
 // { dg-options "-std=gnu++11" }
 //
-// Copyright (C) 2012 Free Software Foundation, Inc.
+// Copyright (C) 2012-2013 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -40,57 +40,57 @@ void test01()
   std::unordered_multimap<int, int> umm;
   umm.insert(make_pair(10, 1));
   VERIFY( umm.size() == 1 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(10, 2)); 
   VERIFY( umm.size() == 2 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(10, 3));
   VERIFY( umm.size() == 3 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(10, 4));
   VERIFY( umm.size() == 4 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(10, 5));
   VERIFY( umm.size() == 5 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(24, 6));
   VERIFY( umm.size() == 6 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(25, 7));
   VERIFY( umm.size() == 7 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(2, 8));
   VERIFY( umm.size() == 8 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(2, 9));
   VERIFY( umm.size() == 9 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(1, 10));
   VERIFY( umm.size() == 10 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 
   umm.insert(make_pair(10, 11));
   VERIFY( umm.size() == 11 );
-  VERIFY( std::distance(umm.begin(), umm.end()) == umm.size() );
+  VERIFY( distance(umm.begin(), umm.end()) - umm.size() == 0 );
   VERIFY( get_nb_bucket_elems(umm) == umm.size() );
 }
 

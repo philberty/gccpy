@@ -124,13 +124,13 @@ static uintptr eod[3] = {0, 1, 0};
 static void LostProfileData(void) {
 }
 
-extern void runtime_SetCPUProfileRate(int32)
-     __asm__("runtime.SetCPUProfileRate");
+extern void runtime_SetCPUProfileRate(intgo)
+     __asm__ (GOSYM_PREFIX "runtime.SetCPUProfileRate");
 
 // SetCPUProfileRate sets the CPU profiling rate.
 // The user documentation is in debug.go.
 void
-runtime_SetCPUProfileRate(int32 hz)
+runtime_SetCPUProfileRate(intgo hz)
 {
 	uintptr *p;
 	uintptr n;
@@ -436,7 +436,7 @@ breakflush:
 }
 
 extern Slice runtime_CPUProfile(void)
-     __asm__("runtime.CPUProfile");
+     __asm__ (GOSYM_PREFIX "runtime.CPUProfile");
 
 // CPUProfile returns the next cpu profile block as a []byte.
 // The user documentation is in debug.go.

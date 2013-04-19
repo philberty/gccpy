@@ -108,8 +108,13 @@ func (file *file) close() error {
 	}
 
 	if file.dirinfo != nil {
-		if libc_closedir(file.dirinfo.dir) < 0 && err == nil {
-			err = &PathError{"closedir", file.name, syscall.GetErrno()}
+		syscall.Entersyscall()
+		i := libc_closedir(file.dirinfo.dir)
+		errno := syscall.GetErrno()
+		syscall.Exitsyscall()
+		file.dirinfo = nil
+		if i < 0 && err == nil {
+			err = &PathError{"closedir", file.name, errno}
 		}
 	}
 
@@ -278,25 +283,6 @@ func basename(name string) string {
 	}
 
 	return name
-}
-
-// Pipe returns a connected pair of Files; reads from r return bytes written to w.
-// It returns the files and an error, if any.
-func Pipe() (r *File, w *File, err error) {
-	var p [2]int
-
-	// See ../syscall/exec.go for description of lock.
-	syscall.ForkLock.RLock()
-	e := syscall.Pipe(p[0:])
-	if e != nil {
-		syscall.ForkLock.RUnlock()
-		return nil, nil, NewSyscallError("pipe", e)
-	}
-	syscall.CloseOnExec(p[0])
-	syscall.CloseOnExec(p[1])
-	syscall.ForkLock.RUnlock()
-
-	return NewFile(uintptr(p[0]), "|0"), NewFile(uintptr(p[1]), "|1"), nil
 }
 
 // TempDir returns the default directory to use for temporary files.

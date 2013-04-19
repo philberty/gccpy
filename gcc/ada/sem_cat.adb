@@ -219,10 +219,15 @@ package body Sem_Cat is
          then
             null;
 
-         --  Special case: Remote_Types can depend on Preelaborated per
-         --  Ada 2005 AI 0206.
+         --  Special case: Remote_Types and Remote_Call_Interface declarations
+         --  can depend on a preelaborated unit via a private with_clause, per
+         --  AI05-0206.
 
-         elsif Unit_Category = Remote_Types
+         elsif (Unit_Category = Remote_Types
+                  or else
+                Unit_Category = Remote_Call_Interface)
+           and then Nkind (N) = N_With_Clause
+           and then Private_Present (N)
            and then Is_Preelaborated (Depended_Entity)
          then
             null;
@@ -262,6 +267,18 @@ package body Sem_Cat is
            and then not Is_Internal_File_Name (Unit_File_Name (Main_Unit))
          then
             return;
+
+         --  Dependence of Remote_Types or Remote_Call_Interface declaration
+         --  on a preelaborated unit with a normal with_clause.
+
+         elsif (Unit_Category = Remote_Types
+                  or else
+                Unit_Category = Remote_Call_Interface)
+           and then Is_Preelaborated (Depended_Entity)
+         then
+            Error_Msg_NE
+              ("<must use private with clause for preelaborated unit& ",
+               N, Depended_Entity);
 
          --  Subunit case
 
@@ -906,6 +923,7 @@ package body Sem_Cat is
       then
          --  If the type is private, it must have the Ada 2005 pragma
          --  Has_Preelaborable_Initialization.
+
          --  The check is omitted within predefined units. This is probably
          --  obsolete code to fix the Ada 95 weakness in this area ???
 
@@ -1711,8 +1729,7 @@ package body Sem_Cat is
       Direct_Designated_Type := Designated_Type (T);
       Desig_Type := Etype (Direct_Designated_Type);
 
-      --  Why is the check below not in
-      --  Validate_Remote_Access_To_Class_Wide_Type???
+      --  Why is this check not in Validate_Remote_Access_To_Class_Wide_Type???
 
       if not Is_Valid_Remote_Object_Type (Desig_Type) then
          Error_Msg_N
@@ -2030,6 +2047,7 @@ package body Sem_Cat is
       function Is_Primary (N : Node_Id) return Boolean;
       --  Determine whether node is syntactically a primary in an expression
       --  This function should probably be somewhere else ???
+      --
       --  Also it does not do what it says, e.g if N is a binary operator
       --  whose parent is a binary operator, Is_Primary returns True ???
 
@@ -2131,7 +2149,7 @@ package body Sem_Cat is
 
             if Is_Internal_File_Name (Unit_File_Name (Get_Source_Unit (N)))
               and then
-                Enclosing_Lib_Unit_Node (N) /= Enclosing_Lib_Unit_Node (E)
+                Enclosing_Comp_Unit_Node (N) /= Enclosing_Comp_Unit_Node (E)
               and then (Is_Preelaborated (Scope (E))
                          or else Is_Pure (Scope (E))
                          or else (Present (Renamed_Object (E))
@@ -2153,7 +2171,7 @@ package body Sem_Cat is
 
                if GNAT_Mode then
                   Error_Msg_N
-                    ("?non-static constant in preelaborated unit", N);
+                    ("??non-static constant in preelaborated unit", N);
                else
                   Flag_Non_Static_Expr
                     ("non-static constant in preelaborated unit", N);

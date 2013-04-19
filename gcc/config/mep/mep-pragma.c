@@ -1,6 +1,6 @@
 /* Definitions of Toshiba Media Processor
-   Copyright (C) 2001, 2002, 2003, 2005, 2006, 2007, 2009, 2010 Free
-   Software Foundation, Inc.  Contributed by Red Hat, Inc.
+   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Contributed by Red Hat, Inc.
 
 This file is part of GCC.
 
@@ -27,7 +27,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/c-pragma.h"
 #include "cpplib.h"
 #include "hard-reg-set.h"
-#include "output.h"
+#include "output.h" /* for decode_reg_name */
 #include "mep-protos.h"
 #include "function.h"
 #define MAX_RECOG_OPERANDS 10

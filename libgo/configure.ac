@@ -11,7 +11,7 @@ AC_INIT(package-unused, version-unused,, libgo)
 AC_CONFIG_SRCDIR(Makefile.am)
 AC_CONFIG_HEADER(config.h)
 
-libtool_VERSION=1:0:0
+libtool_VERSION=3:1:0
 AC_SUBST(libtool_VERSION)
 
 AM_ENABLE_MULTILIB(, ..)
@@ -50,8 +50,11 @@ AC_PROG_AWK
 WARN_FLAGS='-Wall -Wextra -Wwrite-strings -Wcast-qual'
 AC_SUBST(WARN_FLAGS)
 
-dnl FIXME: This should be controlled by --enable-maintainer-mode.
-WERROR="-Werror"
+AC_ARG_ENABLE(werror, [AS_HELP_STRING([--enable-werror],
+                                      [turns on -Werror @<:@default=yes@:>@])])
+if test "x$enable_werror" != "xno"; then
+  WERROR="-Werror"
+fi
 AC_SUBST(WERROR)
 
 glibgo_toolexecdir=no
@@ -129,6 +132,7 @@ is_freebsd=no
 is_irix=no
 is_linux=no
 is_netbsd=no
+is_openbsd=no
 is_rtems=no
 is_solaris=no
 GOOS=unknown
@@ -138,6 +142,7 @@ case ${host} in
   *-*-irix6*)    is_irix=yes;    GOOS=irix ;;
   *-*-linux*)    is_linux=yes;   GOOS=linux ;;
   *-*-netbsd*)	 is_netbsd=yes;  GOOS=netbsd ;;
+  *-*-openbsd*)  is_openbsd=yes; GOOS=openbsd ;;
   *-*-rtems*)    is_rtems=yes;   GOOS=rtems ;;
   *-*-solaris2*) is_solaris=yes; GOOS=solaris ;;
 esac
@@ -146,9 +151,21 @@ AM_CONDITIONAL(LIBGO_IS_FREEBSD, test $is_freebsd = yes)
 AM_CONDITIONAL(LIBGO_IS_IRIX, test $is_irix = yes)
 AM_CONDITIONAL(LIBGO_IS_LINUX, test $is_linux = yes)
 AM_CONDITIONAL(LIBGO_IS_NETBSD, test $is_netbsd = yes)
+AM_CONDITIONAL(LIBGO_IS_OPENBSD, test $is_openbsd = yes)
 AM_CONDITIONAL(LIBGO_IS_RTEMS, test $is_rtems = yes)
 AM_CONDITIONAL(LIBGO_IS_SOLARIS, test $is_solaris = yes)
 AC_SUBST(GOOS)
+
+dnl Test whether we need to use DejaGNU or whether we can use the
+dnl simpler gotest approach.  We can only use gotest for a native
+dnl build.
+USE_DEJAGNU=no
+case ${host} in
+  *-*-rtems*) USE_DEJAGNU=yes ;;
+  ${build}) ;;
+  *) USE_DEJAGNU=yes ;;
+esac
+AC_SUBST(USE_DEJAGNU)
 
 dnl N.B. Keep in sync with gcc/testsuite/go.test/go-test.exp (go-set-goarch).
 is_386=no
@@ -485,7 +502,7 @@ AC_CHECK_FUNCS(strerror_r strsignal wait4 mincore setenv dl_iterate_phdr)
 AM_CONDITIONAL(HAVE_STRERROR_R, test "$ac_cv_func_strerror_r" = yes)
 AM_CONDITIONAL(HAVE_WAIT4, test "$ac_cv_func_wait4" = yes)
 
-AC_CHECK_FUNCS(epoll_create1 faccessat fallocate fchmodat fchownat futimesat inotify_add_watch inotify_init inotify_init1 inotify_rm_watch mkdirat mknodat openat renameat sync_file_range splice tee unlinkat unshare)
+AC_CHECK_FUNCS(accept4 epoll_create1 faccessat fallocate fchmodat fchownat futimesat inotify_add_watch inotify_init inotify_init1 inotify_rm_watch mkdirat mknodat openat pipe2 renameat sync_file_range splice tee unlinkat unshare utimensat)
 AC_TYPE_OFF_T
 AC_CHECK_TYPES([loff_t])
 

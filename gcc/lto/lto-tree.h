@@ -1,5 +1,5 @@
 /* Language-dependent trees for LTO.
-   Copyright 2009, 2010 Free Software Foundation, Inc.
+   Copyright (C) 2009-2013 Free Software Foundation, Inc.
    Contributed by CodeSourcery, Inc.
 
 This file is part of GCC.
@@ -28,7 +28,7 @@ struct GTY(()) lang_identifier
   struct tree_identifier base;
 };
 
-struct GTY(()) lang_decl
+struct GTY((variable_size)) lang_decl
 {
   int dummy;  /* Added because ggc does not like empty structs.  */
 };

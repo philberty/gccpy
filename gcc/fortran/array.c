@@ -1,6 +1,5 @@
 /* Array things
-   Copyright (C) 2000, 2001, 2002, 2004, 2005, 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -21,6 +20,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "config.h"
 #include "system.h"
+#include "coretypes.h"
 #include "gfortran.h"
 #include "match.h"
 #include "constructor.h"
@@ -48,8 +48,6 @@ gfc_copy_array_ref (gfc_array_ref *src)
       dest->end[i] = gfc_copy_expr (src->end[i]);
       dest->stride[i] = gfc_copy_expr (src->stride[i]);
     }
-
-  dest->offset = gfc_copy_expr (src->offset);
 
   return dest;
 }
@@ -158,7 +156,7 @@ gfc_match_array_ref (gfc_array_ref *ar, gfc_array_spec *as, int init,
   match m;
   bool matched_bracket = false;
 
-  memset (ar, '\0', sizeof (ar));
+  memset (ar, '\0', sizeof (*ar));
 
   ar->where = gfc_current_locus;
   ar->as = as;
@@ -394,9 +392,11 @@ match_array_element_spec (gfc_array_spec *as)
 {
   gfc_expr **upper, **lower;
   match m;
+  int rank;
 
-  lower = &as->lower[as->rank + as->corank - 1];
-  upper = &as->upper[as->rank + as->corank - 1];
+  rank = as->rank == -1 ? 0 : as->rank;
+  lower = &as->lower[rank + as->corank - 1];
+  upper = &as->upper[rank + as->corank - 1];
 
   if (gfc_match_char ('*') == MATCH_YES)
     {
@@ -457,6 +457,20 @@ gfc_match_array_spec (gfc_array_spec **asp, bool match_dim, bool match_codim)
 
   if (gfc_match_char ('(') != MATCH_YES)
     {
+      if (!match_codim)
+	goto done;
+      goto coarray;
+    }
+
+  if (gfc_match (" .. )") == MATCH_YES)
+    {
+      as->type = AS_ASSUMED_RANK;
+      as->rank = -1;
+
+      if (gfc_notify_std (GFC_STD_F2008_TS, "Assumed-rank array at %C")
+	  == FAILURE)
+	goto cleanup;
+
       if (!match_codim)
 	goto done;
       goto coarray;
@@ -540,6 +554,9 @@ gfc_match_array_spec (gfc_array_spec **asp, bool match_dim, bool match_codim)
 
 	    gfc_error ("Bad specification for assumed size array at %C");
 	    goto cleanup;
+
+	  case AS_ASSUMED_RANK:
+	    gcc_unreachable ();
 	  }
 
       if (gfc_match_char (')') == MATCH_YES)
@@ -559,7 +576,7 @@ gfc_match_array_spec (gfc_array_spec **asp, bool match_dim, bool match_codim)
 	}
 
       if (as->corank + as->rank >= 7
-	  && gfc_notify_std (GFC_STD_F2008, "Fortran 2008: Array "
+	  && gfc_notify_std (GFC_STD_F2008, "Array "
 			     "specification at %C with more than 7 dimensions")
 	     == FAILURE)
 	goto cleanup;
@@ -572,7 +589,7 @@ coarray:
   if (gfc_match_char ('[')  != MATCH_YES)
     goto done;
 
-  if (gfc_notify_std (GFC_STD_F2008, "Fortran 2008: Coarray declaration at %C")
+  if (gfc_notify_std (GFC_STD_F2008, "Coarray declaration at %C")
       == FAILURE)
     goto cleanup;
 
@@ -646,6 +663,9 @@ coarray:
 	    case AS_ASSUMED_SIZE:
 	      gfc_error ("Bad specification for assumed size array at %C");
 	      goto cleanup;
+
+	    case AS_ASSUMED_RANK:
+	      gcc_unreachable ();
 	  }
 
       if (gfc_match_char (']') == MATCH_YES)
@@ -730,6 +750,14 @@ gfc_set_array_spec (gfc_symbol *sym, gfc_array_spec *as, locus *error_loc)
     {
       sym->as = as;
       return SUCCESS;
+    }
+
+  if ((sym->as->type == AS_ASSUMED_RANK && as->corank)
+      || (as->type == AS_ASSUMED_RANK && sym->as->corank))
+    {
+      gfc_error ("The assumed-rank array '%s' at %L shall not have a "
+		 "codimension", sym->name, error_loc);
+      return FAILURE;
     }
 
   if (as->corank)
@@ -1031,7 +1059,7 @@ gfc_match_array_constructor (gfc_expr **result)
 	return MATCH_NO;
       else
 	{
-	  if (gfc_notify_std (GFC_STD_F2003, "Fortran 2003: [...] "
+	  if (gfc_notify_std (GFC_STD_F2003, "[...] "
 			      "style array constructors at %C") == FAILURE)
 	    return MATCH_ERROR;
 	  end_delim = " ]";
@@ -1045,13 +1073,14 @@ gfc_match_array_constructor (gfc_expr **result)
   seen_ts = false;
 
   /* Try to match an optional "type-spec ::"  */
+  gfc_clear_ts (&ts);
   if (gfc_match_decl_type_spec (&ts, 0) == MATCH_YES)
     {
       seen_ts = (gfc_match (" ::") == MATCH_YES);
 
       if (seen_ts)
 	{
-	  if (gfc_notify_std (GFC_STD_F2003, "Fortran 2003: Array constructor "
+	  if (gfc_notify_std (GFC_STD_F2003, "Array constructor "
 			      "including type specification at %C") == FAILURE)
 	    goto cleanup;
 
@@ -1384,7 +1413,7 @@ extract_element (gfc_expr *e)
     gfc_free_expr (e);
 
   current_expand.extract_count++;
-  
+
   return SUCCESS;
 }
 
@@ -1722,6 +1751,50 @@ gfc_expanded_ac (gfc_expr *e)
 
 /*************** Type resolution of array constructors ***************/
 
+
+/* The symbol expr_is_sought_symbol_ref will try to find.  */
+static const gfc_symbol *sought_symbol = NULL;
+
+
+/* Tells whether the expression E is a variable reference to the symbol
+   in the static variable SOUGHT_SYMBOL, and sets the locus pointer WHERE
+   accordingly.
+   To be used with gfc_expr_walker: if a reference is found we don't need
+   to look further so we return 1 to skip any further walk.  */
+
+static int
+expr_is_sought_symbol_ref (gfc_expr **e, int *walk_subtrees ATTRIBUTE_UNUSED,
+			   void *where)
+{
+  gfc_expr *expr = *e;
+  locus *sym_loc = (locus *)where;
+
+  if (expr->expr_type == EXPR_VARIABLE
+      && expr->symtree->n.sym == sought_symbol)
+    {
+      *sym_loc = expr->where;
+      return 1;
+    }
+
+  return 0;
+}
+
+
+/* Tells whether the expression EXPR contains a reference to the symbol
+   SYM and in that case sets the position SYM_LOC where the reference is.  */
+
+static bool
+find_symbol_in_expr (gfc_symbol *sym, gfc_expr *expr, locus *sym_loc)
+{
+  int ret;
+
+  sought_symbol = sym;
+  ret = gfc_expr_walker (&expr, &expr_is_sought_symbol_ref, sym_loc);
+  sought_symbol = NULL;
+  return ret;
+}
+
+
 /* Recursive array list resolution function.  All of the elements must
    be of the same type.  */
 
@@ -1730,17 +1803,56 @@ resolve_array_list (gfc_constructor_base base)
 {
   gfc_try t;
   gfc_constructor *c;
+  gfc_iterator *iter;
 
   t = SUCCESS;
 
   for (c = gfc_constructor_first (base); c; c = gfc_constructor_next (c))
     {
-      if (c->iterator != NULL
-	  && gfc_resolve_iterator (c->iterator, false) == FAILURE)
-	t = FAILURE;
+      iter = c->iterator;
+      if (iter != NULL)
+        {
+	  gfc_symbol *iter_var;
+	  locus iter_var_loc;
+
+	  if (gfc_resolve_iterator (iter, false, true) == FAILURE)
+	    t = FAILURE;
+
+	  /* Check for bounds referencing the iterator variable.  */
+	  gcc_assert (iter->var->expr_type == EXPR_VARIABLE);
+	  iter_var = iter->var->symtree->n.sym;
+	  if (find_symbol_in_expr (iter_var, iter->start, &iter_var_loc))
+	    {
+	      if (gfc_notify_std (GFC_STD_LEGACY, "AC-IMPLIED-DO initial "
+				  "expression references control variable "
+				  "at %L", &iter_var_loc) == FAILURE)
+	       t = FAILURE;
+	    }
+	  if (find_symbol_in_expr (iter_var, iter->end, &iter_var_loc))
+	    {
+	      if (gfc_notify_std (GFC_STD_LEGACY, "AC-IMPLIED-DO final "
+				  "expression references control variable "
+				  "at %L", &iter_var_loc) == FAILURE)
+	       t = FAILURE;
+	    }
+	  if (find_symbol_in_expr (iter_var, iter->step, &iter_var_loc))
+	    {
+	      if (gfc_notify_std (GFC_STD_LEGACY, "AC-IMPLIED-DO step "
+				  "expression references control variable "
+				  "at %L", &iter_var_loc) == FAILURE)
+	       t = FAILURE;
+	    }
+	}
 
       if (gfc_resolve_expr (c->expr) == FAILURE)
 	t = FAILURE;
+
+      if (UNLIMITED_POLY (c->expr))
+	{
+	  gfc_error ("Array constructor value at %L shall not be unlimited "
+		     "polymorphic [F2008: C4106]", &c->expr->where);
+	  t = FAILURE;
+	}
     }
 
   return t;
@@ -1835,7 +1947,7 @@ got_charlen:
       expr->ts.u.cl->length = gfc_get_int_expr (gfc_default_integer_kind,
 						NULL, found_length);
     }
-  else 
+  else
     {
       /* We've got a character length specified.  It should be an integer,
 	 otherwise an error is signalled elsewhere.  */
@@ -1868,7 +1980,7 @@ got_charlen:
 	      /* If gfc_extract_int above set current_length, we implicitly
 		 know the type is BT_INTEGER and it's EXPR_CONSTANT.  */
 
-	      has_ts = (expr->ts.u.cl && expr->ts.u.cl->length_from_typespec);
+	      has_ts = expr->ts.u.cl->length_from_typespec;
 
 	      if (! cl
 		  || (current_length != -1 && current_length != found_length))
@@ -1963,6 +2075,9 @@ spec_size (gfc_array_spec *as, mpz_t *result)
 {
   mpz_t size;
   int d;
+
+  if (as->type == AS_ASSUMED_RANK)
+    return FAILURE;
 
   mpz_init_set_ui (*result, 1);
 
@@ -2117,10 +2232,15 @@ gfc_array_dimen_size (gfc_expr *array, int dimen, mpz_t *result)
   gfc_ref *ref;
   int i;
 
+  gcc_assert (array != NULL);
+
   if (array->ts.type == BT_CLASS)
     return FAILURE;
 
-  if (dimen < 0 || array == NULL || dimen > array->rank - 1)
+  if (array->rank == -1)
+    return FAILURE;
+
+  if (dimen < 0 || dimen > array->rank - 1)
     gfc_internal_error ("gfc_array_dimen_size(): Bad dimension");
 
   switch (array->expr_type)

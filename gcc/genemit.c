@@ -1,6 +1,5 @@
 /* Generate code from machine description to emit insns as rtl.
-   Copyright (C) 1987, 1988, 1991, 1994, 1995, 1997, 1998, 1999, 2000, 2001,
-   2003, 2004, 2005, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -159,9 +158,6 @@ gen_exp (rtx x, enum rtx_code subroutine_type, char *used)
     case MATCH_SCRATCH:
       gen_rtx_scratch (x, subroutine_type);
       return;
-
-    case ADDRESS:
-      fatal ("ADDRESS expression code used in named instruction pattern");
 
     case PC:
       printf ("pc_rtx");
@@ -812,7 +808,7 @@ from the machine description file `md'.  */\n\n");
   printf ("#include \"tm-constrs.h\"\n");
   printf ("#include \"ggc.h\"\n");
   printf ("#include \"basic-block.h\"\n");
-  printf ("#include \"integrate.h\"\n\n");
+  printf ("#include \"target.h\"\n\n");
   printf ("#define FAIL return (end_sequence (), _val)\n");
   printf ("#define DONE return (_val = get_insns (), end_sequence (), _val)\n\n");
 

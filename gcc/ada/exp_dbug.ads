@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1996-2010, Free Software Foundation, Inc.         --
+--          Copyright (C) 1996-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -410,14 +410,6 @@ package Exp_Dbug is
    ----------------------------------------------------
    -- Conversion between Entities and External Names --
    ----------------------------------------------------
-
-   No_Dollar_In_Label : constant Boolean := True;
-   --  True iff the target does not allow dollar signs ("$") in external names
-   --  ??? We want to migrate all platforms to use the same convention. As a
-   --  first step, we force this constant to always be True. This constant will
-   --  eventually be deleted after we have verified that the migration does not
-   --  cause any unforeseen adverse impact. We chose "__" because it is
-   --  supported on all platforms, which is not the case of "$".
 
    procedure Get_External_Name
      (Entity     : Entity_Id;
@@ -1449,6 +1441,23 @@ package Exp_Dbug is
    --  The debugger should simply ignore structs with names of the form
    --  corresponding to variants, and consider the fields inside as belonging
    --  to the containing record.
+
+   -----------------------------------------------
+   --  Extra renamings for subprogram instances --
+   -----------------------------------------------
+
+   procedure Build_Subprogram_Instance_Renamings
+     (N       : Node_Id;
+      Wrapper : Entity_Id);
+   --  The debugger has difficulties in recovering the value of actuals of an
+   --  elementary type, from within the body of a subprogram instantiation.
+   --  This is because such actuals generate an object declaration that is
+   --  placed within the wrapper package of the instance, and the entity in
+   --  these declarations is encoded in a complex way that GDB does not handle
+   --  well. These new renaming declarations appear within the body of the
+   --  subprogram, and are redundant from a visibility point of view, but They
+   --  should have no measurable performance impact, and require no special
+   --  decoding in the debugger.
 
    -------------------------------------------
    -- Character literals in Character Types --

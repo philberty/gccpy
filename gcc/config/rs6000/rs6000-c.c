@@ -1,6 +1,5 @@
-/* Subroutines for the C front end on the POWER and PowerPC architectures.
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+/* Subroutines for the C front end on the PowerPC architecture.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
 
    Contributed by Zack Weinberg <zack@codesourcery.com>
    and Paolo Bonzini <bonzini@gnu.org>
@@ -286,43 +285,41 @@ rs6000_define_or_undefine_macro (bool define_p, const char *name)
    have both the target flags and the builtin flags as arguments.  */
 
 void
-rs6000_target_modify_macros (bool define_p, int flags, unsigned bu_mask)
+rs6000_target_modify_macros (bool define_p, HOST_WIDE_INT flags,
+			     HOST_WIDE_INT bu_mask)
 {
   if (TARGET_DEBUG_BUILTIN || TARGET_DEBUG_TARGET)
-    fprintf (stderr, "rs6000_target_modify_macros (%s, 0x%x, 0x%x)\n",
+    fprintf (stderr,
+	     "rs6000_target_modify_macros (%s, " HOST_WIDE_INT_PRINT_HEX
+	     ", " HOST_WIDE_INT_PRINT_HEX ")\n",
 	     (define_p) ? "define" : "undef",
-	     (unsigned) flags, bu_mask);
+	     flags, bu_mask);
 
-  /* target_flags based options.  */
-  if ((flags & MASK_POWER2) != 0)
-    rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR2");
-  else if ((flags & MASK_POWER) != 0)
-    rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR");
-  if ((flags & MASK_POWERPC) != 0)
-    rs6000_define_or_undefine_macro (define_p, "_ARCH_PPC");
-  if ((flags & MASK_PPC_GPOPT) != 0)
+  /* rs6000_isa_flags based options.  */
+  rs6000_define_or_undefine_macro (define_p, "_ARCH_PPC");
+  if ((flags & OPTION_MASK_PPC_GPOPT) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PPCSQ");
-  if ((flags & MASK_PPC_GFXOPT) != 0)
+  if ((flags & OPTION_MASK_PPC_GFXOPT) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PPCGR");
-  if ((flags & MASK_POWERPC64) != 0)
+  if ((flags & OPTION_MASK_POWERPC64) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PPC64");
-  if ((flags & MASK_MFCRF) != 0)
+  if ((flags & OPTION_MASK_MFCRF) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR4");
-  if ((flags & MASK_POPCNTB) != 0)
+  if ((flags & OPTION_MASK_POPCNTB) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR5");
-  if ((flags & MASK_FPRND) != 0)
+  if ((flags & OPTION_MASK_FPRND) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR5X");
-  if ((flags & MASK_CMPB) != 0)
+  if ((flags & OPTION_MASK_CMPB) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR6");
-  if ((flags & MASK_MFPGPR) != 0)
+  if ((flags & OPTION_MASK_MFPGPR) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR6X");
-  if ((flags & MASK_POPCNTD) != 0)
+  if ((flags & OPTION_MASK_POPCNTD) != 0)
     rs6000_define_or_undefine_macro (define_p, "_ARCH_PWR7");
-  if ((flags & MASK_SOFT_FLOAT) != 0)
+  if ((flags & OPTION_MASK_SOFT_FLOAT) != 0)
     rs6000_define_or_undefine_macro (define_p, "_SOFT_FLOAT");
-  if ((flags & MASK_RECIP_PRECISION) != 0)
+  if ((flags & OPTION_MASK_RECIP_PRECISION) != 0)
     rs6000_define_or_undefine_macro (define_p, "__RECIP_PRECISION__");
-  if ((flags & MASK_ALTIVEC) != 0)
+  if ((flags & OPTION_MASK_ALTIVEC) != 0)
     {
       const char *vec_str = (define_p) ? "__VEC__=10206" : "__VEC__";
       rs6000_define_or_undefine_macro (define_p, "__ALTIVEC__");
@@ -332,7 +329,7 @@ rs6000_target_modify_macros (bool define_p, int flags, unsigned bu_mask)
       if (!flag_iso)
 	rs6000_define_or_undefine_macro (define_p, "__APPLE_ALTIVEC__");
     }
-  if ((flags & MASK_VSX) != 0)
+  if ((flags & OPTION_MASK_VSX) != 0)
     rs6000_define_or_undefine_macro (define_p, "__VSX__");
 
   /* options from the builtin masks.  */
@@ -348,13 +345,9 @@ void
 rs6000_cpu_cpp_builtins (cpp_reader *pfile)
 {
   /* Define all of the common macros.  */
-  rs6000_target_modify_macros (true, target_flags,
+  rs6000_target_modify_macros (true, rs6000_isa_flags,
 			       rs6000_builtin_mask_calculate ());
 
-  /* _ARCH_COM does not fit in the framework of target_modify_macros, so handle
-     it specially.  */
-  if (! TARGET_POWER && ! TARGET_POWER2 && ! TARGET_POWERPC)
-    builtin_define ("_ARCH_COM");
   if (TARGET_FRE)
     builtin_define ("__RECIP__");
   if (TARGET_FRES)
@@ -3421,6 +3414,22 @@ rs6000_builtin_type_compatible (tree t, int id)
 }
 
 
+/* In addition to calling fold_convert for EXPR of type TYPE, also
+   call c_fully_fold to remove any C_MAYBE_CONST_EXPRs that could be
+   hiding there (PR47197).  */
+
+static tree
+fully_fold_convert (tree type, tree expr)
+{
+  tree result = fold_convert (type, expr);
+  bool maybe_const = true;
+
+  if (!c_dialect_cxx ())
+    result = c_fully_fold (result, false, &maybe_const);
+
+  return result;
+}
+
 /* Build a tree for a function call to an Altivec non-overloaded builtin.
    The overloaded builtin that matched the types and args is described
    by DESC.  The N arguments are given in ARGS, respectively.  
@@ -3470,18 +3479,18 @@ altivec_build_resolved_builtin (tree *args, int n,
       break;
     case 1:
       call = build_call_expr (impl_fndecl, 1,
-			      fold_convert (arg_type[0], args[0]));
+			      fully_fold_convert (arg_type[0], args[0]));
       break;
     case 2:
       call = build_call_expr (impl_fndecl, 2,
-			      fold_convert (arg_type[0], args[0]),
-			      fold_convert (arg_type[1], args[1]));
+			      fully_fold_convert (arg_type[0], args[0]),
+			      fully_fold_convert (arg_type[1], args[1]));
       break;
     case 3:
       call = build_call_expr (impl_fndecl, 3,
-			      fold_convert (arg_type[0], args[0]),
-			      fold_convert (arg_type[1], args[1]),
-			      fold_convert (arg_type[2], args[2]));
+			      fully_fold_convert (arg_type[0], args[0]),
+			      fully_fold_convert (arg_type[1], args[1]),
+			      fully_fold_convert (arg_type[2], args[2]));
       break;
     default:
       gcc_unreachable ();
@@ -3496,8 +3505,8 @@ tree
 altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
 				    void *passed_arglist)
 {
-  VEC(tree,gc) *arglist = (VEC(tree,gc) *) passed_arglist;
-  unsigned int nargs = VEC_length (tree, arglist);
+  vec<tree, va_gc> *arglist = static_cast<vec<tree, va_gc> *> (passed_arglist);
+  unsigned int nargs = vec_safe_length (arglist);
   enum rs6000_builtins fcode
     = (enum rs6000_builtins)DECL_FUNCTION_CODE (fndecl);
   tree fnargs = TYPE_ARG_TYPES (TREE_TYPE (fndecl));
@@ -3520,7 +3529,7 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
       int size;
       int i;
       bool unsigned_p;
-      VEC(constructor_elt,gc) *vec;
+      vec<constructor_elt, va_gc> *vec;
       const char *name = fcode == ALTIVEC_BUILTIN_VEC_SPLATS ? "vec_splats": "vec_promote";
 
       if (nargs == 0)
@@ -3540,10 +3549,10 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
 	}
       /* Ignore promote's element argument.  */
       if (fcode == ALTIVEC_BUILTIN_VEC_PROMOTE
-	  && !INTEGRAL_TYPE_P (TREE_TYPE (VEC_index (tree, arglist, 1))))
+	  && !INTEGRAL_TYPE_P (TREE_TYPE ((*arglist)[1])))
 	goto bad;
 
-      arg = VEC_index (tree, arglist, 0);
+      arg = (*arglist)[0];
       type = TREE_TYPE (arg);
       if (!SCALAR_FLOAT_TYPE_P (type)
 	  && !INTEGRAL_TYPE_P (type))
@@ -3573,14 +3582,11 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
 	    goto bad;
 	}
       arg = save_expr (fold_convert (TREE_TYPE (type), arg));
-      vec = VEC_alloc (constructor_elt, gc, size);
+      vec_alloc (vec, size);
       for(i = 0; i < size; i++)
 	{
-	  constructor_elt *elt;
-
-	  elt = VEC_quick_push (constructor_elt, vec, NULL);
-	  elt->index = NULL_TREE;
-	  elt->value = arg;
+	  constructor_elt elt = {NULL_TREE, arg};
+	  vec->quick_push (elt);
 	}
 	return build_constructor (type, vec);
     }
@@ -3604,8 +3610,8 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
 	  return error_mark_node;
 	}
 
-      arg2 = VEC_index (tree, arglist, 1);
-      arg1 = VEC_index (tree, arglist, 0);
+      arg2 = (*arglist)[1];
+      arg1 = (*arglist)[0];
       arg1_type = TREE_TYPE (arg1);
 
       if (TREE_CODE (arg1_type) != VECTOR_TYPE)
@@ -3680,10 +3686,10 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
 	  return error_mark_node;
 	}
 
-      arg0 = VEC_index (tree, arglist, 0);
-      arg1 = VEC_index (tree, arglist, 1);
+      arg0 = (*arglist)[0];
+      arg1 = (*arglist)[1];
       arg1_type = TREE_TYPE (arg1);
-      arg2 = VEC_index (tree, arglist, 2);
+      arg2 = (*arglist)[2];
 
       if (TREE_CODE (arg1_type) != VECTOR_TYPE)
 	goto bad; 
@@ -3746,7 +3752,7 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
        fnargs = TREE_CHAIN (fnargs), n++)
     {
       tree decl_type = TREE_VALUE (fnargs);
-      tree arg = VEC_index (tree, arglist, n);
+      tree arg = (*arglist)[n];
       tree type;
 
       if (arg == error_mark_node)

@@ -1,7 +1,5 @@
 /* Reload pseudo regs into hard regs for insns that require hard regs.
-   Copyright (C) 1987, 1988, 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012 Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -41,12 +39,12 @@ along with GCC; see the file COPYING3.  If not see
 #include "df.h"
 #include "reload.h"
 #include "recog.h"
-#include "output.h"
 #include "except.h"
 #include "tree.h"
 #include "ira.h"
 #include "target.h"
 #include "emit-rtl.h"
+#include "dumpfile.h"
 
 /* This file contains the reload pass of the compiler, which is
    run after register allocation has been done.  It checks that
@@ -328,7 +326,7 @@ static int first_label_num;
 static char *offsets_known_at;
 static HOST_WIDE_INT (*offsets_at)[NUM_ELIMINABLE_REGS];
 
-VEC(reg_equivs_t,gc) *reg_equivs;
+vec<reg_equivs_t, va_gc> *reg_equivs;
 
 /* Stack of addresses where an rtx has been changed.  We can undo the 
    changes by popping items off the stack and restoring the original
@@ -341,9 +339,7 @@ VEC(reg_equivs_t,gc) *reg_equivs;
    rtx expression would be changed.  See PR 42431.  */
 
 typedef rtx *rtx_p;
-DEF_VEC_P(rtx_p);
-DEF_VEC_ALLOC_P(rtx_p,heap);
-static VEC(rtx_p,heap) *substitute_stack;
+static vec<rtx_p> substitute_stack;
 
 /* Number of labels in the current function.  */
 
@@ -462,7 +458,7 @@ init_reload (void)
 			  gen_rtx_REG (Pmode, i));
 
       /* This way, we make sure that reg+reg is an offsettable address.  */
-      tem = plus_constant (tem, 4);
+      tem = plus_constant (Pmode, tem, 4);
 
       if (memory_address_p (QImode, tem))
 	{
@@ -472,8 +468,11 @@ init_reload (void)
     }
 
   /* Initialize obstack for our rtl allocation.  */
-  gcc_obstack_init (&reload_obstack);
-  reload_startobj = XOBNEWVAR (&reload_obstack, char, 0);
+  if (reload_startobj == NULL)
+    {
+      gcc_obstack_init (&reload_obstack);
+      reload_startobj = XOBNEWVAR (&reload_obstack, char, 0);
+    }
 
   INIT_REG_SET (&spilled_pseudos);
   INIT_REG_SET (&changed_allocation_pseudos);
@@ -656,17 +655,15 @@ has_nonexceptional_receiver (void)
 void
 grow_reg_equivs (void)
 {
-  int old_size = VEC_length (reg_equivs_t, reg_equivs);
+  int old_size = vec_safe_length (reg_equivs);
   int max_regno = max_reg_num ();
   int i;
+  reg_equivs_t ze;
 
-  VEC_reserve (reg_equivs_t, gc, reg_equivs, max_regno);
+  memset (&ze, 0, sizeof (reg_equivs_t));
+  vec_safe_reserve (reg_equivs, max_regno);
   for (i = old_size; i < max_regno; i++)
-    {
-      VEC_quick_insert (reg_equivs_t, reg_equivs, i, 0);
-      memset (VEC_index (reg_equivs_t, reg_equivs, i), 0, sizeof (reg_equivs_t));
-    }
-    
+    reg_equivs->quick_insert (i, ze);
 }
 
 
@@ -1304,7 +1301,7 @@ reload (rtx first, int global)
     {
       sbitmap blocks;
       blocks = sbitmap_alloc (last_basic_block);
-      sbitmap_ones (blocks);
+      bitmap_ones (blocks);
       find_many_sub_basic_blocks (blocks);
       sbitmap_free (blocks);
     }
@@ -1325,7 +1322,7 @@ reload (rtx first, int global)
     REGNO_POINTER_ALIGN (HARD_FRAME_POINTER_REGNUM) = BITS_PER_UNIT;
 #endif
 
-  VEC_free (rtx_p, heap, substitute_stack);
+  substitute_stack.release ();
 
   gcc_assert (bitmap_empty_p (&spilled_pseudos));
 
@@ -1746,11 +1743,12 @@ count_pseudo (int reg)
   int r = reg_renumber[reg];
   int nregs;
 
+  /* Ignore spilled pseudo-registers which can be here only if IRA is used.  */
+  if (ira_conflicts_p && r < 0)
+    return;
+
   if (REGNO_REG_SET_P (&pseudos_counted, reg)
-      || REGNO_REG_SET_P (&spilled_pseudos, reg)
-      /* Ignore spilled pseudo-registers which can be here only if IRA
-	 is used.  */
-      || (ira_conflicts_p && r < 0))
+      || REGNO_REG_SET_P (&spilled_pseudos, reg))
     return;
 
   SET_REGNO_REG_SET (&pseudos_counted, reg);
@@ -1827,12 +1825,17 @@ count_spilled_pseudo (int spilled, int spilled_nregs, int reg)
 {
   int freq = REG_FREQ (reg);
   int r = reg_renumber[reg];
-  int nregs = hard_regno_nregs[r][PSEUDO_REGNO_MODE (reg)];
+  int nregs;
 
-  /* Ignore spilled pseudo-registers which can be here only if IRA is
-     used.  */
-  if ((ira_conflicts_p && r < 0)
-      || REGNO_REG_SET_P (&spilled_pseudos, reg)
+  /* Ignore spilled pseudo-registers which can be here only if IRA is used.  */
+  if (ira_conflicts_p && r < 0)
+    return;
+
+  gcc_assert (r >= 0);
+
+  nregs = hard_regno_nregs[r][PSEUDO_REGNO_MODE (reg)];
+
+  if (REGNO_REG_SET_P (&spilled_pseudos, reg)
       || spilled + spilled_nregs <= r || r + nregs <= spilled)
     return;
 
@@ -2559,10 +2562,7 @@ eliminate_regs_1 (rtx x, enum machine_mode mem_mode, rtx insn,
 
   switch (code)
     {
-    case CONST_INT:
-    case CONST_DOUBLE:
-    case CONST_FIXED:
-    case CONST_VECTOR:
+    CASE_CONST_ANY:
     case CONST:
     case SYMBOL_REF:
     case CODE_LABEL:
@@ -2584,7 +2584,7 @@ eliminate_regs_1 (rtx x, enum machine_mode mem_mode, rtx insn,
 	  for (ep = reg_eliminate; ep < &reg_eliminate[NUM_ELIMINABLE_REGS];
 	       ep++)
 	    if (ep->from_rtx == x && ep->can_eliminate)
-	      return plus_constant (ep->to_rtx, ep->previous_offset);
+	      return plus_constant (Pmode, ep->to_rtx, ep->previous_offset);
 
 	}
       else if (reg_renumber && reg_renumber[regno] < 0
@@ -2640,7 +2640,7 @@ eliminate_regs_1 (rtx x, enum machine_mode mem_mode, rtx insn,
 		  return ep->to_rtx;
 		else
 		  return gen_rtx_PLUS (Pmode, ep->to_rtx,
-				       plus_constant (XEXP (x, 1),
+				       plus_constant (Pmode, XEXP (x, 1),
 						      ep->previous_offset));
 	      }
 
@@ -2717,7 +2717,8 @@ eliminate_regs_1 (rtx x, enum machine_mode mem_mode, rtx insn,
 		ep->ref_outside_mem = 1;
 
 	      return
-		plus_constant (gen_rtx_MULT (Pmode, ep->to_rtx, XEXP (x, 1)),
+		plus_constant (Pmode,
+			       gen_rtx_MULT (Pmode, ep->to_rtx, XEXP (x, 1)),
 			       ep->previous_offset * INTVAL (XEXP (x, 1)));
 	    }
 
@@ -2975,10 +2976,7 @@ elimination_effects (rtx x, enum machine_mode mem_mode)
 
   switch (code)
     {
-    case CONST_INT:
-    case CONST_DOUBLE:
-    case CONST_FIXED:
-    case CONST_VECTOR:
+    CASE_CONST_ANY:
     case CONST:
     case SYMBOL_REF:
     case CODE_LABEL:
@@ -3008,7 +3006,7 @@ elimination_effects (rtx x, enum machine_mode mem_mode)
 
 	}
       else if (reg_renumber[regno] < 0
-	       && reg_equivs != 0
+	       && reg_equivs
 	       && reg_equiv_constant (regno)
 	       && ! function_invariant_p (reg_equiv_constant (regno)))
 	elimination_effects (reg_equiv_constant (regno), mem_mode);
@@ -3079,7 +3077,7 @@ elimination_effects (rtx x, enum machine_mode mem_mode)
       if (REG_P (SUBREG_REG (x))
 	  && (GET_MODE_SIZE (GET_MODE (x))
 	      <= GET_MODE_SIZE (GET_MODE (SUBREG_REG (x))))
-	  && reg_equivs != 0
+	  && reg_equivs
 	  && reg_equiv_memory_loc (REGNO (SUBREG_REG (x))) != 0)
 	return;
 
@@ -3291,8 +3289,8 @@ eliminate_regs_in_insn (rtx insn, int replace)
 
 		if (base == ep->to_rtx)
 		  {
-		    rtx src
-		      = plus_constant (ep->to_rtx, offset - ep->offset);
+		    rtx src = plus_constant (Pmode, ep->to_rtx,
+					     offset - ep->offset);
 
 		    new_body = old_body;
 		    if (! replace)
@@ -3406,7 +3404,8 @@ eliminate_regs_in_insn (rtx insn, int replace)
 	       had a PLUS before.  */
 	    if (offset == 0 || plus_src)
 	      {
-		rtx new_src = plus_constant (to_rtx, offset);
+		rtx new_src = plus_constant (GET_MODE (to_rtx),
+					     to_rtx, offset);
 
 		new_body = old_body;
 		if (! replace)
@@ -4229,7 +4228,6 @@ free_reg_equiv (void)
 {
   int i;
 
-
   free (offsets_known_at);
   free (offsets_at);
   offsets_at = 0;
@@ -4238,9 +4236,7 @@ free_reg_equiv (void)
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
     if (reg_equiv_alt_mem_list (i))
       free_EXPR_LIST_list (&reg_equiv_alt_mem_list (i));
-  VEC_free (reg_equivs_t, gc, reg_equivs);
-  reg_equivs = NULL;
-
+  vec_free (reg_equivs);
 }
 
 /* Kick all pseudos out of hard register REGNO.
@@ -4445,13 +4441,10 @@ scan_paradoxical_subregs (rtx x)
   switch (code)
     {
     case REG:
-    case CONST_INT:
     case CONST:
     case SYMBOL_REF:
     case LABEL_REF:
-    case CONST_DOUBLE:
-    case CONST_FIXED:
-    case CONST_VECTOR: /* shouldn't happen, but just in case.  */
+    CASE_CONST_ANY:
     case CC0:
     case PC:
     case USE:
@@ -5592,7 +5585,7 @@ substitute (rtx *where, const_rtx what, rtx repl)
   if (*where == what || rtx_equal_p (*where, what))
     {
       /* Record the location of the changed rtx.  */
-      VEC_safe_push (rtx_p, heap, substitute_stack, where);
+      substitute_stack.safe_push (where);
       *where = repl;
       return;
     }
@@ -5691,9 +5684,9 @@ gen_reload_chain_without_interm_reg_p (int r1, int r2)
     }
 
   /* Restore the original value at each changed address within R1.  */
-  while (!VEC_empty (rtx_p, substitute_stack))
+  while (!substitute_stack.is_empty ())
     {
-      rtx *where = VEC_pop (rtx_p, substitute_stack);
+      rtx *where = substitute_stack.pop ();
       *where = rld[r2].in;
     }
 
@@ -6355,6 +6348,20 @@ choose_reload_regs_init (struct insn_chain *chain, rtx *save_reload_reg_rtx)
 			      rld[i].when_needed, rld[i].mode);
 }
 
+#ifdef SECONDARY_MEMORY_NEEDED
+/* If X is not a subreg, return it unmodified.  If it is a subreg,
+   look up whether we made a replacement for the SUBREG_REG.  Return
+   either the replacement or the SUBREG_REG.  */
+
+static rtx
+replaced_subreg (rtx x)
+{
+  if (GET_CODE (x) == SUBREG)
+    return find_replacement (&SUBREG_REG (x));
+  return x;
+}
+#endif
+
 /* Assign hard reg targets for the pseudo-registers we must reload
    into hard regs for this insn.
    Also output the instructions to copy them in and out of the hard regs.
@@ -6946,6 +6953,9 @@ choose_reload_regs (struct insn_chain *chain)
 	{
 	  int r = reload_order[j];
 	  rtx check_reg;
+#ifdef SECONDARY_MEMORY_NEEDED
+	  rtx tem;
+#endif
 	  if (reload_inherited[r] && rld[r].reg_rtx)
 	    check_reg = rld[r].reg_rtx;
 	  else if (reload_override_in[r]
@@ -6979,8 +6989,28 @@ choose_reload_regs (struct insn_chain *chain)
 	     removal of one reload might allow us to inherit another one.  */
 	  else if (rld[r].in
 		   && rld[r].out != rld[r].in
-		   && remove_address_replacements (rld[r].in) && pass)
-	    pass = 2;
+		   && remove_address_replacements (rld[r].in))
+	    {
+	      if (pass)
+	        pass = 2;
+	    }
+#ifdef SECONDARY_MEMORY_NEEDED
+	  /* If we needed a memory location for the reload, we also have to
+	     remove its related reloads.  */
+	  else if (rld[r].in
+		   && rld[r].out != rld[r].in
+		   && (tem = replaced_subreg (rld[r].in), REG_P (tem))		   
+		   && REGNO (tem) < FIRST_PSEUDO_REGISTER
+		   && SECONDARY_MEMORY_NEEDED (REGNO_REG_CLASS (REGNO (tem)),
+					       rld[r].rclass, rld[r].inmode)
+		   && remove_address_replacements
+		      (get_secondary_mem (tem, rld[r].inmode, rld[r].opnum,
+					  rld[r].when_needed)))
+	    {
+	      if (pass)
+	        pass = 2;
+	    }
+#endif
 	}
     }
 
@@ -8472,6 +8502,9 @@ gen_reload (rtx out, rtx in, int opnum, enum reload_type type)
 {
   rtx last = get_last_insn ();
   rtx tem;
+#ifdef SECONDARY_MEMORY_NEEDED
+  rtx tem1, tem2;
+#endif
 
   /* If IN is a paradoxical SUBREG, remove it and try to put the
      opposite SUBREG on OUT.  Likewise for a paradoxical SUBREG on OUT.  */
@@ -8608,14 +8641,12 @@ gen_reload (rtx out, rtx in, int opnum, enum reload_type type)
 
 #ifdef SECONDARY_MEMORY_NEEDED
   /* If we need a memory location to do the move, do it that way.  */
-  else if ((REG_P (in)
-            || (GET_CODE (in) == SUBREG && REG_P (SUBREG_REG (in))))
-	   && reg_or_subregno (in) < FIRST_PSEUDO_REGISTER
-	   && (REG_P (out)
-	       || (GET_CODE (out) == SUBREG && REG_P (SUBREG_REG (out))))
-	   && reg_or_subregno (out) < FIRST_PSEUDO_REGISTER
-	   && SECONDARY_MEMORY_NEEDED (REGNO_REG_CLASS (reg_or_subregno (in)),
-				       REGNO_REG_CLASS (reg_or_subregno (out)),
+  else if ((tem1 = replaced_subreg (in), tem2 = replaced_subreg (out),
+	    (REG_P (tem1) && REG_P (tem2)))
+	   && REGNO (tem1) < FIRST_PSEUDO_REGISTER
+	   && REGNO (tem2) < FIRST_PSEUDO_REGISTER
+	   && SECONDARY_MEMORY_NEEDED (REGNO_REG_CLASS (REGNO (tem1)),
+				       REGNO_REG_CLASS (REGNO (tem2)),
 				       GET_MODE (out)))
     {
       /* Get the memory to use and rewrite both registers to its mode.  */

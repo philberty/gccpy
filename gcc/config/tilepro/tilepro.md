@@ -1,6 +1,5 @@
 ;; Machine description for Tilera TILEPro chip for GCC.
-;; Copyright (C) 2011, 2012
-;; Free Software Foundation, Inc.
+;; Copyright (C) 2011-2013 Free Software Foundation, Inc.
 ;; Contributed by Walter Lee (walt@tilera.com)
 ;;
 ;; This file is part of GCC.
@@ -1322,7 +1321,8 @@
    (use (match_operand 1 "" ""))    ;; iterations; zero if unknown
    (use (match_operand 2 "" ""))    ;; max iterations
    (use (match_operand 3 "" ""))    ;; loop level
-   (use (match_operand 4 "" ""))]   ;; label
+   (use (match_operand 4 "" ""))    ;; label
+   (use (match_operand 5 "" ""))]   ;; flag: 1 if loop entered at top, else 0
    ""
 {
   if (optimize > 0)

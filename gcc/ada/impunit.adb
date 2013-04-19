@@ -564,6 +564,7 @@ package body Impunit is
     ("a-cbprqu", T),  -- Ada.Containers.Bounded_Priority_Queues
     ("a-extiin", T),  -- Ada.Execution_Time.Interrupts
     ("a-iteint", T),  -- Ada.Iterator_Interfaces
+    ("a-locale", T),  -- Ada.Locales
     ("a-synbar", T),  -- Ada.Synchronous_Barriers
     ("a-undesu", T),  -- Ada.Unchecked_Deallocate_Subpool
 
@@ -662,10 +663,19 @@ package body Impunit is
          return Not_Predefined_Unit;
       end if;
 
-      --  Not predefined if file name does not end in .ads. This can
-      --  happen when non-standard file names are being used.
+      --  To be considered predefined, the file name must end in .ads or .adb.
+      --  File names with other extensions (coming from the use of non-standard
+      --  file naming schemes) can never be predefined.
 
-      if Name_Buffer (Name_Len - 3 .. Name_Len) /= ".ads" then
+      --  Note that in the context of a compiler, the .adb case will never
+      --  arise. However it can arise for other tools, e.g. gnatprove uses
+      --  this routine to detect when a construct comes from an instance of
+      --  a generic defined in a predefined unit.
+
+      if Name_Buffer (Name_Len - 3 .. Name_Len) /= ".ads"
+           and then
+         Name_Buffer (Name_Len - 3 .. Name_Len) /= ".adb"
+      then
          return Not_Predefined_Unit;
       end if;
 

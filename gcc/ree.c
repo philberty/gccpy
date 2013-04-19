@@ -1,5 +1,5 @@
 /* Redundant Extension Elimination pass for the GNU compiler.
-   Copyright (C) 2010, 2011, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
    Contributed by Ilya Enkovich (ilya.enkovich@intel.com)
 
    Based on the Redundant Zero-extension elimination pass contributed by
@@ -233,21 +233,17 @@ along with GCC; see the file COPYING3.  If not see
 #include "recog.h"
 #include "diagnostic-core.h"
 #include "target.h"
-#include "timevar.h"
 #include "optabs.h"
 #include "insn-codes.h"
 #include "rtlhooks-def.h"
-/* Include output.h for dump_file.  */
-#include "output.h"
 #include "params.h"
-#include "timevar.h"
 #include "tree-pass.h"
 #include "df.h"
 #include "cgraph.h"
 
 /* This structure represents a candidate for elimination.  */
 
-typedef struct GTY(()) ext_cand
+typedef struct ext_cand
 {
   /* The expression.  */
   const_rtx expr;
@@ -262,8 +258,6 @@ typedef struct GTY(()) ext_cand
   rtx insn;
 } ext_cand;
 
-DEF_VEC_O(ext_cand);
-DEF_VEC_ALLOC_O(ext_cand, heap);
 
 static int max_insn_uid;
 
@@ -411,7 +405,7 @@ transform_ifelse (ext_cand *cand, rtx def_insn)
    of the definitions onto DEST.  */
 
 static struct df_link *
-get_defs (rtx insn, rtx reg, VEC (rtx,heap) **dest)
+get_defs (rtx insn, rtx reg, vec<rtx> *dest)
 {
   df_ref reg_info, *uses;
   struct df_link *ref_chain, *ref_link;
@@ -442,7 +436,7 @@ get_defs (rtx insn, rtx reg, VEC (rtx,heap) **dest)
 
   if (dest)
     for (ref_link = ref_chain; ref_link; ref_link = ref_link->next)
-      VEC_safe_push (rtx, heap, *dest, DF_REF_INSN (ref_link->ref));
+      dest->safe_push (DF_REF_INSN (ref_link->ref));
 
   return ref_chain;
 }
@@ -481,7 +475,7 @@ enum ext_modified_kind
   EXT_MODIFIED_SEXT
 };
 
-struct ext_modified
+struct ATTRIBUTE_PACKED ext_modified
 {
   /* Mode from which ree has zero or sign extended the destination.  */
   ENUM_BITFIELD(machine_mode) mode : 8;
@@ -496,13 +490,13 @@ struct ext_modified
 /* Vectors used by combine_reaching_defs and its helpers.  */
 typedef struct ext_state
 {
-  /* In order to avoid constant VEC_alloc/VEC_free, we keep these
+  /* In order to avoid constant alloc/free, we keep these
      4 vectors live through the entire find_and_remove_re and just
-     VEC_truncate them each time.  */
-  VEC (rtx, heap) *defs_list;
-  VEC (rtx, heap) *copies_list;
-  VEC (rtx, heap) *modified_list;
-  VEC (rtx, heap) *work_list;
+     truncate them each time.  */
+  vec<rtx> defs_list;
+  vec<rtx> copies_list;
+  vec<rtx> modified_list;
+  vec<rtx> work_list;
 
   /* For instructions that have been successfully modified, this is
      the original mode from which the insn is extending and
@@ -530,7 +524,7 @@ make_defs_and_copies_lists (rtx extend_insn, const_rtx set_pat,
   bool *is_insn_visited;
   bool ret = true;
 
-  VEC_truncate (rtx, state->work_list, 0);
+  state->work_list.truncate (0);
 
   /* Initialize the work list.  */
   if (!get_defs (extend_insn, src_reg, &state->work_list))
@@ -539,9 +533,9 @@ make_defs_and_copies_lists (rtx extend_insn, const_rtx set_pat,
   is_insn_visited = XCNEWVEC (bool, max_insn_uid);
 
   /* Perform transitive closure for conditional copies.  */
-  while (!VEC_empty (rtx, state->work_list))
+  while (!state->work_list.is_empty ())
     {
-      rtx def_insn = VEC_pop (rtx, state->work_list);
+      rtx def_insn = state->work_list.pop ();
       rtx reg1, reg2;
 
       gcc_assert (INSN_UID (def_insn) < max_insn_uid);
@@ -553,7 +547,7 @@ make_defs_and_copies_lists (rtx extend_insn, const_rtx set_pat,
       if (is_cond_copy_insn (def_insn, &reg1, &reg2))
 	{
 	  /* Push it onto the copy list first.  */
-	  VEC_safe_push (rtx, heap, state->copies_list, def_insn);
+	  state->copies_list.safe_push (def_insn);
 
 	  /* Now perform the transitive closure.  */
 	  if (!get_defs (def_insn, reg1, &state->work_list)
@@ -564,7 +558,7 @@ make_defs_and_copies_lists (rtx extend_insn, const_rtx set_pat,
 	    }
         }
       else
-	VEC_safe_push (rtx, heap, state->defs_list, def_insn);
+	state->defs_list.safe_push (def_insn);
     }
 
   XDELETEVEC (is_insn_visited);
@@ -659,8 +653,8 @@ combine_reaching_defs (ext_cand *cand, const_rtx set_pat, ext_state *state)
   int defs_ix;
   bool outcome;
 
-  VEC_truncate (rtx, state->defs_list, 0);
-  VEC_truncate (rtx, state->copies_list, 0);
+  state->defs_list.truncate (0);
+  state->copies_list.truncate (0);
 
   outcome = make_defs_and_copies_lists (cand->insn, set_pat, state);
 
@@ -689,11 +683,11 @@ combine_reaching_defs (ext_cand *cand, const_rtx set_pat, ext_state *state)
 
   /* Go through the defs vector and try to merge all the definitions
      in this vector.  */
-  VEC_truncate (rtx, state->modified_list, 0);
-  FOR_EACH_VEC_ELT (rtx, state->defs_list, defs_ix, def_insn)
+  state->modified_list.truncate (0);
+  FOR_EACH_VEC_ELT (state->defs_list, defs_ix, def_insn)
     {
       if (merge_def_and_ext (cand, def_insn, state))
-	VEC_safe_push (rtx, heap, state->modified_list, def_insn);
+	state->modified_list.safe_push (def_insn);
       else
         {
           merge_successful = false;
@@ -705,10 +699,10 @@ combine_reaching_defs (ext_cand *cand, const_rtx set_pat, ext_state *state)
      the copies in this vector.  */
   if (merge_successful)
     {
-      FOR_EACH_VEC_ELT (rtx, state->copies_list, i, def_insn)
+      FOR_EACH_VEC_ELT (state->copies_list, i, def_insn)
         {
           if (transform_ifelse (cand, def_insn))
-	    VEC_safe_push (rtx, heap, state->modified_list, def_insn);
+	    state->modified_list.safe_push (def_insn);
           else
             {
               merge_successful = false;
@@ -729,7 +723,7 @@ combine_reaching_defs (ext_cand *cand, const_rtx set_pat, ext_state *state)
           if (dump_file)
             fprintf (dump_file, "All merges were successful.\n");
 
-	  FOR_EACH_VEC_ELT (rtx, state->modified_list, i, def_insn)
+	  FOR_EACH_VEC_ELT (state->modified_list, i, def_insn)
 	    if (state->modified[INSN_UID (def_insn)].kind == EXT_MODIFIED_NONE)
 	      state->modified[INSN_UID (def_insn)].kind
 		= (cand->code == ZERO_EXTEND
@@ -746,7 +740,7 @@ combine_reaching_defs (ext_cand *cand, const_rtx set_pat, ext_state *state)
             {
 	      fprintf (dump_file,
 		       "Merge cancelled, non-mergeable definitions:\n");
-	      FOR_EACH_VEC_ELT (rtx, state->modified_list, i, def_insn)
+	      FOR_EACH_VEC_ELT (state->modified_list, i, def_insn)
 	        print_rtl_single (dump_file, def_insn);
             }
         }
@@ -764,7 +758,7 @@ combine_reaching_defs (ext_cand *cand, const_rtx set_pat, ext_state *state)
 
 static void
 add_removable_extension (const_rtx expr, rtx insn,
-			 VEC (ext_cand, heap) **insn_list,
+			 vec<ext_cand> *insn_list,
 			 unsigned *def_map)
 {
   enum rtx_code code;
@@ -806,8 +800,8 @@ add_removable_extension (const_rtx expr, rtx insn,
 	 different extension.  FIXME: this obviously can be improved.  */
       for (def = defs; def; def = def->next)
 	if ((idx = def_map[INSN_UID(DF_REF_INSN (def->ref))])
-	    && (cand = VEC_index (ext_cand, *insn_list, idx - 1))
-	    && (cand->code != code || cand->mode != mode))
+	    && (cand = &(*insn_list)[idx - 1])
+	    && cand->code != code)
 	  {
 	    if (dump_file)
 	      {
@@ -820,12 +814,9 @@ add_removable_extension (const_rtx expr, rtx insn,
 
       /* Then add the candidate to the list and insert the reaching definitions
          into the definition map.  */
-      cand = VEC_safe_push (ext_cand, heap, *insn_list, NULL);
-      cand->expr = expr;
-      cand->code = code;
-      cand->mode = mode;
-      cand->insn = insn;
-      idx = VEC_length (ext_cand, *insn_list);
+      ext_cand e = {expr, code, mode, insn};
+      insn_list->safe_push (e);
+      idx = insn_list->length ();
 
       for (def = defs; def; def = def->next)
 	def_map[INSN_UID(DF_REF_INSN (def->ref))] = idx;
@@ -835,10 +826,10 @@ add_removable_extension (const_rtx expr, rtx insn,
 /* Traverse the instruction stream looking for extensions and return the
    list of candidates.  */
 
-static VEC (ext_cand, heap)*
+static vec<ext_cand>
 find_removable_extensions (void)
 {
-  VEC (ext_cand, heap) *insn_list = NULL;
+  vec<ext_cand> insn_list = vNULL;
   basic_block bb;
   rtx insn, set;
   unsigned *def_map = XCNEWVEC (unsigned, max_insn_uid);
@@ -869,29 +860,30 @@ find_and_remove_re (void)
   ext_cand *curr_cand;
   rtx curr_insn = NULL_RTX;
   int num_re_opportunities = 0, num_realized = 0, i;
-  VEC (ext_cand, heap) *reinsn_list;
-  VEC (rtx, heap) *reinsn_del_list;
+  vec<ext_cand> reinsn_list;
+  vec<rtx> reinsn_del_list;
   ext_state state;
 
   /* Construct DU chain to get all reaching definitions of each
      extension instruction.  */
+  df_set_flags (DF_RD_PRUNE_DEAD_DEFS);
   df_chain_add_problem (DF_UD_CHAIN + DF_DU_CHAIN);
   df_analyze ();
   df_set_flags (DF_DEFER_INSN_RESCAN);
 
   max_insn_uid = get_max_uid ();
-  reinsn_del_list = NULL;
+  reinsn_del_list.create (0);
   reinsn_list = find_removable_extensions ();
-  state.defs_list = NULL;
-  state.copies_list = NULL;
-  state.modified_list = NULL;
-  state.work_list = NULL;
-  if (VEC_empty (ext_cand, reinsn_list))
+  state.defs_list.create (0);
+  state.copies_list.create (0);
+  state.modified_list.create (0);
+  state.work_list.create (0);
+  if (reinsn_list.is_empty ())
     state.modified = NULL;
   else
     state.modified = XCNEWVEC (struct ext_modified, max_insn_uid);
 
-  FOR_EACH_VEC_ELT (ext_cand, reinsn_list, i, curr_cand)
+  FOR_EACH_VEC_ELT (reinsn_list, i, curr_cand)
     {
       num_re_opportunities++;
 
@@ -907,21 +899,21 @@ find_and_remove_re (void)
           if (dump_file)
             fprintf (dump_file, "Eliminated the extension.\n");
           num_realized++;
-          VEC_safe_push (rtx, heap, reinsn_del_list, curr_cand->insn);
+          reinsn_del_list.safe_push (curr_cand->insn);
 	  state.modified[INSN_UID (curr_cand->insn)].deleted = 1;
         }
     }
 
   /* Delete all useless extensions here in one sweep.  */
-  FOR_EACH_VEC_ELT (rtx, reinsn_del_list, i, curr_insn)
+  FOR_EACH_VEC_ELT (reinsn_del_list, i, curr_insn)
     delete_insn (curr_insn);
 
-  VEC_free (ext_cand, heap, reinsn_list);
-  VEC_free (rtx, heap, reinsn_del_list);
-  VEC_free (rtx, heap, state.defs_list);
-  VEC_free (rtx, heap, state.copies_list);
-  VEC_free (rtx, heap, state.modified_list);
-  VEC_free (rtx, heap, state.work_list);
+  reinsn_list.release ();
+  reinsn_del_list.release ();
+  state.defs_list.release ();
+  state.copies_list.release ();
+  state.modified_list.release ();
+  state.work_list.release ();
   XDELETEVEC (state.modified);
 
   if (dump_file && num_re_opportunities > 0)
@@ -955,6 +947,7 @@ struct rtl_opt_pass pass_ree =
  {
   RTL_PASS,
   "ree",                                /* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_handle_ree,                      /* gate */
   rest_of_handle_ree,                   /* execute */
   NULL,                                 /* sub */

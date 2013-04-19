@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -310,7 +310,7 @@ begin
 
       when Pragma_Ada_83 =>
          Ada_Version := Ada_83;
-         Ada_Version_Explicit := Ada_Version;
+         Ada_Version_Explicit := Ada_83;
 
       ------------
       -- Ada_95 --
@@ -322,7 +322,7 @@ begin
 
       when Pragma_Ada_95 =>
          Ada_Version := Ada_95;
-         Ada_Version_Explicit := Ada_Version;
+         Ada_Version_Explicit := Ada_95;
 
       ---------------------
       -- Ada_05/Ada_2005 --
@@ -935,7 +935,10 @@ begin
                      end if;
 
                      if J = Slen then
-                        Set_Style_Check_Options (Options, OK, Ptr);
+                        if not Ignore_Style_Checks_Pragmas then
+                           Set_Style_Check_Options (Options, OK, Ptr);
+                        end if;
+
                         exit;
 
                      else
@@ -955,17 +958,23 @@ begin
                OK := False;
 
             elsif Chars (A) = Name_All_Checks then
-               if GNAT_Mode then
-                  Stylesw.Set_GNAT_Style_Check_Options;
-               else
-                  Stylesw.Set_Default_Style_Check_Options;
+               if not Ignore_Style_Checks_Pragmas then
+                  if GNAT_Mode then
+                     Stylesw.Set_GNAT_Style_Check_Options;
+                  else
+                     Stylesw.Set_Default_Style_Check_Options;
+                  end if;
                end if;
 
             elsif Chars (A) = Name_On then
-               Style_Check := True;
+               if not Ignore_Style_Checks_Pragmas then
+                  Style_Check := True;
+               end if;
 
             elsif Chars (A) = Name_Off then
-               Style_Check := False;
+               if not Ignore_Style_Checks_Pragmas then
+                  Style_Check := False;
+               end if;
 
             else
                OK := False;
@@ -1092,23 +1101,30 @@ begin
       --  entirely in Sem_Prag, and no further checking is done by Par.
 
       when Pragma_Abort_Defer                    |
+           Pragma_Abstract_State                 |
            Pragma_Assertion_Policy               |
+           Pragma_Assume                         |
            Pragma_Assume_No_Invalid_Values       |
            Pragma_AST_Entry                      |
            Pragma_All_Calls_Remote               |
            Pragma_Annotate                       |
            Pragma_Assert                         |
+           Pragma_Assert_And_Cut                 |
            Pragma_Asynchronous                   |
            Pragma_Atomic                         |
            Pragma_Atomic_Components              |
            Pragma_Attach_Handler                 |
+           Pragma_Attribute_Definition           |
            Pragma_Check                          |
+           Pragma_Check_Float_Overflow           |
            Pragma_Check_Name                     |
            Pragma_Check_Policy                   |
            Pragma_CIL_Constructor                |
            Pragma_Compile_Time_Error             |
            Pragma_Compile_Time_Warning           |
            Pragma_Compiler_Unit                  |
+           Pragma_Contract_Case                  |
+           Pragma_Contract_Cases                 |
            Pragma_Convention_Identifier          |
            Pragma_CPP_Class                      |
            Pragma_CPP_Constructor                |
@@ -1149,6 +1165,7 @@ begin
            Pragma_Fast_Math                      |
            Pragma_Finalize_Storage_Only          |
            Pragma_Float_Representation           |
+           Pragma_Global                         |
            Pragma_Ident                          |
            Pragma_Implementation_Defined         |
            Pragma_Implemented                    |
@@ -1182,13 +1199,18 @@ begin
            Pragma_Linker_Destructor              |
            Pragma_Linker_Options                 |
            Pragma_Linker_Section                 |
+           Pragma_Lock_Free                      |
            Pragma_Locking_Policy                 |
            Pragma_Long_Float                     |
+           Pragma_Loop_Invariant                 |
+           Pragma_Loop_Optimize                  |
+           Pragma_Loop_Variant                   |
            Pragma_Machine_Attribute              |
            Pragma_Main                           |
            Pragma_Main_Storage                   |
            Pragma_Memory_Size                    |
            Pragma_No_Body                        |
+           Pragma_No_Inline                      |
            Pragma_No_Return                      |
            Pragma_No_Run_Time                    |
            Pragma_No_Strict_Aliasing             |
@@ -1197,7 +1219,10 @@ begin
            Pragma_Ordered                        |
            Pragma_Optimize                       |
            Pragma_Optimize_Alignment             |
+           Pragma_Overflow_Mode                  |
+           Pragma_Overriding_Renamings           |
            Pragma_Pack                           |
+           Pragma_Partition_Elaboration_Policy   |
            Pragma_Passive                        |
            Pragma_Preelaborable_Initialization   |
            Pragma_Polling                        |
@@ -1223,6 +1248,7 @@ begin
            Pragma_Remote_Call_Interface          |
            Pragma_Remote_Types                   |
            Pragma_Restricted_Run_Time            |
+           Pragma_Rational                       |
            Pragma_Ravenscar                      |
            Pragma_Reviewable                     |
            Pragma_Share_Generic                  |

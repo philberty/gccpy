@@ -1,7 +1,5 @@
 /* CPP Library.
-   Copyright (C) 1986, 1987, 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008,
-   2009, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1986-2013 Free Software Foundation, Inc.
    Contributed by Per Bothner, 1994-95.
    Based on CCCP program by Paul Rubin, June 1986
    Adapted to ANSI C, Richard Stallman, Jan 1987
@@ -27,6 +25,10 @@ along with this program; see the file COPYING3.  If not see
 #include "mkdeps.h"
 #include "localedir.h"
 #include "filenames.h"
+
+#ifndef ENABLE_CANONICAL_SYSTEM_HEADERS
+#define ENABLE_CANONICAL_SYSTEM_HEADERS 0
+#endif
 
 static void init_library (void);
 static void mark_named_operators (cpp_reader *, int);
@@ -149,7 +151,7 @@ init_library (void)
 
 /* Initialize a cpp_reader structure.  */
 cpp_reader *
-cpp_create_reader (enum c_lang lang, hash_table *table,
+cpp_create_reader (enum c_lang lang, cpp_hash_table *table,
 		   struct line_maps *line_table)
 {
   cpp_reader *pfile;
@@ -174,7 +176,17 @@ cpp_create_reader (enum c_lang lang, hash_table *table,
   CPP_OPTION (pfile, warn_dollars) = 1;
   CPP_OPTION (pfile, warn_variadic_macros) = 1;
   CPP_OPTION (pfile, warn_builtin_macro_redefined) = 1;
+  /* By default, track locations of tokens resulting from macro
+     expansion.  The '2' means, track the locations with the highest
+     accuracy.  Read the comments for struct
+     cpp_options::track_macro_expansion to learn about the other
+     values.  */
+  CPP_OPTION (pfile, track_macro_expansion) = 2;
   CPP_OPTION (pfile, warn_normalize) = normalized_C;
+  CPP_OPTION (pfile, warn_literal_suffix) = 1;
+  CPP_OPTION (pfile, canonical_system_headers)
+      = ENABLE_CANONICAL_SYSTEM_HEADERS;
+  CPP_OPTION (pfile, ext_numeric_literals) = 1;
 
   /* Default CPP arithmetic to something sensible for the host for the
      benefit of dumb users like fix-header.  */
@@ -586,7 +598,7 @@ cpp_read_main_file (cpp_reader *pfile, const char *fname)
     }
 
   pfile->main_file
-    = _cpp_find_file (pfile, fname, &pfile->no_search_path, false, 0);
+    = _cpp_find_file (pfile, fname, &pfile->no_search_path, false, 0, false);
   if (_cpp_find_failed (pfile->main_file))
     return NULL;
 

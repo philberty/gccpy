@@ -1,7 +1,5 @@
 /* Common declarations for all of libgfortran.
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>, and
    Andy Vaught <andy@xena.eas.asu.edu>
 
@@ -42,10 +40,18 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #include "config.h"
 
 #include <stdio.h>
-#include <math.h>
 #include <stddef.h>
 #include <float.h>
 #include <stdarg.h>
+
+#if HAVE_COMPLEX_H
+/* Must appear before math.h on VMS systems.  */
+# include <complex.h>
+#else
+#define complex __complex__
+#endif
+
+#include <math.h>
 
 /* If we're support quad-precision floating-point type, include the
    header to our support library.  */
@@ -64,12 +70,6 @@ extern long double __strtold (const char *, char **);
 #define gfc_strtof strtof
 #define gfc_strtod strtod
 #define gfc_strtold strtold
-#endif
-
-#if HAVE_COMPLEX_H
-# include <complex.h>
-#else
-#define complex __complex__
 #endif
 
 #include "../gcc/fortran/libgfortran.h"
@@ -322,7 +322,7 @@ internal_proto(big_endian);
 typedef struct descriptor_dimension
 {
   index_type _stride;
-  index_type _lbound;
+  index_type lower_bound;
   index_type _ubound;
 }
 
@@ -330,7 +330,7 @@ descriptor_dimension;
 
 #define GFC_ARRAY_DESCRIPTOR(r, type) \
 struct {\
-  type *data;\
+  type *base_addr;\
   size_t offset;\
   index_type dtype;\
   descriptor_dimension dim[r];\
@@ -375,26 +375,26 @@ typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_16) gfc_array_l16;
 #define GFC_DESCRIPTOR_TYPE(desc) (((desc)->dtype & GFC_DTYPE_TYPE_MASK) \
                                    >> GFC_DTYPE_TYPE_SHIFT)
 #define GFC_DESCRIPTOR_SIZE(desc) ((desc)->dtype >> GFC_DTYPE_SIZE_SHIFT)
-#define GFC_DESCRIPTOR_DATA(desc) ((desc)->data)
+#define GFC_DESCRIPTOR_DATA(desc) ((desc)->base_addr)
 #define GFC_DESCRIPTOR_DTYPE(desc) ((desc)->dtype)
 
-#define GFC_DIMENSION_LBOUND(dim) ((dim)._lbound)
+#define GFC_DIMENSION_LBOUND(dim) ((dim).lower_bound)
 #define GFC_DIMENSION_UBOUND(dim) ((dim)._ubound)
 #define GFC_DIMENSION_STRIDE(dim) ((dim)._stride)
-#define GFC_DIMENSION_EXTENT(dim) ((dim)._ubound + 1 - (dim)._lbound)
+#define GFC_DIMENSION_EXTENT(dim) ((dim)._ubound + 1 - (dim).lower_bound)
 #define GFC_DIMENSION_SET(dim,lb,ub,str) \
   do \
     { \
-      (dim)._lbound = lb;			\
+      (dim).lower_bound = lb;			\
       (dim)._ubound = ub;			\
       (dim)._stride = str;			\
     } while (0)
 	    
 
-#define GFC_DESCRIPTOR_LBOUND(desc,i) ((desc)->dim[i]._lbound)
+#define GFC_DESCRIPTOR_LBOUND(desc,i) ((desc)->dim[i].lower_bound)
 #define GFC_DESCRIPTOR_UBOUND(desc,i) ((desc)->dim[i]._ubound)
 #define GFC_DESCRIPTOR_EXTENT(desc,i) ((desc)->dim[i]._ubound + 1 \
-				      - (desc)->dim[i]._lbound)
+				      - (desc)->dim[i].lower_bound)
 #define GFC_DESCRIPTOR_EXTENT_BYTES(desc,i) \
   (GFC_DESCRIPTOR_EXTENT(desc,i) * GFC_DESCRIPTOR_SIZE(desc))
 
@@ -533,7 +533,6 @@ typedef struct
   size_t record_marker;
   int max_subrecord_length;
   int bounds_check;
-  int range_check;
 }
 compile_options_t;
 
@@ -581,10 +580,6 @@ iexport_data_proto(filename);
    GCC's builtin alloca().  */
 #define gfc_alloca(x)  __builtin_alloca(x)
 
-
-/* Directory for creating temporary files.  Only used when none of the
-   following environment variables exist: GFORTRAN_TMPDIR, TMP and TEMP.  */
-#define DEFAULT_TEMPDIR "/tmp"
 
 /* The default value of record length for preconnected units is defined
    here. This value can be overriden by an environment variable.
@@ -670,8 +665,8 @@ internal_proto(find_addr2line);
 
 /* backtrace.c */
 
-extern void show_backtrace (void);
-internal_proto(show_backtrace);
+extern void backtrace (void);
+iexport_proto(backtrace);
 
 /* error.c */
 
@@ -753,11 +748,12 @@ internal_proto(set_fpu);
 
 /* memory.c */
 
-extern void *get_mem (size_t) __attribute__ ((malloc));
-internal_proto(get_mem);
+extern void *xmalloc (size_t) __attribute__ ((malloc));
+internal_proto(xmalloc);
 
-extern void *internal_malloc_size (size_t) __attribute__ ((malloc));
-internal_proto(internal_malloc_size);
+extern void *xcalloc (size_t, size_t) __attribute__ ((malloc));
+internal_proto(xcalloc);
+
 
 /* environ.c */
 
@@ -773,6 +769,20 @@ internal_proto(show_variables);
 unit_convert get_unformatted_convert (int);
 internal_proto(get_unformatted_convert);
 
+/* Secure getenv() which returns NULL if running as SUID/SGID.  */
+#ifndef HAVE_SECURE_GETENV
+#ifdef HAVE___SECURE_GETENV
+#define secure_getenv __secure_getenv
+#elif defined(HAVE_GETUID) && defined(HAVE_GETEUID) \
+  && defined(HAVE_GETGID) && defined(HAVE_GETEGID)
+#define FALLBACK_SECURE_GETENV
+extern char *secure_getenv (const char *);
+internal_proto(secure_getenv);
+#else
+#define secure_getenv getenv
+#endif
+#endif
+
 /* string.c */
 
 extern int find_option (st_parameter_common *, const char *, gfc_charlen_type,
@@ -787,6 +797,13 @@ internal_proto(fstrcpy);
 
 extern gfc_charlen_type cf_strcpy (char *, gfc_charlen_type, const char *);
 internal_proto(cf_strcpy);
+
+extern gfc_charlen_type string_len_trim (gfc_charlen_type, const char *);
+export_proto(string_len_trim);
+
+extern gfc_charlen_type string_len_trim_char4 (gfc_charlen_type,
+					       const gfc_char4_t *);
+export_proto(string_len_trim_char4);
 
 /* io/intrinsics.c */
 

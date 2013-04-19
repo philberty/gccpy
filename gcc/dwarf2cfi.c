@@ -1,7 +1,5 @@
 /* Dwarf2 Call Frame Information helper routines.
-   Copyright (C) 1992, 1993, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
-   2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1992-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -78,8 +76,6 @@ typedef struct GTY(()) reg_saved_in_data_struct {
   rtx saved_in_reg;
 } reg_saved_in_data;
 
-DEF_VEC_O (reg_saved_in_data);
-DEF_VEC_ALLOC_O (reg_saved_in_data, heap);
 
 /* Since we no longer have a proper CFG, we're going to create a facsimile
    of one on the fly while processing the frame-related insns.
@@ -141,7 +137,7 @@ typedef struct
      implemented as a flat array because it normally contains zero or 1
      entry, depending on the target.  IA-64 is the big spender here, using
      a maximum of 5 entries.  */
-  VEC(reg_saved_in_data, heap) *regs_saved_in_regs;
+  vec<reg_saved_in_data> regs_saved_in_regs;
 
   /* An identifier for this trace.  Used only for debugging dumps.  */
   unsigned id;
@@ -153,17 +149,13 @@ typedef struct
   bool args_size_undefined;
 } dw_trace_info;
 
-DEF_VEC_O (dw_trace_info);
-DEF_VEC_ALLOC_O (dw_trace_info, heap);
 
 typedef dw_trace_info *dw_trace_info_ref;
 
-DEF_VEC_P (dw_trace_info_ref);
-DEF_VEC_ALLOC_P (dw_trace_info_ref, heap);
 
 /* The variables making up the pseudo-cfg, as described above.  */
-static VEC (dw_trace_info, heap) *trace_info;
-static VEC (dw_trace_info_ref, heap) *trace_work_list;
+static vec<dw_trace_info> trace_info;
+static vec<dw_trace_info_ref> trace_work_list;
 static htab_t trace_index;
 
 /* A vector of call frame insns for the CIE.  */
@@ -203,10 +195,8 @@ typedef struct {
   HOST_WIDE_INT cfa_offset;
 } queued_reg_save;
 
-DEF_VEC_O (queued_reg_save);
-DEF_VEC_ALLOC_O (queued_reg_save, heap);
 
-static VEC(queued_reg_save, heap) *queued_reg_saves;
+static vec<queued_reg_save> queued_reg_saves;
 
 /* True if any CFI directives were emitted at the current insn.  */
 static bool any_cfis_emitted;
@@ -383,7 +373,7 @@ copy_cfi_row (dw_cfi_row *src)
   dw_cfi_row *dst = ggc_alloc_dw_cfi_row ();
 
   *dst = *src;
-  dst->reg_save = VEC_copy (dw_cfi_ref, gc, src->reg_save);
+  dst->reg_save = vec_safe_copy (src->reg_save);
 
   return dst;
 }
@@ -415,7 +405,7 @@ add_cfi (dw_cfi_ref cfi)
     }
 
   if (add_cfi_vec != NULL)
-    VEC_safe_push (dw_cfi_ref, gc, *add_cfi_vec, cfi);
+    vec_safe_push (*add_cfi_vec, cfi);
 }
 
 static void
@@ -450,9 +440,9 @@ add_cfi_restore (unsigned reg)
 static void
 update_row_reg_save (dw_cfi_row *row, unsigned column, dw_cfi_ref cfi)
 {
-  if (VEC_length (dw_cfi_ref, row->reg_save) <= column)
-    VEC_safe_grow_cleared (dw_cfi_ref, gc, row->reg_save, column + 1);
-  VEC_replace (dw_cfi_ref, row->reg_save, column, cfi);
+  if (vec_safe_length (row->reg_save) <= column)
+    vec_safe_grow_cleared (row->reg_save, column + 1);
+  (*row->reg_save)[column] = cfi;
 }
 
 /* This function fills in aa dw_cfa_location structure from a dwarf location
@@ -677,8 +667,8 @@ cfi_row_equal_p (dw_cfi_row *a, dw_cfi_row *b)
   else if (!cfa_equal_p (&a->cfa, &b->cfa))
     return false;
 
-  n_a = VEC_length (dw_cfi_ref, a->reg_save);
-  n_b = VEC_length (dw_cfi_ref, b->reg_save);
+  n_a = vec_safe_length (a->reg_save);
+  n_b = vec_safe_length (b->reg_save);
   n_max = MAX (n_a, n_b);
 
   for (i = 0; i < n_max; ++i)
@@ -686,9 +676,9 @@ cfi_row_equal_p (dw_cfi_row *a, dw_cfi_row *b)
       dw_cfi_ref r_a = NULL, r_b = NULL;
 
       if (i < n_a)
-	r_a = VEC_index (dw_cfi_ref, a->reg_save, i);
+	r_a = (*a->reg_save)[i];
       if (i < n_b)
-	r_b = VEC_index (dw_cfi_ref, b->reg_save, i);
+	r_b = (*b->reg_save)[i];
 
       if (!cfi_equal_p (r_a, r_b))
         return false;
@@ -724,8 +714,6 @@ def_cfa_0 (dw_cfa_location *old_cfa, dw_cfa_location *new_cfa)
 	cfi->dw_cfi_opc = DW_CFA_def_cfa_offset;
       cfi->dw_cfi_oprnd1.dw_cfi_offset = new_cfa->offset;
     }
-
-#ifndef MIPS_DEBUGGING_INFO  /* SGI dbx thinks this means no offset.  */
   else if (new_cfa->offset == old_cfa->offset
 	   && old_cfa->reg != INVALID_REGNUM
 	   && !new_cfa->indirect
@@ -737,8 +725,6 @@ def_cfa_0 (dw_cfa_location *old_cfa, dw_cfa_location *new_cfa)
       cfi->dw_cfi_opc = DW_CFA_def_cfa_register;
       cfi->dw_cfi_oprnd1.dw_cfi_reg_num = new_cfa->reg;
     }
-#endif
-
   else if (new_cfa->indirect == 0)
     {
       /* Construct a "DW_CFA_def_cfa <register> <offset>" instruction,
@@ -931,12 +917,11 @@ record_reg_saved_in_reg (rtx dest, rtx src)
   reg_saved_in_data *elt;
   size_t i;
 
-  FOR_EACH_VEC_ELT (reg_saved_in_data, cur_trace->regs_saved_in_regs, i, elt)
+  FOR_EACH_VEC_ELT (cur_trace->regs_saved_in_regs, i, elt)
     if (compare_reg_or_pc (elt->orig_reg, src))
       {
 	if (dest == NULL)
-	  VEC_unordered_remove (reg_saved_in_data,
-			        cur_trace->regs_saved_in_regs, i);
+	  cur_trace->regs_saved_in_regs.unordered_remove (i);
 	else
 	  elt->saved_in_reg = dest;
 	return;
@@ -945,10 +930,8 @@ record_reg_saved_in_reg (rtx dest, rtx src)
   if (dest == NULL)
     return;
 
-  elt = VEC_safe_push (reg_saved_in_data, heap,
-		       cur_trace->regs_saved_in_regs, NULL);
-  elt->orig_reg = src;
-  elt->saved_in_reg = dest;
+  reg_saved_in_data e = {src, dest};
+  cur_trace->regs_saved_in_regs.safe_push (e);
 }
 
 /* Add an entry to QUEUED_REG_SAVES saying that REG is now saved at
@@ -958,20 +941,19 @@ static void
 queue_reg_save (rtx reg, rtx sreg, HOST_WIDE_INT offset)
 {
   queued_reg_save *q;
+  queued_reg_save e = {reg, sreg, offset};
   size_t i;
 
   /* Duplicates waste space, but it's also necessary to remove them
      for correctness, since the queue gets output in reverse order.  */
-  FOR_EACH_VEC_ELT (queued_reg_save, queued_reg_saves, i, q)
+  FOR_EACH_VEC_ELT (queued_reg_saves, i, q)
     if (compare_reg_or_pc (q->reg, reg))
-      goto found;
+      {
+	*q = e;
+	return;
+      }
 
-  q = VEC_safe_push (queued_reg_save, heap, queued_reg_saves, NULL);
-
- found:
-  q->reg = reg;
-  q->saved_reg = sreg;
-  q->cfa_offset = offset;
+  queued_reg_saves.safe_push (e);
 }
 
 /* Output all the entries in QUEUED_REG_SAVES.  */
@@ -982,7 +964,7 @@ dwarf2out_flush_queued_reg_saves (void)
   queued_reg_save *q;
   size_t i;
 
-  FOR_EACH_VEC_ELT (queued_reg_save, queued_reg_saves, i, q)
+  FOR_EACH_VEC_ELT (queued_reg_saves, i, q)
     {
       unsigned int reg, sreg;
 
@@ -999,7 +981,7 @@ dwarf2out_flush_queued_reg_saves (void)
       reg_save (reg, sreg, q->cfa_offset);
     }
 
-  VEC_truncate (queued_reg_save, queued_reg_saves, 0);
+  queued_reg_saves.truncate (0);
 }
 
 /* Does INSN clobber any register which QUEUED_REG_SAVES lists a saved
@@ -1013,7 +995,7 @@ clobbers_queued_reg_save (const_rtx insn)
   queued_reg_save *q;
   size_t iq;
 
-  FOR_EACH_VEC_ELT (queued_reg_save, queued_reg_saves, iq, q)
+  FOR_EACH_VEC_ELT (queued_reg_saves, iq, q)
     {
       size_t ir;
       reg_saved_in_data *rir;
@@ -1021,8 +1003,7 @@ clobbers_queued_reg_save (const_rtx insn)
       if (modified_in_p (q->reg, insn))
 	return true;
 
-      FOR_EACH_VEC_ELT (reg_saved_in_data,
-			cur_trace->regs_saved_in_regs, ir, rir)
+      FOR_EACH_VEC_ELT (cur_trace->regs_saved_in_regs, ir, rir)
 	if (compare_reg_or_pc (q->reg, rir->orig_reg)
 	    && modified_in_p (rir->saved_in_reg, insn))
 	  return true;
@@ -1041,11 +1022,11 @@ reg_saved_in (rtx reg)
   reg_saved_in_data *rir;
   size_t i;
 
-  FOR_EACH_VEC_ELT (queued_reg_save, queued_reg_saves, i, q)
+  FOR_EACH_VEC_ELT (queued_reg_saves, i, q)
     if (q->saved_reg && regn == REGNO (q->saved_reg))
       return q->reg;
 
-  FOR_EACH_VEC_ELT (reg_saved_in_data, cur_trace->regs_saved_in_regs, i, rir)
+  FOR_EACH_VEC_ELT (cur_trace->regs_saved_in_regs, i, rir)
     if (regn == REGNO (rir->saved_in_reg))
       return rir->orig_reg;
 
@@ -2056,8 +2037,8 @@ change_cfi_row (dw_cfi_row *old_row, dw_cfi_row *new_row)
 	add_cfi (cfi);
     }
 
-  n_old = VEC_length (dw_cfi_ref, old_row->reg_save);
-  n_new = VEC_length (dw_cfi_ref, new_row->reg_save);
+  n_old = vec_safe_length (old_row->reg_save);
+  n_new = vec_safe_length (new_row->reg_save);
   n_max = MAX (n_old, n_new);
 
   for (i = 0; i < n_max; ++i)
@@ -2065,9 +2046,9 @@ change_cfi_row (dw_cfi_row *old_row, dw_cfi_row *new_row)
       dw_cfi_ref r_old = NULL, r_new = NULL;
 
       if (i < n_old)
-	r_old = VEC_index (dw_cfi_ref, old_row->reg_save, i);
+	r_old = (*old_row->reg_save)[i];
       if (i < n_new)
-	r_new = VEC_index (dw_cfi_ref, new_row->reg_save, i);
+	r_new = (*new_row->reg_save)[i];
 
       if (r_old == r_new)
 	;
@@ -2131,8 +2112,7 @@ add_cfis_to_fde (void)
 
       if (NOTE_P (insn) && NOTE_KIND (insn) == NOTE_INSN_SWITCH_TEXT_SECTIONS)
 	{
-	  fde->dw_fde_switch_cfi_index
-	    = VEC_length (dw_cfi_ref, fde->dw_fde_cfi);
+	  fde->dw_fde_switch_cfi_index = vec_safe_length (fde->dw_fde_cfi);
 	  /* Don't attempt to advance_loc4 between labels
 	     in different sections.  */
 	  first = true;
@@ -2165,7 +2145,7 @@ add_cfis_to_fde (void)
 	      xcfi->dw_cfi_opc = (first ? DW_CFA_set_loc
 				  : DW_CFA_advance_loc4);
 	      xcfi->dw_cfi_oprnd1.dw_cfi_addr = label;
-	      VEC_safe_push (dw_cfi_ref, gc, fde->dw_fde_cfi, xcfi);
+	      vec_safe_push (fde->dw_fde_cfi, xcfi);
 
 	      tmp = emit_note_before (NOTE_INSN_CFI_LABEL, insn);
 	      NOTE_LABEL_NUMBER (tmp) = num;
@@ -2174,8 +2154,7 @@ add_cfis_to_fde (void)
 	  do
 	    {
 	      if (NOTE_P (insn) && NOTE_KIND (insn) == NOTE_INSN_CFI)
-		VEC_safe_push (dw_cfi_ref, gc, fde->dw_fde_cfi,
-			       NOTE_CFI (insn));
+		vec_safe_push (fde->dw_fde_cfi, NOTE_CFI (insn));
 	      insn = NEXT_INSN (insn);
 	    }
 	  while (insn != next);
@@ -2214,10 +2193,9 @@ maybe_record_trace_start (rtx start, rtx origin)
 
       ti->cfa_store = cur_trace->cfa_store;
       ti->cfa_temp = cur_trace->cfa_temp;
-      ti->regs_saved_in_regs = VEC_copy (reg_saved_in_data, heap,
-					 cur_trace->regs_saved_in_regs);
+      ti->regs_saved_in_regs = cur_trace->regs_saved_in_regs.copy ();
 
-      VEC_safe_push (dw_trace_info_ref, heap, trace_work_list, ti);
+      trace_work_list.safe_push (ti);
 
       if (dump_file)
 	fprintf (dump_file, "\tpush trace %u to worklist\n", ti->id);
@@ -2398,7 +2376,7 @@ scan_trace (dw_trace_info *trace)
       if (BARRIER_P (insn))
 	{
 	  /* Don't bother saving the unneeded queued registers at all.  */
-	  VEC_truncate (queued_reg_save, queued_reg_saves, 0);
+	  queued_reg_saves.truncate (0);
 	  break;
 	}
       if (save_point_p (insn))
@@ -2433,23 +2411,24 @@ scan_trace (dw_trace_info *trace)
 
 	      elt = XVECEXP (pat, 0, 1);
 
-	      /* If ELT is an instruction from target of an annulled branch,
-		 the effects are for the target only and so the args_size
-		 and CFA along the current path shouldn't change.  */
 	      if (INSN_FROM_TARGET_P (elt))
 		{
 		  HOST_WIDE_INT restore_args_size;
 		  cfi_vec save_row_reg_save;
 
+		  /* If ELT is an instruction from target of an annulled
+		     branch, the effects are for the target only and so
+		     the args_size and CFA along the current path
+		     shouldn't change.  */
 		  add_cfi_insn = NULL;
 		  restore_args_size = cur_trace->end_true_args_size;
 		  cur_cfa = &cur_row->cfa;
-		  save_row_reg_save = VEC_copy (dw_cfi_ref, gc, cur_row->reg_save);
+		  save_row_reg_save = vec_safe_copy (cur_row->reg_save);
 
 		  scan_insn_after (elt);
 
 		  /* ??? Should we instead save the entire row state?  */
-		  gcc_assert (!VEC_length (queued_reg_save, queued_reg_saves));
+		  gcc_assert (!queued_reg_saves.length ());
 
 		  create_trace_edges (control);
 
@@ -2457,8 +2436,20 @@ scan_trace (dw_trace_info *trace)
 		  cur_row->cfa = this_cfa;
 		  cur_row->reg_save = save_row_reg_save;
 		  cur_cfa = &this_cfa;
-		  continue;
 		}
+	      else
+		{
+		  /* If ELT is a annulled branch-taken instruction (i.e.
+		     executed only when branch is not taken), the args_size
+		     and CFA should not change through the jump.  */
+		  create_trace_edges (control);
+
+		  /* Update and continue with the trace.  */
+		  add_cfi_insn = insn;
+		  scan_insn_after (elt);
+		  def_cfa_1 (&this_cfa);
+		}
+	      continue;
 	    }
 
 	  /* The insns in the delay slot should all be considered to happen
@@ -2536,21 +2527,21 @@ create_cfi_notes (void)
 {
   dw_trace_info *ti;
 
-  gcc_checking_assert (queued_reg_saves == NULL);
-  gcc_checking_assert (trace_work_list == NULL);
+  gcc_checking_assert (!queued_reg_saves.exists ());
+  gcc_checking_assert (!trace_work_list.exists ());
 
   /* Always begin at the entry trace.  */
-  ti = VEC_index (dw_trace_info, trace_info, 0);
+  ti = &trace_info[0];
   scan_trace (ti);
 
-  while (!VEC_empty (dw_trace_info_ref, trace_work_list))
+  while (!trace_work_list.is_empty ())
     {
-      ti = VEC_pop (dw_trace_info_ref, trace_work_list);
+      ti = trace_work_list.pop ();
       scan_trace (ti);
     }
 
-  VEC_free (queued_reg_save, heap, queued_reg_saves);
-  VEC_free (dw_trace_info_ref, heap, trace_work_list);
+  queued_reg_saves.release ();
+  trace_work_list.release ();
 }
 
 /* Return the insn before the first NOTE_INSN_CFI after START.  */
@@ -2574,7 +2565,7 @@ before_next_cfi_note (rtx start)
 static void
 connect_traces (void)
 {
-  unsigned i, n = VEC_length (dw_trace_info, trace_info);
+  unsigned i, n = trace_info.length ();
   dw_trace_info *prev_ti, *ti;
 
   /* ??? Ideally, we should have both queued and processed every trace.
@@ -2587,10 +2578,10 @@ connect_traces (void)
   /* Remove all unprocessed traces from the list.  */
   for (i = n - 1; i > 0; --i)
     {
-      ti = VEC_index (dw_trace_info, trace_info, i);
+      ti = &trace_info[i];
       if (ti->beg_row == NULL)
 	{
-	  VEC_ordered_remove (dw_trace_info, trace_info, i);
+	  trace_info.ordered_remove (i);
 	  n -= 1;
 	}
       else
@@ -2599,13 +2590,13 @@ connect_traces (void)
 
   /* Work from the end back to the beginning.  This lets us easily insert
      remember/restore_state notes in the correct order wrt other notes.  */
-  prev_ti = VEC_index (dw_trace_info, trace_info, n - 1);
+  prev_ti = &trace_info[n - 1];
   for (i = n - 1; i > 0; --i)
     {
       dw_cfi_row *old_row;
 
       ti = prev_ti;
-      prev_ti = VEC_index (dw_trace_info, trace_info, i - 1);
+      prev_ti = &trace_info[i - 1];
 
       add_cfi_insn = ti->head;
 
@@ -2670,13 +2661,13 @@ connect_traces (void)
     }
 
   /* Connect args_size between traces that have can_throw_internal insns.  */
-  if (cfun->eh->lp_array != NULL)
+  if (cfun->eh->lp_array)
     {
       HOST_WIDE_INT prev_args_size = 0;
 
       for (i = 0; i < n; ++i)
 	{
-	  ti = VEC_index (dw_trace_info, trace_info, i);
+	  ti = &trace_info[i];
 
 	  if (ti->switch_sections)
 	    prev_args_size = 0;
@@ -2703,23 +2694,22 @@ static void
 create_pseudo_cfg (void)
 {
   bool saw_barrier, switch_sections;
-  dw_trace_info *ti;
+  dw_trace_info ti;
   rtx insn;
   unsigned i;
 
   /* The first trace begins at the start of the function,
      and begins with the CIE row state.  */
-  trace_info = VEC_alloc (dw_trace_info, heap, 16);
-  ti = VEC_quick_push (dw_trace_info, trace_info, NULL);
+  trace_info.create (16);
+  memset (&ti, 0, sizeof (ti));
+  ti.head = get_insns ();
+  ti.beg_row = cie_cfi_row;
+  ti.cfa_store = cie_cfi_row->cfa;
+  ti.cfa_temp.reg = INVALID_REGNUM;
+  trace_info.quick_push (ti);
 
-  memset (ti, 0, sizeof (*ti));
-  ti->head = get_insns ();
-  ti->beg_row = cie_cfi_row;
-  ti->cfa_store = cie_cfi_row->cfa;
-  ti->cfa_temp.reg = INVALID_REGNUM;
   if (cie_return_save)
-    VEC_safe_push (reg_saved_in_data, heap,
-		   ti->regs_saved_in_regs, cie_return_save);
+    ti.regs_saved_in_regs.safe_push (*cie_return_save);
 
   /* Walk all the insns, collecting start of trace locations.  */
   saw_barrier = false;
@@ -2741,11 +2731,11 @@ create_pseudo_cfg (void)
       else if (save_point_p (insn)
 	       && (LABEL_P (insn) || !saw_barrier))
 	{
-	  ti = VEC_safe_push (dw_trace_info, heap, trace_info, NULL);
-	  memset (ti, 0, sizeof (*ti));
-	  ti->head = insn;
-	  ti->switch_sections = switch_sections;
-	  ti->id = VEC_length (dw_trace_info, trace_info) - 1;
+	  memset (&ti, 0, sizeof (ti));
+	  ti.head = insn;
+	  ti.switch_sections = switch_sections;
+	  ti.id = trace_info.length () - 1;
+	  trace_info.safe_push (ti);
 
 	  saw_barrier = false;
 	  switch_sections = false;
@@ -2754,21 +2744,22 @@ create_pseudo_cfg (void)
 
   /* Create the trace index after we've finished building trace_info,
      avoiding stale pointer problems due to reallocation.  */
-  trace_index = htab_create (VEC_length (dw_trace_info, trace_info),
+  trace_index = htab_create (trace_info.length (),
 			     dw_trace_info_hash, dw_trace_info_eq, NULL);
-  FOR_EACH_VEC_ELT (dw_trace_info, trace_info, i, ti)
+  dw_trace_info *tp;
+  FOR_EACH_VEC_ELT (trace_info, i, tp)
     {
       void **slot;
 
       if (dump_file)
 	fprintf (dump_file, "Creating trace %u : start at %s %d%s\n", i,
-		 rtx_name[(int) GET_CODE (ti->head)], INSN_UID (ti->head),
-		 ti->switch_sections ? " (section switch)" : "");
+		 rtx_name[(int) GET_CODE (tp->head)], INSN_UID (tp->head),
+		 tp->switch_sections ? " (section switch)" : "");
 
-      slot = htab_find_slot_with_hash (trace_index, ti,
-				       INSN_UID (ti->head), INSERT);
+      slot = htab_find_slot_with_hash (trace_index, tp,
+				       INSN_UID (tp->head), INSERT);
       gcc_assert (*slot == NULL);
-      *slot = (void *) ti;
+      *slot = (void *) tp;
     }
 }
 
@@ -2868,15 +2859,14 @@ create_cie_data (void)
 	 the DW_CFA_offset against the return column, not the intermediate
 	 save register.  Save the contents of regs_saved_in_regs so that
 	 we can re-initialize it at the start of each function.  */
-      switch (VEC_length (reg_saved_in_data, cie_trace.regs_saved_in_regs))
+      switch (cie_trace.regs_saved_in_regs.length ())
 	{
 	case 0:
 	  break;
 	case 1:
 	  cie_return_save = ggc_alloc_reg_saved_in_data ();
-	  *cie_return_save = *VEC_index (reg_saved_in_data,
-					 cie_trace.regs_saved_in_regs, 0);
-	  VEC_free (reg_saved_in_data, heap, cie_trace.regs_saved_in_regs);
+	  *cie_return_save = cie_trace.regs_saved_in_regs[0];
+	  cie_trace.regs_saved_in_regs.release ();
 	  break;
 	default:
 	  gcc_unreachable ();
@@ -2913,10 +2903,10 @@ execute_dwarf2_frame (void)
     size_t i;
     dw_trace_info *ti;
 
-    FOR_EACH_VEC_ELT (dw_trace_info, trace_info, i, ti)
-      VEC_free (reg_saved_in_data, heap, ti->regs_saved_in_regs);
+    FOR_EACH_VEC_ELT (trace_info, i, ti)
+      ti->regs_saved_in_regs.release ();
   }
-  VEC_free (dw_trace_info, heap, trace_info);
+  trace_info.release ();
 
   htab_delete (trace_index);
   trace_index = NULL;
@@ -2929,72 +2919,12 @@ execute_dwarf2_frame (void)
 static const char *
 dwarf_cfi_name (unsigned int cfi_opc)
 {
-  switch (cfi_opc)
-    {
-    case DW_CFA_advance_loc:
-      return "DW_CFA_advance_loc";
-    case DW_CFA_offset:
-      return "DW_CFA_offset";
-    case DW_CFA_restore:
-      return "DW_CFA_restore";
-    case DW_CFA_nop:
-      return "DW_CFA_nop";
-    case DW_CFA_set_loc:
-      return "DW_CFA_set_loc";
-    case DW_CFA_advance_loc1:
-      return "DW_CFA_advance_loc1";
-    case DW_CFA_advance_loc2:
-      return "DW_CFA_advance_loc2";
-    case DW_CFA_advance_loc4:
-      return "DW_CFA_advance_loc4";
-    case DW_CFA_offset_extended:
-      return "DW_CFA_offset_extended";
-    case DW_CFA_restore_extended:
-      return "DW_CFA_restore_extended";
-    case DW_CFA_undefined:
-      return "DW_CFA_undefined";
-    case DW_CFA_same_value:
-      return "DW_CFA_same_value";
-    case DW_CFA_register:
-      return "DW_CFA_register";
-    case DW_CFA_remember_state:
-      return "DW_CFA_remember_state";
-    case DW_CFA_restore_state:
-      return "DW_CFA_restore_state";
-    case DW_CFA_def_cfa:
-      return "DW_CFA_def_cfa";
-    case DW_CFA_def_cfa_register:
-      return "DW_CFA_def_cfa_register";
-    case DW_CFA_def_cfa_offset:
-      return "DW_CFA_def_cfa_offset";
+  const char *name = get_DW_CFA_name (cfi_opc);
 
-    /* DWARF 3 */
-    case DW_CFA_def_cfa_expression:
-      return "DW_CFA_def_cfa_expression";
-    case DW_CFA_expression:
-      return "DW_CFA_expression";
-    case DW_CFA_offset_extended_sf:
-      return "DW_CFA_offset_extended_sf";
-    case DW_CFA_def_cfa_sf:
-      return "DW_CFA_def_cfa_sf";
-    case DW_CFA_def_cfa_offset_sf:
-      return "DW_CFA_def_cfa_offset_sf";
+  if (name != NULL)
+    return name;
 
-    /* SGI/MIPS specific */
-    case DW_CFA_MIPS_advance_loc8:
-      return "DW_CFA_MIPS_advance_loc8";
-
-    /* GNU extensions */
-    case DW_CFA_GNU_window_save:
-      return "DW_CFA_GNU_window_save";
-    case DW_CFA_GNU_args_size:
-      return "DW_CFA_GNU_args_size";
-    case DW_CFA_GNU_negative_offset_extended:
-      return "DW_CFA_GNU_negative_offset_extended";
-
-    default:
-      return "DW_CFA_<unknown>";
-    }
+  return "DW_CFA_<unknown>";
 }
 
 /* This routine will generate the correct assembly data for a location
@@ -3338,7 +3268,7 @@ dump_cfi_row (FILE *f, dw_cfi_row *row)
     }
   output_cfi_directive (f, cfi);
 
-  FOR_EACH_VEC_ELT (dw_cfi_ref, row->reg_save, i, cfi)
+  FOR_EACH_VEC_SAFE_ELT (row->reg_save, i, cfi)
     if (cfi)
       output_cfi_directive (f, cfi);
 }
@@ -3387,10 +3317,6 @@ bool
 dwarf2out_do_cfi_asm (void)
 {
   int enc;
-
-#ifdef MIPS_DEBUGGING_INFO
-  return false;
-#endif
 
   if (saved_do_cfi_asm != 0)
     return saved_do_cfi_asm > 0;
@@ -3444,6 +3370,7 @@ struct rtl_opt_pass pass_dwarf2_frame =
  {
   RTL_PASS,
   "dwarf2",			/* name */
+  OPTGROUP_NONE,                /* optinfo_flags */
   gate_dwarf2_frame,		/* gate */
   execute_dwarf2_frame,		/* execute */
   NULL,				/* sub */

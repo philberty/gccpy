@@ -1,7 +1,6 @@
 /* Header file for intrinsics check, resolve and simplify function
    prototypes.
-   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
    Contributed by Andy Vaught & Katherine Holcomb
 
 This file is part of GCC.
@@ -486,6 +485,7 @@ void gfc_resolve_long (gfc_expr *, gfc_expr *);
 void gfc_resolve_ior (gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_iparity (gfc_expr *, gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_isatty (gfc_expr *, gfc_expr *);
+void gfc_resolve_rank (gfc_expr *, gfc_expr *);
 void gfc_resolve_rshift (gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_lshift (gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_ishft (gfc_expr *, gfc_expr *, gfc_expr *);
@@ -545,6 +545,7 @@ void gfc_resolve_signal (gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_sin (gfc_expr *, gfc_expr *);
 void gfc_resolve_sinh (gfc_expr *, gfc_expr *);
 void gfc_resolve_size (gfc_expr *, gfc_expr *, gfc_expr *, gfc_expr *);
+void gfc_resolve_stride (gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_spacing (gfc_expr *, gfc_expr *);
 void gfc_resolve_spread (gfc_expr *, gfc_expr *, gfc_expr *, gfc_expr *);
 void gfc_resolve_sqrt (gfc_expr *, gfc_expr *);

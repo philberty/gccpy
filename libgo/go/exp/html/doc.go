@@ -4,7 +4,6 @@
 
 /*
 Package html implements an HTML5-compliant tokenizer and parser.
-INCOMPLETE.
 
 Tokenization is done by creating a Tokenizer for an io.Reader r. It is the
 caller's responsibility to ensure that r provides UTF-8 encoded HTML.
@@ -84,7 +83,7 @@ example, to process each anchor node in depth-first order:
 		if n.Type == html.ElementNode && n.Data == "a" {
 			// Do something with n...
 		}
-		for _, c := range n.Child {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			f(c)
 		}
 	}

@@ -1,6 +1,5 @@
 /* dwarf2out.h - Various declarations for functions found in dwarf2out.c
-   Copyright (C) 1998, 1999, 2000, 2003, 2007, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1998-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -62,11 +61,8 @@ typedef struct GTY(()) dw_cfi_struct {
 }
 dw_cfi_node;
 
-DEF_VEC_P (dw_cfi_ref);
-DEF_VEC_ALLOC_P (dw_cfi_ref, heap);
-DEF_VEC_ALLOC_P (dw_cfi_ref, gc);
 
-typedef VEC(dw_cfi_ref, gc) *cfi_vec;
+typedef vec<dw_cfi_ref, va_gc> *cfi_vec;
 
 typedef struct dw_fde_struct *dw_fde_ref;
 
@@ -154,23 +150,27 @@ enum dw_val_class
   dw_val_class_file,
   dw_val_class_data8,
   dw_val_class_decl_ref,
-  dw_val_class_vms_delta
+  dw_val_class_vms_delta,
+  dw_val_class_high_pc
 };
 
 /* Describe a floating point constant value, or a vector constant value.  */
 
 typedef struct GTY(()) dw_vec_struct {
-  unsigned char * GTY((length ("%h.length"))) array;
+  unsigned char * GTY((atomic)) array;
   unsigned length;
   unsigned elt_size;
 }
 dw_vec_const;
+
+struct addr_table_entry_struct;
 
 /* The dw_val_node describes an attribute's value, as it is
    represented internally.  */
 
 typedef struct GTY(()) dw_val_struct {
   enum dw_val_class val_class;
+  struct addr_table_entry_struct * GTY(()) val_entry;
   union dw_val_struct_union
     {
       rtx GTY ((tag ("dw_val_class_addr"))) val_addr;
@@ -228,7 +228,6 @@ extern struct dw_loc_descr_struct *mem_loc_descriptor
   (rtx, enum machine_mode mode, enum machine_mode mem_mode,
    enum var_init_status);
 extern bool loc_descr_equal_p (dw_loc_descr_ref, dw_loc_descr_ref);
-extern enum machine_mode get_address_mode (rtx mem);
 extern dw_fde_ref dwarf2out_alloc_current_fde (void);
 
 extern unsigned long size_of_locs (dw_loc_descr_ref);

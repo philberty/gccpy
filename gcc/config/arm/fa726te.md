@@ -1,5 +1,5 @@
 ;; Faraday FA726TE Pipeline Description
-;; Copyright (C) 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2013 Free Software Foundation, Inc.
 ;; Written by I-Jui Sung, based on ARM926EJ-S Pipeline Description.
 ;;
 ;; This file is part of GCC.
@@ -85,7 +85,7 @@
 ;; Other ALU instructions 2 cycles.
 (define_insn_reservation "726te_alu_op" 1
  (and (eq_attr "tune" "fa726te")
-      (and (eq_attr "type" "alu")
+      (and (eq_attr "type" "alu_reg,simple_alu_imm")
            (not (eq_attr "insn" "mov,mvn"))))
   "fa726te_issue+(fa726te_alu0_pipe|fa726te_alu1_pipe)")
 
@@ -95,7 +95,7 @@
 ;; it takes 3 cycles.
 (define_insn_reservation "726te_alu_shift_op" 3
  (and (eq_attr "tune" "fa726te")
-      (and (eq_attr "type" "alu_shift")
+      (and (eq_attr "type" "simple_alu_shift,alu_shift")
            (not (eq_attr "insn" "mov,mvn"))))
   "fa726te_issue+(fa726te_alu0_pipe|fa726te_alu1_pipe)")
 

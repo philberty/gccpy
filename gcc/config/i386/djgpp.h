@@ -1,6 +1,5 @@
 /* Configuration for an i386 running MS-DOS with DJGPP.
-   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2004, 2005, 2007,
-   2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1997-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -30,10 +29,6 @@ along with GCC; see the file COPYING3.  If not see
 /* Define the name of the .data section.  */
 #undef DATA_SECTION_ASM_OP
 #define DATA_SECTION_ASM_OP "\t.section .data"
-
-/* Define the name of the .ident op.  */
-#undef IDENT_ASM_OP
-#define IDENT_ASM_OP "\t.ident\t"
 
 /* Enable alias attribute support.  */
 #ifndef SET_ASM_OP

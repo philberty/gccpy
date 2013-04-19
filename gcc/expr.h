@@ -1,7 +1,5 @@
 /* Definitions for code generation pass of GNU compiler.
-   Copyright (C) 1987, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -190,7 +188,7 @@ extern int have_sub2_insn (rtx, rtx);
 /* Emit a pair of rtl insns to compare two rtx's and to jump
    to a label if the comparison is true.  */
 extern void emit_cmp_and_jump_insns (rtx, rtx, enum rtx_code, rtx,
-				     enum machine_mode, int, rtx);
+				     enum machine_mode, int, rtx, int prob=-1);
 
 /* Generate code to indirectly jump to a location given in the rtx LOC.  */
 extern void emit_indirect_jump (rtx);
@@ -243,6 +241,13 @@ extern rtx emit_store_flag (rtx, enum rtx_code, rtx, rtx, enum machine_mode,
 /* Like emit_store_flag, but always succeeds.  */
 extern rtx emit_store_flag_force (rtx, enum rtx_code, rtx, rtx,
 				  enum machine_mode, int, int);
+
+/* Choose a minimal N + 1 bit approximation to 1/D that can be used to
+   replace division by D, and put the least significant N bits of the result
+   in *MULTIPLIER_PTR and return the most significant bit.  */
+extern unsigned HOST_WIDE_INT choose_multiplier (unsigned HOST_WIDE_INT, int,
+						 int, unsigned HOST_WIDE_INT *,
+						 int *, int *);
 
 /* Functions from builtins.c:  */
 extern rtx expand_builtin (tree, rtx, rtx, enum machine_mode, int);
@@ -327,8 +332,10 @@ extern rtx emit_group_move_into_temps (rtx);
    PARALLEL.  */
 extern void emit_group_store (rtx, rtx, tree, int);
 
+extern rtx maybe_emit_group_store (rtx, tree);
+
 /* Copy BLKmode object from a set of registers.  */
-extern rtx copy_blkmode_from_reg (rtx, rtx, tree);
+extern void copy_blkmode_from_reg (rtx, rtx, tree);
 
 /* Mark REG as holding a parameter for the next CALL_INSN.
    Mode is TYPE_MODE of the non-promoted parameter, or VOIDmode.  */
@@ -361,11 +368,6 @@ rtx set_storage_via_libcall (rtx, rtx, rtx, bool);
 /* Expand a setmem pattern; return true if successful.  */
 extern bool set_storage_via_setmem (rtx, rtx, rtx, unsigned int,
 				    unsigned int, HOST_WIDE_INT);
-
-/* Determine whether the LEN bytes can be moved by using several move
-   instructions.  Return nonzero if a call to move_by_pieces should
-   succeed.  */
-extern int can_move_by_pieces (unsigned HOST_WIDE_INT, unsigned int);
 
 extern unsigned HOST_WIDE_INT move_by_pieces_ninsns (unsigned HOST_WIDE_INT,
 						     unsigned int,
@@ -483,8 +485,8 @@ extern void do_compare_rtx_and_jump (rtx, rtx, enum rtx_code, int,
 				     enum machine_mode, rtx, rtx, rtx, int);
 
 /* Two different ways of generating switch statements.  */
-extern int try_casesi (tree, tree, tree, tree, rtx, rtx, rtx);
-extern int try_tablejump (tree, tree, tree, tree, rtx, rtx);
+extern int try_casesi (tree, tree, tree, tree, rtx, rtx, rtx, int);
+extern int try_tablejump (tree, tree, tree, tree, rtx, rtx, int);
 
 /* Functions from alias.c */
 #include "alias.h"
@@ -555,11 +557,27 @@ extern rtx change_address (rtx, enum machine_mode, rtx);
 /* Return a memory reference like MEMREF, but with its mode changed
    to MODE and its address offset by OFFSET bytes.  */
 #define adjust_address(MEMREF, MODE, OFFSET) \
-  adjust_address_1 (MEMREF, MODE, OFFSET, 1, 1)
+  adjust_address_1 (MEMREF, MODE, OFFSET, 1, 1, 0, 0)
 
 /* Likewise, but the reference is not required to be valid.  */
 #define adjust_address_nv(MEMREF, MODE, OFFSET) \
-  adjust_address_1 (MEMREF, MODE, OFFSET, 0, 1)
+  adjust_address_1 (MEMREF, MODE, OFFSET, 0, 1, 0, 0)
+
+/* Return a memory reference like MEMREF, but with its mode changed
+   to MODE and its address offset by OFFSET bytes.  Assume that it's
+   for a bitfield and conservatively drop the underlying object if we
+   cannot be sure to stay within its bounds.  */
+#define adjust_bitfield_address(MEMREF, MODE, OFFSET) \
+  adjust_address_1 (MEMREF, MODE, OFFSET, 1, 1, 1, 0)
+
+/* As for adjust_bitfield_address, but specify that the width of
+   BLKmode accesses is SIZE bytes.  */
+#define adjust_bitfield_address_size(MEMREF, MODE, OFFSET, SIZE) \
+  adjust_address_1 (MEMREF, MODE, OFFSET, 1, 1, 1, SIZE)
+
+/* Likewise, but the reference is not required to be valid.  */
+#define adjust_bitfield_address_nv(MEMREF, MODE, OFFSET) \
+  adjust_address_1 (MEMREF, MODE, OFFSET, 0, 1, 1, 0)
 
 /* Return a memory reference like MEMREF, but with its mode changed
    to MODE and its address changed to ADDR, which is assumed to be
@@ -571,7 +589,8 @@ extern rtx change_address (rtx, enum machine_mode, rtx);
 #define adjust_automodify_address_nv(MEMREF, MODE, ADDR, OFFSET) \
   adjust_automodify_address_1 (MEMREF, MODE, ADDR, OFFSET, 0)
 
-extern rtx adjust_address_1 (rtx, enum machine_mode, HOST_WIDE_INT, int, int);
+extern rtx adjust_address_1 (rtx, enum machine_mode, HOST_WIDE_INT, int, int,
+			     int, HOST_WIDE_INT);
 extern rtx adjust_automodify_address_1 (rtx, enum machine_mode, rtx,
 					HOST_WIDE_INT, int);
 
@@ -679,14 +698,6 @@ extern void probe_stack_range (HOST_WIDE_INT, rtx);
    in its original home.  This becomes invalid if any more code is emitted.  */
 extern rtx hard_libcall_value (enum machine_mode, rtx);
 
-/* Return the mode desired by operand N of a particular bitfield
-   insert/extract insn, or MAX_MACHINE_MODE if no such insn is
-   available.  */
-
-enum extraction_pattern { EP_insv, EP_extv, EP_extzv };
-extern enum machine_mode
-mode_for_extraction (enum extraction_pattern, int);
-
 extern void store_bit_field (rtx, unsigned HOST_WIDE_INT,
 			     unsigned HOST_WIDE_INT,
 			     unsigned HOST_WIDE_INT,
@@ -718,5 +729,14 @@ extern tree build_libfunc_function (const char *);
 
 /* Get the personality libfunc for a function decl.  */
 rtx get_personality_function (tree);
+
+
+/* In stmt.c */
+
+/* Expand a GIMPLE_SWITCH statement.  */
+extern void expand_case (gimple);
+
+/* Like expand_case but special-case for SJLJ exception dispatching.  */
+extern void expand_sjlj_dispatch_table (rtx, vec<tree> );
 
 #endif /* GCC_EXPR_H */

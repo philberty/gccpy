@@ -1,5 +1,5 @@
 /* Subroutines used for code generation on Renesas RL78 processors.
-   Copyright (C) 2011 Free Software Foundation, Inc.
+   Copyright (C) 2011-2013 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -47,6 +47,7 @@
 #include "target-def.h"
 #include "langhooks.h"
 #include "rl78-protos.h"
+#include "dumpfile.h"
 #include "tree-pass.h"
 
 static inline bool is_interrupt_func (const_tree decl);
@@ -132,6 +133,7 @@ static struct opt_pass rl78_devirt_pass =
 {
   RTL_PASS,
   "devirt",
+  OPTGROUP_NONE,                        /* optinfo_flags */
   devirt_gate,
   devirt_pass,
   NULL,
@@ -140,7 +142,7 @@ static struct opt_pass rl78_devirt_pass =
   TV_MACH_DEP,
   0, 0, 0,
   0,
-  TODO_dump_func
+  0
 };
 
 static struct register_pass_info rl78_devirt_info =
@@ -382,7 +384,7 @@ need_to_save (int regno)
 	return 1; /* don't know what devirt will need */
       if (regno > 23)
 	return 0; /* don't need to save interrupt registers */
-      if (current_function_is_leaf)
+      if (crtl->is_leaf)
 	{
 	  return df_regs_ever_live_p (regno);
 	}
@@ -685,6 +687,13 @@ rl78_as_legitimate_address (enum machine_mode mode ATTRIBUTE_UNUSED, rtx x,
   if (! characterize_address (x, &base, &index, &addend))
     return false;
 
+  /* We can't extract the high/low portions of a PLUS address
+     involving a register during devirtualization, so make sure all
+     such __far addresses do not have addends.  This forces GCC to do
+     the sum separately.  */
+  if (addend && base && as == ADDR_SPACE_FAR)
+    return false;
+
   if (base && index)
     {
       int ir = REGNO (index);
@@ -760,7 +769,7 @@ rl78_regno_mode_code_ok_for_base_p (int regno, enum machine_mode mode ATTRIBUTE_
 				    addr_space_t address_space ATTRIBUTE_UNUSED,
 				    int outer_code ATTRIBUTE_UNUSED, int index_code)
 {
-  if (regno < 24 && regno >= 16)
+  if (regno <= SP_REG && regno >= 16)
     return true;
   if (index_code == REG)
     return (regno == HL_REG);
@@ -826,6 +835,12 @@ rl78_expand_prologue (void)
 
   if (!cfun->machine->computed)
     rl78_compute_frame_info ();
+
+  if (flag_stack_usage_info)
+    current_function_static_stack_size = cfun->machine->framesize;
+
+  if (is_interrupt_func (cfun->decl))
+    emit_insn (gen_sel_rb (GEN_INT (0)));
 
   for (i = 0; i < 16; i++)
     if (cfun->machine->need_to_push [i])
@@ -2213,7 +2228,8 @@ rl78_alloc_physical_registers (void)
 	  && GET_CODE (PATTERN (insn)) != CALL)
 	  continue;
 
-      if (GET_CODE (SET_SRC (PATTERN (insn))) == ASM_OPERANDS)
+      if (GET_CODE (PATTERN (insn)) == SET
+	  && GET_CODE (SET_SRC (PATTERN (insn))) == ASM_OPERANDS)
 	continue;
 
       valloc_method = get_attr_valloc (insn);
@@ -2640,7 +2656,7 @@ rl78_remove_unused_sets (void)
 
       dest = SET_DEST (insn);
 
-      if (REGNO (dest) > 23)
+      if (GET_CODE (dest) != REG || REGNO (dest) > 23)
 	continue;
 
       if (find_regno_note (insn, REG_UNUSED, REGNO (dest)))
@@ -2660,7 +2676,7 @@ rl78_reorg (void)
   if (dump_file)
     {
       fprintf (dump_file, "\n================DEVIRT:=AFTER=ALLOC=PHYSICAL=REGISTERS================\n");
-      print_rtl_with_bb (dump_file, get_insns ());
+      print_rtl_with_bb (dump_file, get_insns (), 0);
     }
 
   rl78_propogate_register_origins ();
@@ -2669,7 +2685,7 @@ rl78_reorg (void)
   if (dump_file)
     {
       fprintf (dump_file, "\n================DEVIRT:=AFTER=PROPOGATION=============================\n");
-      print_rtl_with_bb (dump_file, get_insns ());
+      print_rtl_with_bb (dump_file, get_insns (), 0);
       fprintf (dump_file, "\n======================================================================\n");
     }
 

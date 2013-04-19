@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -73,7 +73,7 @@ package Osint is
    --  found. Note that for the special case of gnat.adc, only the compilation
    --  environment directory is searched, i.e. the directory where the ali and
    --  object files are written. Another special case is Debug_Generated_Code
-   --  set and the file name ends on ".dg", in which case we look for the
+   --  set and the file name ends in ".dg", in which case we look for the
    --  generated file only in the current directory, since that is where it is
    --  always built.
 
@@ -324,7 +324,8 @@ package Osint is
 
    procedure Add_Default_Search_Dirs;
    --  This routine adds the default search dirs indicated by the environment
-   --  variables and sdefault package.
+   --  variables and sdefault package, as well as the library search dirs set
+   --  by option -gnateO for GNAT2WHY.
 
    procedure Add_Lib_Search_Dir (Dir : String);
    --  Add Dir at the end of the library file search path
@@ -636,6 +637,7 @@ package Osint is
    --  Set_Exit_Status as the last action of the program.
 
    procedure OS_Exit_Through_Exception (Status : Integer);
+   pragma No_Return (OS_Exit_Through_Exception);
    --  Set the Current_Exit_Status, then raise Types.Terminate_Program
 
    type Exit_Code_Type is (
@@ -762,7 +764,7 @@ private
    --  the need for either mapping the struct exactly or importing the sizeof
    --  from C, which would result in dynamic code). However, it does waste
    --  space (e.g. when a component of this type appears in a record, if it is
-   --  unnecessarily large.
+   --  unnecessarily large).
 
    type File_Attributes is
      array (1 .. File_Attributes_Size)

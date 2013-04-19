@@ -1,4 +1,4 @@
-/* Copyright (C) 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2008-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -78,6 +78,14 @@
 
 #ifdef __F16C__
 #include <f16cintrin.h>
+#endif
+
+#ifdef __RTM__
+#include <rtmintrin.h>
+#endif
+
+#ifdef __RTM__
+#include <xtestintrin.h>
 #endif
 
 #ifdef __RDRND__

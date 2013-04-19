@@ -1,6 +1,5 @@
 /* Definitions of target machine GNU compiler.  IA-64 version.
-   Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2009, 2010,
-   2011 Free Software Foundation, Inc.
+   Copyright (C) 1999-2013 Free Software Foundation, Inc.
    Contributed by Steve Ellcey <sje@cup.hp.com> and
                   Reva Cuthbertson <reva@cup.hp.com>
 
@@ -115,9 +114,6 @@ do {							\
 #define TARGET_DEFAULT \
   (MASK_DWARF2_ASM | MASK_BIG_ENDIAN | MASK_ILP32)
 
-/* ??? Might not be needed anymore.  */
-#define MEMBER_TYPE_FORCES_BLK(FIELD, MODE) ((MODE) == TFmode)
-
 /* ASM_OUTPUT_EXTERNAL_LIBCALL defaults to just a globalize_label call,
    but that doesn't put out the @function type information which causes
    shared library problems.  */
@@ -228,3 +224,10 @@ do {								\
 #define TARGET_ASM_FUNCTION_SECTION ia64_hpux_function_section
 
 #define TARGET_POSIX_IO
+
+/* Define this to be nonzero if static stack checking is supported.  */
+#define STACK_CHECK_STATIC_BUILTIN 1
+
+/* Minimum amount of stack required to recover from an anticipated stack
+   overflow detection.  */
+#define STACK_CHECK_PROTECT (24 * 1024)

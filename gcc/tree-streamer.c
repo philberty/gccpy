@@ -1,7 +1,7 @@
 /* Miscellaneous utilities for tree streaming.  Things that are used
    in both input and output are here.
 
-   Copyright 2011 Free Software Foundation, Inc.
+   Copyright (C) 2011-2013 Free Software Foundation, Inc.
    Contributed by Diego Novillo <dnovillo@google.com>
 
 This file is part of GCC.
@@ -96,12 +96,12 @@ streamer_tree_cache_add_to_node_array (struct streamer_tree_cache_d *cache,
 {
   /* Make sure we're either replacing an old element or
      appending consecutively.  */
-  gcc_assert (ix <= VEC_length (tree, cache->nodes));
+  gcc_assert (ix <= cache->nodes.length ());
 
-  if (ix == VEC_length (tree, cache->nodes))
-    VEC_safe_push (tree, heap, cache->nodes, t);
+  if (ix == cache->nodes.length ())
+    cache->nodes.safe_push (t);
   else
-    VEC_replace (tree, cache->nodes, ix, t);
+    cache->nodes[ix] = t;
 }
 
 
@@ -131,7 +131,7 @@ streamer_tree_cache_insert_1 (struct streamer_tree_cache_d *cache,
     {
       /* Determine the next slot to use in the cache.  */
       if (insert_at_next_slot_p)
-	ix = VEC_length (tree, cache->nodes);
+	ix = cache->nodes.length ();
       else
 	ix = *ix_p;
        *slot = (void *)(size_t) (ix + 1);
@@ -195,7 +195,7 @@ streamer_tree_cache_insert_at (struct streamer_tree_cache_d *cache,
 void
 streamer_tree_cache_append (struct streamer_tree_cache_d *cache, tree t)
 {
-  unsigned ix = VEC_length (tree, cache->nodes);
+  unsigned ix = cache->nodes.length ();
   streamer_tree_cache_insert_1 (cache, t, &ix, false);
 }
 
@@ -229,20 +229,6 @@ streamer_tree_cache_lookup (struct streamer_tree_cache_d *cache, tree t,
     *ix_p = ix;
 
   return retval;
-}
-
-
-/* Return the tree node at slot IX in CACHE.  */
-
-tree
-streamer_tree_cache_get (struct streamer_tree_cache_d *cache, unsigned ix)
-{
-  gcc_assert (cache);
-
-  /* Make sure we're not requesting something we don't have.  */
-  gcc_assert (ix < VEC_length (tree, cache->nodes));
-
-  return VEC_index (tree, cache->nodes, ix);
 }
 
 
@@ -303,7 +289,7 @@ preload_common_nodes (struct streamer_tree_cache_d *cache)
     if (i != itk_char)
       record_common_node (cache, integer_types[i]);
 
-  for (i = 0; i < TYPE_KIND_LAST; i++)
+  for (i = 0; i < stk_type_kind_last; i++)
     record_common_node (cache, sizetype_tab[i]);
 
   for (i = 0; i < TI_MAX; i++)
@@ -344,6 +330,6 @@ streamer_tree_cache_delete (struct streamer_tree_cache_d *c)
     return;
 
   pointer_map_destroy (c->node_map);
-  VEC_free (tree, heap, c->nodes);
+  c->nodes.release ();
   free (c);
 }

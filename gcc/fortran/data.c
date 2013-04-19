@@ -1,6 +1,5 @@
 /* Supporting functions for resolving DATA statement.
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
    Contributed by Lifang Zeng <zlf605@hotmail.com>
 
 This file is part of GCC.
@@ -35,6 +34,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "config.h"
 #include "system.h"
+#include "coretypes.h"
 #include "gfortran.h"
 #include "data.h"
 #include "constructor.h"
@@ -65,6 +65,7 @@ get_array_index (gfc_array_ref *ar, mpz_t *offset)
 	gfc_error ("non-constant array in DATA statement %L", &ar->where);
 
       mpz_set (tmp, e->value.integer);
+      gfc_free_expr (e);
       mpz_sub (tmp, tmp, ar->as->lower[i]->value.integer);
       mpz_mul (tmp, tmp, delta);
       mpz_add (*offset, tmp, *offset);
@@ -137,8 +138,10 @@ create_character_initializer (gfc_expr *init, gfc_typespec *ts,
 	}
 
       gfc_extract_int (start_expr, &start);
+      gfc_free_expr (start_expr);
       start--;
       gfc_extract_int (end_expr, &end);
+      gfc_free_expr (end_expr);
     }
   else
     {
@@ -199,7 +202,7 @@ gfc_assign_data_value (gfc_expr *lvalue, gfc_expr *rvalue, mpz_t index,
 {
   gfc_ref *ref;
   gfc_expr *init;
-  gfc_expr *expr;
+  gfc_expr *expr = NULL;
   gfc_constructor *con;
   gfc_constructor *last_con;
   gfc_symbol *symbol;
@@ -314,7 +317,7 @@ gfc_assign_data_value (gfc_expr *lvalue, gfc_expr *rvalue, mpz_t index,
 		  exprd = (LOCATION_LINE (con->expr->where.lb->location)
 			   > LOCATION_LINE (rvalue->where.lb->location))
 			  ? con->expr : rvalue;
-		  if (gfc_notify_std (GFC_STD_GNU,"Extension: "
+		  if (gfc_notify_std (GFC_STD_GNU,
 				      "re-initialization of '%s' at %L",
 				      symbol->name, &exprd->where) == FAILURE)
 		    return FAILURE;
@@ -480,7 +483,7 @@ gfc_assign_data_value (gfc_expr *lvalue, gfc_expr *rvalue, mpz_t index,
 	  expr = (LOCATION_LINE (init->where.lb->location)
 		  > LOCATION_LINE (rvalue->where.lb->location))
 	       ? init : rvalue;
-	  if (gfc_notify_std (GFC_STD_GNU,"Extension: "
+	  if (gfc_notify_std (GFC_STD_GNU,
 			      "re-initialization of '%s' at %L",
 			      symbol->name, &expr->where) == FAILURE)
 	    return FAILURE;
@@ -499,6 +502,8 @@ gfc_assign_data_value (gfc_expr *lvalue, gfc_expr *rvalue, mpz_t index,
   return SUCCESS;
 
 abort:
+  if (!init)
+    gfc_free_expr (expr);
   mpz_clear (offset);
   return FAILURE;
 }

@@ -7,7 +7,6 @@
 #ifndef GO_EXPRESSIONS_H
 #define GO_EXPRESSIONS_H
 
-#include <gmp.h>
 #include <mpfr.h>
 
 #include "operator.h"
@@ -984,6 +983,11 @@ class Temporary_reference_expression : public Expression
       statement_(statement), is_lvalue_(false)
   { }
 
+  // The temporary that this expression refers to.
+  Temporary_statement*
+  statement() const
+  { return this->statement_; }
+
   // Indicate that this reference appears on the left hand side of an
   // assignment statement.
   void
@@ -1843,7 +1847,7 @@ class Field_reference_expression : public Expression
   Field_reference_expression(Expression* expr, unsigned int field_index,
 			     Location location)
     : Expression(EXPRESSION_FIELD_REFERENCE, location),
-      expr_(expr), field_index_(field_index)
+      expr_(expr), field_index_(field_index), called_fieldtrack_(false)
   { }
 
   // Return the struct expression.
@@ -1868,6 +1872,9 @@ class Field_reference_expression : public Expression
   int
   do_traverse(Traverse* traverse)
   { return Expression::traverse(&this->expr_, traverse); }
+
+  Expression*
+  do_lower(Gogo*, Named_object*, Statement_inserter*, int);
 
   Type*
   do_type();
@@ -1907,6 +1914,8 @@ class Field_reference_expression : public Expression
   Expression* expr_;
   // The zero-based index of the field we are retrieving.
   unsigned int field_index_;
+  // Whether we have already emitted a fieldtrack call.
+  bool called_fieldtrack_;
 };
 
 // A reference to a field of an interface.

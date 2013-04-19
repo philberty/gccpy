@@ -1,6 +1,6 @@
 ; Options for the MicroBlaze port of the compiler
 ;
-; Copyright 2009, 2010, 2011 Free Software Foundation, Inc.
+; Copyright (C) 2009-2013 Free Software Foundation, Inc.
 ;
 ; Contributed by Michael Eager <eager@eagercon.com>.
 ;
@@ -54,6 +54,14 @@ Target RejectNegative Joined Var(microblaze_select_cpu)
 mmemcpy
 Target Mask(MEMCPY)
 Don't optimize block moves, use memcpy
+
+mbig-endian
+Target Report RejectNegative InverseMask(LITTLE_ENDIAN)
+Assume target CPU is configured as big endian
+
+mlittle-endian
+Target Report RejectNegative Mask(LITTLE_ENDIAN)
+Assume target CPU is configured as little endian
 
 mxl-soft-mul
 Target Mask(SOFT_MUL)

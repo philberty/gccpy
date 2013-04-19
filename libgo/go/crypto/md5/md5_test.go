@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"unsafe"
 )
 
 type md5Test struct {
@@ -54,13 +55,19 @@ func TestGolden(t *testing.T) {
 	for i := 0; i < len(golden); i++ {
 		g := golden[i]
 		c := md5.New()
-		for j := 0; j < 3; j++ {
+		buf := make([]byte, len(g.in)+4)
+		for j := 0; j < 3+4; j++ {
 			if j < 2 {
 				io.WriteString(c, g.in)
-			} else {
+			} else if j == 2 {
 				io.WriteString(c, g.in[0:len(g.in)/2])
 				c.Sum(nil)
 				io.WriteString(c, g.in[len(g.in)/2:])
+			} else if j > 2 {
+				// test unaligned write
+				buf = buf[1:]
+				copy(buf, g.in)
+				c.Write(buf[:len(g.in)])
 			}
 			s := fmt.Sprintf("%x", c.Sum(nil))
 			if s != g.out {
@@ -77,4 +84,48 @@ func ExampleNew() {
 	io.WriteString(h, "And Leon's getting laaarger!")
 	fmt.Printf("%x", h.Sum(nil))
 	// Output: e2c569be17396eca2a2e3c11578123ed
+}
+
+var bench = md5.New()
+var buf = make([]byte, 8192+1)
+var sum = make([]byte, bench.Size())
+
+func benchmarkSize(b *testing.B, size int, unaligned bool) {
+	b.SetBytes(int64(size))
+	buf := buf
+	if unaligned {
+		if uintptr(unsafe.Pointer(&buf[0]))&(unsafe.Alignof(uint32(0))-1) == 0 {
+			buf = buf[1:]
+		}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bench.Reset()
+		bench.Write(buf[:size])
+		bench.Sum(sum[:0])
+	}
+}
+
+func BenchmarkHash8Bytes(b *testing.B) {
+	benchmarkSize(b, 8, false)
+}
+
+func BenchmarkHash1K(b *testing.B) {
+	benchmarkSize(b, 1024, false)
+}
+
+func BenchmarkHash8K(b *testing.B) {
+	benchmarkSize(b, 8192, false)
+}
+
+func BenchmarkHash8BytesUnaligned(b *testing.B) {
+	benchmarkSize(b, 8, true)
+}
+
+func BenchmarkHash1KUnaligned(b *testing.B) {
+	benchmarkSize(b, 1024, true)
+}
+
+func BenchmarkHash8KUnaligned(b *testing.B) {
+	benchmarkSize(b, 8192, true)
 }

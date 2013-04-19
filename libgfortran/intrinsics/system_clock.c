@@ -1,6 +1,5 @@
 /* Implementation of the SYSTEM_CLOCK intrinsic.
-   Copyright (C) 2004, 2005, 2007, 2009, 2010, 2011 Free Software
-   Foundation, Inc.
+   Copyright (C) 2004-2013 Free Software Foundation, Inc.
 
 This file is part of the GNU Fortran runtime library (libgfortran).
 
@@ -64,6 +63,7 @@ static int weak_gettime (clockid_t, struct timespec *)
    Arguments:
    secs     - OUTPUT, seconds
    nanosecs - OUTPUT, nanoseconds
+   tk       - OUTPUT, clock resolution [counts/sec]
 
    If the target supports a monotonic clock, the OUTPUT arguments
    represent a monotonically incrementing clock starting from some
@@ -76,11 +76,12 @@ static int weak_gettime (clockid_t, struct timespec *)
    is set.
 */
 static int
-gf_gettime_mono (time_t * secs, long * nanosecs)
+gf_gettime_mono (time_t * secs, long * nanosecs, long * tck)
 {
   int err;
 #ifdef HAVE_CLOCK_GETTIME
   struct timespec ts;
+  *tck = 1000000000;
   err = clock_gettime (GF_CLOCK_MONOTONIC, &ts);
   *secs = ts.tv_sec;
   *nanosecs = ts.tv_nsec;
@@ -90,12 +91,14 @@ gf_gettime_mono (time_t * secs, long * nanosecs)
   if (weak_gettime)
     {
       struct timespec ts;
+      *tck = 1000000000;
       err = weak_gettime (GF_CLOCK_MONOTONIC, &ts);
       *secs = ts.tv_sec;
       *nanosecs = ts.tv_nsec;
       return err;
     }
 #endif
+  *tck = 1000000;
   err = gf_gettime (secs, nanosecs);
   *nanosecs *= 1000;
   return err;
@@ -118,21 +121,20 @@ void
 system_clock_4(GFC_INTEGER_4 *count, GFC_INTEGER_4 *count_rate,
 	       GFC_INTEGER_4 *count_max)
 {
-#undef TCK
-#define TCK 1000
   GFC_INTEGER_4 cnt;
   GFC_INTEGER_4 mx;
 
   time_t secs;
-  long nanosecs;
+  long nanosecs, tck;
 
   if (sizeof (secs) < sizeof (GFC_INTEGER_4))
     internal_error (NULL, "secs too small");
 
-  if (gf_gettime_mono (&secs, &nanosecs) == 0)
+  if (gf_gettime_mono (&secs, &nanosecs, &tck) == 0)
     {
-      GFC_UINTEGER_4 ucnt = (GFC_UINTEGER_4) secs * TCK;
-      ucnt += (nanosecs + 500000000 / TCK) / (1000000000 / TCK);
+      tck = tck>1000 ? 1000 : tck;
+      GFC_UINTEGER_4 ucnt = (GFC_UINTEGER_4) secs * tck;
+      ucnt += (nanosecs + 500000000 / tck) / (1000000000 / tck);
       if (ucnt > GFC_INTEGER_4_HUGE)
 	cnt = ucnt - GFC_INTEGER_4_HUGE - 1;
       else
@@ -153,7 +155,7 @@ system_clock_4(GFC_INTEGER_4 *count, GFC_INTEGER_4 *count_rate,
   if (count != NULL)
     *count = cnt;
   if (count_rate != NULL)
-    *count_rate = TCK;
+    *count_rate = tck;
   if (count_max != NULL)
     *count_max = mx;
 }
@@ -165,21 +167,19 @@ void
 system_clock_8 (GFC_INTEGER_8 *count, GFC_INTEGER_8 *count_rate,
 		GFC_INTEGER_8 *count_max)
 {
-#undef TCK
-#define TCK 1000000000
   GFC_INTEGER_8 cnt;
   GFC_INTEGER_8 mx;
 
   time_t secs;
-  long nanosecs;
+  long nanosecs, tck;
 
   if (sizeof (secs) < sizeof (GFC_INTEGER_4))
     internal_error (NULL, "secs too small");
 
-  if (gf_gettime_mono (&secs, &nanosecs) == 0)
+  if (gf_gettime_mono (&secs, &nanosecs, &tck) == 0)
     {
-      GFC_UINTEGER_8 ucnt = (GFC_UINTEGER_8) secs * TCK;
-      ucnt += (nanosecs + 500000000 / TCK) / (1000000000 / TCK);
+      GFC_UINTEGER_8 ucnt = (GFC_UINTEGER_8) secs * tck;
+      ucnt += (nanosecs + 500000000 / tck) / (1000000000 / tck);
       if (ucnt > GFC_INTEGER_8_HUGE)
 	cnt = ucnt - GFC_INTEGER_8_HUGE - 1;
       else
@@ -201,7 +201,7 @@ system_clock_8 (GFC_INTEGER_8 *count, GFC_INTEGER_8 *count_rate,
   if (count != NULL)
     *count = cnt;
   if (count_rate != NULL)
-    *count_rate = TCK;
+    *count_rate = tck;
   if (count_max != NULL)
     *count_max = mx;
 }

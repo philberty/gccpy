@@ -1,6 +1,6 @@
 // { dg-options "-std=gnu++0x" }
 
-// Copyright (C) 2012 Free Software Foundation, Inc.
+// Copyright (C) 2012-2013 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -33,10 +33,10 @@ enum class tacos : int
 int main()
 {
   std::atomic<float> af(0.0f);
-  float non_af = af;
+  float non_af __attribute__((unused)) = af;
   
   std::atomic<tacos> ae(tacos::sabor);
-  tacos non_ae = ae;
+  tacos non_ae __attribute__((unused)) = ae;
 
   return 0;
 }

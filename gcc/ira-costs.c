@@ -1,6 +1,5 @@
 /* IRA hard register and memory cost calculation for allocnos or pseudos.
-   Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 2006-2013 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -239,33 +238,19 @@ setup_regno_cost_classes_by_aclass (int regno, enum reg_class aclass)
       COPY_HARD_REG_SET (temp, reg_class_contents[aclass]);
       AND_COMPL_HARD_REG_SET (temp, ira_no_alloc_regs);
       /* We exclude classes from consideration which are subsets of
-	 ACLASS only if ACLASS is a pressure class or subset of a
-	 pressure class.  It means by the definition of pressure classes
-	 that cost of moving between susbets of ACLASS is cheaper than
-	 load or store.  */
-      for (i = 0; i < ira_pressure_classes_num; i++)
-	{
-	  cl = ira_pressure_classes[i];
-	  if (cl == aclass)
-	    break;
-	  COPY_HARD_REG_SET (temp2, reg_class_contents[cl]);
-	  AND_COMPL_HARD_REG_SET (temp2, ira_no_alloc_regs);
-	  if (hard_reg_set_subset_p (temp, temp2))
-	    break;
-	}
-      exclude_p = i < ira_pressure_classes_num;
+	 ACLASS only if ACLASS is an uniform class.  */
+      exclude_p = ira_uniform_class_p[aclass];
       classes.num = 0;
       for (i = 0; i < ira_important_classes_num; i++)
 	{
 	  cl = ira_important_classes[i];
 	  if (exclude_p)
 	    {
-	      /* Exclude no-pressure classes which are subsets of
+	      /* Exclude non-uniform classes which are subsets of
 		 ACLASS.  */
 	      COPY_HARD_REG_SET (temp2, reg_class_contents[cl]);
 	      AND_COMPL_HARD_REG_SET (temp2, ira_no_alloc_regs);
-	      if (! ira_reg_pressure_class_p[cl]
-		  && hard_reg_set_subset_p (temp2, temp) && cl != aclass)
+	      if (hard_reg_set_subset_p (temp2, temp) && cl != aclass)
 		continue;
 	    }
 	  classes.classes[classes.num++] = cl;
@@ -359,9 +344,8 @@ copy_cost (rtx x, enum machine_mode mode, reg_class_t rclass, bool to_p,
 
   if (secondary_class != NO_REGS)
     {
-      if (!move_cost[mode])
-        init_move_cost (mode);
-      return (move_cost[mode][(int) secondary_class][(int) rclass]
+      ira_init_register_move_cost_if_necessary (mode);
+      return (ira_register_move_cost[mode][(int) secondary_class][(int) rclass]
 	      + sri.extra_cost
 	      + copy_cost (x, mode, secondary_class, to_p, &sri));
     }
@@ -374,10 +358,11 @@ copy_cost (rtx x, enum machine_mode mode, reg_class_t rclass, bool to_p,
 	   + ira_memory_move_cost[mode][(int) rclass][to_p != 0];
   else if (REG_P (x))
     {
-      if (!move_cost[mode])
-        init_move_cost (mode);
+      reg_class_t x_class = REGNO_REG_CLASS (REGNO (x));
+
+      ira_init_register_move_cost_if_necessary (mode);
       return (sri.extra_cost
-	      + move_cost[mode][REGNO_REG_CLASS (REGNO (x))][(int) rclass]);
+	      + ira_register_move_cost[mode][(int) x_class][(int) rclass]);
     }
   else
     /* If this is a constant, we may eventually want to call rtx_cost
@@ -666,7 +651,7 @@ record_reg_classes (int n_alts, int n_ops, rtx *ops,
 
 		case 'E':
 		case 'F':
-		  if (GET_CODE (op) == CONST_DOUBLE
+		  if (CONST_DOUBLE_AS_FLOAT_P (op) 
 		      || (GET_CODE (op) == CONST_VECTOR
 			  && (GET_MODE_CLASS (GET_MODE (op))
 			      == MODE_VECTOR_FLOAT)))
@@ -675,15 +660,13 @@ record_reg_classes (int n_alts, int n_ops, rtx *ops,
 
 		case 'G':
 		case 'H':
-		  if (GET_CODE (op) == CONST_DOUBLE
+		  if (CONST_DOUBLE_AS_FLOAT_P (op) 
 		      && CONST_DOUBLE_OK_FOR_CONSTRAINT_P (op, c, p))
 		    win = 1;
 		  break;
 
 		case 's':
-		  if (CONST_INT_P (op)
-		      || (GET_CODE (op) == CONST_DOUBLE
-			  && GET_MODE (op) == VOIDmode))
+		  if (CONST_SCALAR_INT_P (op)) 
 		    break;
 
 		case 'i':
@@ -693,9 +676,7 @@ record_reg_classes (int n_alts, int n_ops, rtx *ops,
 		  break;
 
 		case 'n':
-		  if (CONST_INT_P (op)
-		      || (GET_CODE (op) == CONST_DOUBLE
-			  && GET_MODE (op) == VOIDmode))
+		  if (CONST_SCALAR_INT_P (op)) 
 		    win = 1;
 		  break;
 
@@ -1086,7 +1067,7 @@ record_address_regs (enum machine_mode mode, addr_space_t as, rtx x,
 
 	/* If the second operand is a constant integer, it doesn't
 	   change what class the first operand must be.  */
-	else if (code1 == CONST_INT || code1 == CONST_DOUBLE)
+	else if (CONST_SCALAR_INT_P (arg1))
 	  record_address_regs (mode, as, arg0, context, PLUS, code1, scale);
 	/* If the second operand is a symbolic constant, the first
 	   operand must be an index register.  */
@@ -1650,6 +1631,8 @@ find_costs_and_classes (FILE *dump_file)
 			COSTS (total_allocno_costs, parent_a_num)->mem_cost
 			  += add_cost;
 
+		      if (i >= first_moveable_pseudo && i < last_moveable_pseudo)
+			COSTS (total_allocno_costs, parent_a_num)->mem_cost = 0;
 		    }
 		  a_costs = COSTS (costs, a_num)->cost;
 		  for (k = cost_classes_ptr->num - 1; k >= 0; k--)
@@ -1667,7 +1650,9 @@ find_costs_and_classes (FILE *dump_file)
 		    i_mem_cost += add_cost;
 		}
 	    }
-	  if (equiv_savings < 0)
+	  if (i >= first_moveable_pseudo && i < last_moveable_pseudo)
+	    i_mem_cost = 0;
+	  else if (equiv_savings < 0)
 	    i_mem_cost = -equiv_savings;
 	  else if (equiv_savings > 0)
 	    {
@@ -2062,9 +2047,10 @@ ira_costs (void)
   ira_free (total_allocno_costs);
 }
 
-/* Entry function which defines classes for pseudos.  */
+/* Entry function which defines classes for pseudos.
+   Set pseudo_classes_defined_p only if DEFINE_PSEUDO_CLASSES is true.  */
 void
-ira_set_pseudo_classes (FILE *dump_file)
+ira_set_pseudo_classes (bool define_pseudo_classes, FILE *dump_file)
 {
   allocno_p = false;
   internal_flag_ira_verbose = flag_ira_verbose;
@@ -2073,7 +2059,9 @@ ira_set_pseudo_classes (FILE *dump_file)
   initiate_regno_cost_classes ();
   find_costs_and_classes (dump_file);
   finish_regno_cost_classes ();
-  pseudo_classes_defined_p = true;
+  if (define_pseudo_classes)
+    pseudo_classes_defined_p = true;
+
   finish_costs ();
 }
 
@@ -2103,7 +2091,8 @@ ira_tune_allocno_costs (void)
       mode = ALLOCNO_MODE (a);
       n = ira_class_hard_regs_num[aclass];
       min_cost = INT_MAX;
-      if (ALLOCNO_CALLS_CROSSED_NUM (a) != 0)
+      if (ALLOCNO_CALLS_CROSSED_NUM (a)
+	  != ALLOCNO_CHEAP_CALLS_CROSSED_NUM (a))
 	{
 	  ira_allocate_and_set_costs
 	    (&ALLOCNO_HARD_REG_COSTS (a), aclass,

@@ -1,7 +1,7 @@
 // { dg-require-atomic-builtins "" }
 // { dg-options "-std=gnu++0x" }
 
-// Copyright (C) 2012 Free Software Foundation, Inc.
+// Copyright (C) 2012-2013 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -26,8 +26,6 @@
 // atomic<void*> vs. explicitly specialized w/o operators, like atomic_bool?
 int main(void)
 {
-  // bool test __attribute__((unused)) = true;
-
   using namespace std;
 
   typedef int 	value_type;
@@ -35,7 +33,7 @@ int main(void)
   value_type value = 42;
   value_type* p = &value;
   void* vp = p;
-  ptrdiff_t dist(0);
+  ptrdiff_t __attribute__((unused)) dist(0);
 
   atomic<void*> a(vp);
 

@@ -1,6 +1,5 @@
 /* Definitions of target machine for GNU compiler. Matsushita MN10300 series
-   Copyright (C) 2000, 2003, 2004, 2005, 2007, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
    Contributed by Jeff Law (law@cygnus.com).
 
    This file is part of GCC.
@@ -25,7 +24,7 @@ extern int   mn10300_legitimate_pic_operand_p (rtx);
 extern rtx   mn10300_legitimize_reload_address (rtx, enum machine_mode,
 						int, int, int);
 extern bool  mn10300_function_value_regno_p (const unsigned int);
-extern int   mn10300_get_live_callee_saved_regs (void);
+extern unsigned int   mn10300_get_live_callee_saved_regs (unsigned int *);
 extern bool  mn10300_hard_regno_mode_ok (unsigned int, enum machine_mode);
 extern bool  mn10300_modes_tieable (enum machine_mode, enum machine_mode);
 extern const char *mn10300_output_add (rtx[3], bool);

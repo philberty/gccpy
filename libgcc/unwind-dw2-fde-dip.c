@@ -1,5 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004, 2005, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+/* Copyright (C) 2001-2013 Free Software Foundation, Inc.
    Contributed by Jakub Jelinek <jakub@redhat.com>.
 
    This file is part of GCC.
@@ -50,6 +49,11 @@
 #if !defined(inhibit_libc) && defined(HAVE_LD_EH_FRAME_HDR) \
     && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ > 2) \
 	|| (__GLIBC__ == 2 && __GLIBC_MINOR__ == 2 && defined(DT_CONFIG)))
+# define USE_PT_GNU_EH_FRAME
+#endif
+
+#if !defined(inhibit_libc) && defined(HAVE_LD_EH_FRAME_HDR) \
+    && defined(__BIONIC__)
 # define USE_PT_GNU_EH_FRAME
 #endif
 

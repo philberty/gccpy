@@ -1,4 +1,4 @@
-/* Copyright (C) 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2008-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -96,5 +96,27 @@
 #ifdef __POPCNT__
 #include <popcntintrin.h>
 #endif
+
+#ifdef __RDSEED__
+#include <rdseedintrin.h>
+#endif
+
+#ifdef __PRFCHW__
+#include <prfchwintrin.h>
+#endif
+
+#ifdef __FXSR__
+#include <fxsrintrin.h>
+#endif
+
+#ifdef __XSAVE__
+#include <xsaveintrin.h>
+#endif
+
+#ifdef __XSAVEOPT__
+#include <xsaveoptintrin.h>
+#endif
+
+#include <adxintrin.h>
 
 #endif /* _X86INTRIN_H_INCLUDED */

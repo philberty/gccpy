@@ -1,7 +1,6 @@
 /* Command line option handling.  Code involving global state that
    should not be shared with the driver.
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -39,10 +38,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-pass.h"
 
 typedef const char *const_char_p; /* For DEF_VEC_P.  */
-DEF_VEC_P(const_char_p);
-DEF_VEC_ALLOC_P(const_char_p,heap);
 
-static VEC(const_char_p,heap) *ignored_options;
+static vec<const_char_p> ignored_options;
 
 /* Input file names.  */
 const char **in_fnames;
@@ -122,7 +119,7 @@ complain_wrong_lang (const struct cl_decoded_option *decoded,
 static void
 postpone_unknown_option_warning (const char *opt)
 {
-  VEC_safe_push (const_char_p, heap, ignored_options, opt);
+  ignored_options.safe_push (opt);
 }
 
 /* Produce a warning for each option previously buffered.  */
@@ -130,11 +127,11 @@ postpone_unknown_option_warning (const char *opt)
 void
 print_ignored_options (void)
 {
-  while (!VEC_empty (const_char_p, ignored_options))
+  while (!ignored_options.is_empty ())
     {
       const char *opt;
 
-      opt = VEC_pop (const_char_p, ignored_options);
+      opt = ignored_options.pop ();
       warning_at (UNKNOWN_LOCATION, 0,
 		  "unrecognized command line option \"%s\"", opt);
     }
@@ -233,6 +230,40 @@ read_cmdline_options (struct gcc_options *opts, struct gcc_options *opts_set,
     }
 }
 
+/* Handle -ftree-vectorizer-verbose=ARG by remapping it to -fopt-info.
+   It remaps the old verbosity values as following:
+
+   REPORT_NONE ==> No dump is output
+   REPORT_VECTORIZED_LOCATIONS ==> "-optimized"
+   REPORT_UNVECTORIZED_LOCATIONS ==> "-missed"
+
+   Any higher verbosity levels get mapped to "-all" flags.  */
+
+static void
+dump_remap_tree_vectorizer_verbose (const char *arg)
+{
+  int value = atoi (arg);
+  const char *remapped_opt_info = NULL;
+
+  switch (value)
+    {
+    case 0:
+      break;
+    case 1:
+      remapped_opt_info = "optimized";
+      break;
+    case 2:
+      remapped_opt_info = "missed";
+      break;
+    default:
+      remapped_opt_info = "all";
+      break;
+    }
+
+  if (remapped_opt_info)
+    opt_info_switch_p (remapped_opt_info);
+}
+
 /* Language mask determined at initialization.  */
 static unsigned int initial_lang_mask;
 
@@ -316,13 +347,20 @@ handle_common_deferred_options (void)
 {
   unsigned int i;
   cl_deferred_option *opt;
-  VEC(cl_deferred_option,heap) *vec
-    = (VEC(cl_deferred_option,heap) *) common_deferred_options;
+  vec<cl_deferred_option> v;
+
+  if (common_deferred_options)
+    v = *((vec<cl_deferred_option> *) common_deferred_options);
+  else
+    v = vNULL;
 
   if (flag_dump_all_passed)
     enable_rtl_dump_file ();
 
-  FOR_EACH_VEC_ELT (cl_deferred_option, vec, i, opt)
+  if (flag_opt_info)
+    opt_info_switch_p (NULL);
+
+  FOR_EACH_VEC_ELT (v, i, opt)
     {
       switch (opt->opt_index)
 	{
@@ -350,6 +388,12 @@ handle_common_deferred_options (void)
 	  if (!dump_switch_p (opt->arg))
 	    error ("unrecognized command line option %<-fdump-%s%>", opt->arg);
 	  break;
+
+        case OPT_fopt_info_:
+	  if (!opt_info_switch_p (opt->arg))
+	    error ("unrecognized command line option %<-fopt-info-%s%>",
+                   opt->arg);
+          break;
 
 	case OPT_fenable_:
 	case OPT_fdisable_:
@@ -409,6 +453,10 @@ handle_common_deferred_options (void)
 	case OPT_fstack_limit_symbol_:
 	  stack_limit_rtx = gen_rtx_SYMBOL_REF (Pmode, ggc_strdup (opt->arg));
 	  break;
+
+        case OPT_ftree_vectorizer_verbose_:
+	  dump_remap_tree_vectorizer_verbose (opt->arg);
+          break;
 
 	default:
 	  gcc_unreachable ();

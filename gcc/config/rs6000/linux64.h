@@ -1,7 +1,6 @@
 /* Definitions of target machine for GNU compiler,
    for 64 bit PowerPC linux.
-   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011  Free Software Foundation, Inc.
+   Copyright (C) 2000-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -81,7 +80,7 @@ extern int dot_symbols;
    -mrelocatable or -mrelocatable-lib is given.  */
 #undef RELOCATABLE_NEEDS_FIXUP
 #define RELOCATABLE_NEEDS_FIXUP \
-  (target_flags & target_flags_explicit & MASK_RELOCATABLE)
+  (rs6000_isa_flags & rs6000_isa_flags_explicit & OPTION_MASK_RELOCATABLE)
 
 #undef	RS6000_ABI_NAME
 #define	RS6000_ABI_NAME "linux"
@@ -103,14 +102,14 @@ extern int dot_symbols;
 	      error (INVALID_64BIT, "call");			\
 	    }							\
 	  dot_symbols = !strcmp (rs6000_abi_name, "aixdesc");	\
-	  if (target_flags & MASK_RELOCATABLE)			\
+	  if (rs6000_isa_flags & OPTION_MASK_RELOCATABLE)	\
 	    {							\
-	      target_flags &= ~MASK_RELOCATABLE;		\
+	      rs6000_isa_flags &= ~OPTION_MASK_RELOCATABLE;	\
 	      error (INVALID_64BIT, "relocatable");		\
 	    }							\
-	  if (target_flags & MASK_EABI)				\
+	  if (rs6000_isa_flags & OPTION_MASK_EABI)		\
 	    {							\
-	      target_flags &= ~MASK_EABI;			\
+	      rs6000_isa_flags &= ~OPTION_MASK_EABI;		\
 	      error (INVALID_64BIT, "eabi");			\
 	    }							\
 	  if (TARGET_PROTOTYPE)					\
@@ -118,12 +117,13 @@ extern int dot_symbols;
 	      target_prototype = 0;				\
 	      error (INVALID_64BIT, "prototype");		\
 	    }							\
-	  if ((target_flags & MASK_POWERPC64) == 0)		\
+	  if ((rs6000_isa_flags & OPTION_MASK_POWERPC64) == 0)	\
 	    {							\
-	      target_flags |= MASK_POWERPC64;			\
+	      rs6000_isa_flags |= OPTION_MASK_POWERPC64;	\
 	      error ("-m64 requires a PowerPC64 cpu");		\
 	    }							\
-	  if ((target_flags_explicit & MASK_MINIMAL_TOC) != 0)	\
+	  if ((rs6000_isa_flags_explicit			\
+	       & OPTION_MASK_MINIMAL_TOC) != 0)			\
 	    {							\
 	      if (global_options_set.x_rs6000_current_cmodel	\
 		  && rs6000_current_cmodel != CMODEL_SMALL)	\
@@ -213,20 +213,20 @@ extern int dot_symbols;
 #ifndef RS6000_BI_ARCH
 
 /* 64-bit PowerPC Linux is always big-endian.  */
-#undef	TARGET_LITTLE_ENDIAN
-#define TARGET_LITTLE_ENDIAN	0
+#undef	OPTION_LITTLE_ENDIAN
+#define OPTION_LITTLE_ENDIAN	0
 
 /* 64-bit PowerPC Linux always has a TOC.  */
 #undef  TARGET_TOC
 #define	TARGET_TOC		1
 
 /* Some things from sysv4.h we don't do when 64 bit.  */
-#undef	TARGET_RELOCATABLE
-#define	TARGET_RELOCATABLE	0
-#undef	TARGET_EABI
-#define	TARGET_EABI		0
-#undef	TARGET_PROTOTYPE
-#define	TARGET_PROTOTYPE	0
+#undef	OPTION_RELOCATABLE
+#define	OPTION_RELOCATABLE	0
+#undef	OPTION_EABI
+#define	OPTION_EABI		0
+#undef	OPTION_PROTOTYPE
+#define	OPTION_PROTOTYPE	0
 #undef RELOCATABLE_NEEDS_FIXUP
 #define RELOCATABLE_NEEDS_FIXUP 0
 
@@ -317,6 +317,8 @@ extern int dot_symbols;
 	  builtin_define ("__PPC64__");			\
 	  builtin_define ("__powerpc__");		\
 	  builtin_define ("__powerpc64__");		\
+	  if (!DOT_SYMBOLS)				\
+	    builtin_define ("_CALL_LINUX");		\
 	  builtin_assert ("cpu=powerpc64");		\
 	  builtin_assert ("machine=powerpc64");		\
 	}						\
@@ -416,10 +418,6 @@ extern int dot_symbols;
 /* Override rs6000.h definition.  */
 #undef  ASM_APP_OFF
 #define ASM_APP_OFF "#NO_APP\n"
-
-/* PowerPC no-op instruction.  */
-#undef  RS6000_CALL_GLUE
-#define RS6000_CALL_GLUE (TARGET_64BIT ? "nop" : "cror 31,31,31")
 
 #undef  RS6000_MCOUNT
 #define RS6000_MCOUNT "_mcount"

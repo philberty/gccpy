@@ -2,15 +2,52 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build !plan9
+
 package net
 
 import (
 	"bytes"
 	"os"
+	"reflect"
 	"syscall"
 	"testing"
 	"time"
 )
+
+var resolveIPAddrTests = []struct {
+	net     string
+	litAddr string
+	addr    *IPAddr
+	err     error
+}{
+	{"ip", "127.0.0.1", &IPAddr{IP: IPv4(127, 0, 0, 1)}, nil},
+	{"ip4", "127.0.0.1", &IPAddr{IP: IPv4(127, 0, 0, 1)}, nil},
+	{"ip4:icmp", "127.0.0.1", &IPAddr{IP: IPv4(127, 0, 0, 1)}, nil},
+
+	{"ip", "::1", &IPAddr{IP: ParseIP("::1")}, nil},
+	{"ip6", "::1", &IPAddr{IP: ParseIP("::1")}, nil},
+	{"ip6:icmp", "::1", &IPAddr{IP: ParseIP("::1")}, nil},
+
+	{"", "127.0.0.1", &IPAddr{IP: IPv4(127, 0, 0, 1)}, nil}, // Go 1.0 behavior
+	{"", "::1", &IPAddr{IP: ParseIP("::1")}, nil},           // Go 1.0 behavior
+
+	{"l2tp", "127.0.0.1", nil, UnknownNetworkError("l2tp")},
+	{"l2tp:gre", "127.0.0.1", nil, UnknownNetworkError("l2tp:gre")},
+	{"tcp", "1.2.3.4:123", nil, UnknownNetworkError("tcp")},
+}
+
+func TestResolveIPAddr(t *testing.T) {
+	for _, tt := range resolveIPAddrTests {
+		addr, err := ResolveIPAddr(tt.net, tt.litAddr)
+		if err != tt.err {
+			t.Fatalf("ResolveIPAddr(%v, %v) failed: %v", tt.net, tt.litAddr, err)
+		}
+		if !reflect.DeepEqual(addr, tt.addr) {
+			t.Fatalf("got %#v; expected %#v", addr, tt.addr)
+		}
+	}
+}
 
 var icmpTests = []struct {
 	net   string
@@ -19,13 +56,12 @@ var icmpTests = []struct {
 	ipv6  bool // test with underlying AF_INET6 socket
 }{
 	{"ip4:icmp", "", "127.0.0.1", false},
-	{"ip6:icmp", "", "::1", true},
+	{"ip6:ipv6-icmp", "", "::1", true},
 }
 
 func TestICMP(t *testing.T) {
 	if os.Getuid() != 0 {
-		t.Logf("test disabled; must be root")
-		return
+		t.Skip("skipping test; must be root")
 	}
 
 	seqnum := 61455
@@ -203,4 +239,33 @@ func parseICMPEchoReply(b []byte) (id, seqnum int) {
 	id = int(b[4])<<8 | int(b[5])
 	seqnum = int(b[6])<<8 | int(b[7])
 	return
+}
+
+var ipConnLocalNameTests = []struct {
+	net   string
+	laddr *IPAddr
+}{
+	{"ip4:icmp", &IPAddr{IP: IPv4(127, 0, 0, 1)}},
+	{"ip4:icmp", &IPAddr{}},
+	{"ip4:icmp", nil},
+}
+
+func TestIPConnLocalName(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("skipping test; must be root")
+	}
+
+	for _, tt := range ipConnLocalNameTests {
+		c, err := ListenIP(tt.net, tt.laddr)
+		if err != nil {
+			t.Errorf("ListenIP failed: %v", err)
+			return
+		}
+		defer c.Close()
+		la := c.LocalAddr()
+		if la == nil {
+			t.Error("IPConn.LocalAddr failed")
+			return
+		}
+	}
 }

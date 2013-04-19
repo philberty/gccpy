@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 2003-2009, Free Software Foundation, Inc.         --
+--          Copyright (C) 2003-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -122,8 +122,17 @@ package System.CRTL is
       origin : int) return int;
    pragma Import (C, fseek, "fseek");
 
+   function fseek64
+     (stream : FILEs;
+      offset : ssize_t;
+      origin : int) return int;
+   pragma Import (C, fseek64, "__gnat_fseek64");
+
    function ftell (stream : FILEs) return long;
    pragma Import (C, ftell, "ftell");
+
+   function ftell64 (stream : FILEs) return ssize_t;
+   pragma Import (C, ftell64, "__gnat_ftell64");
 
    function getenv (S : String) return System.Address;
    pragma Import (C, getenv, "getenv");
@@ -165,6 +174,11 @@ package System.CRTL is
    function chdir (dir_name : String) return int;
    pragma Import (C, chdir, "__gnat_chdir");
 
+   function mkdir
+     (dir_name : String;
+      encoding : Filename_Encoding := Unspecified) return int;
+   pragma Import (C, mkdir, "__gnat_mkdir");
+
    function setvbuf
      (stream : FILEs;
       buffer : chars;
@@ -172,7 +186,7 @@ package System.CRTL is
       size   : size_t) return int;
    pragma Import (C, setvbuf, "setvbuf");
 
-   procedure tmpnam (string : chars);
+   procedure tmpnam (str : chars);
    pragma Import (C, tmpnam, "tmpnam");
 
    function tmpfile return FILEs;

@@ -1,5 +1,5 @@
 /* Backward propagation of indirect loads through PHIs.
-   Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+   Copyright (C) 2007-2013 Free Software Foundation, Inc.
    Contributed by Richard Guenther <rguenther@suse.de>
 
 This file is part of GCC.
@@ -25,12 +25,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree.h"
 #include "tm_p.h"
 #include "basic-block.h"
-#include "timevar.h"
-#include "tree-pretty-print.h"
 #include "gimple-pretty-print.h"
 #include "tree-flow.h"
 #include "tree-pass.h"
-#include "tree-dump.h"
 #include "langhooks.h"
 #include "flags.h"
 
@@ -144,7 +141,7 @@ phiprop_insert_phi (basic_block bb, gimple phi, gimple use_stmt,
   /* Build a new PHI node to replace the definition of
      the indirect reference lhs.  */
   res = gimple_assign_lhs (use_stmt);
-  SSA_NAME_DEF_STMT (res) = new_phi = create_phi_node (res, bb);
+  new_phi = create_phi_node (res, bb);
 
   if (dump_file && (dump_flags & TDF_DETAILS))
     {
@@ -189,7 +186,7 @@ phiprop_insert_phi (basic_block bb, gimple phi, gimple use_stmt,
 	{
 	  tree rhs = gimple_assign_rhs1 (use_stmt);
 	  gcc_assert (TREE_CODE (old_arg) == ADDR_EXPR);
-	  new_var = create_tmp_reg (TREE_TYPE (rhs), NULL);
+	  new_var = make_ssa_name (TREE_TYPE (rhs), NULL);
 	  if (!is_gimple_min_invariant (old_arg))
 	    old_arg = PHI_ARG_DEF_FROM_EDGE (phi, e);
 	  else
@@ -198,10 +195,6 @@ phiprop_insert_phi (basic_block bb, gimple phi, gimple use_stmt,
 				     fold_build2 (MEM_REF, TREE_TYPE (rhs),
 						  old_arg,
 						  TREE_OPERAND (rhs, 1)));
-	  gcc_assert (is_gimple_reg (new_var));
-	  add_referenced_var (new_var);
-	  new_var = make_ssa_name (new_var, tmp);
-	  gimple_assign_set_lhs (tmp, new_var);
 	  gimple_set_location (tmp, locus);
 
 	  gsi_insert_on_edge (e, tmp);
@@ -376,7 +369,7 @@ next:;
 static unsigned int
 tree_ssa_phiprop (void)
 {
-  VEC(basic_block, heap) *bbs;
+  vec<basic_block> bbs;
   struct phiprop_d *phivn;
   bool did_something = false;
   basic_block bb;
@@ -392,14 +385,14 @@ tree_ssa_phiprop (void)
   /* Walk the dominator tree in preorder.  */
   bbs = get_all_dominated_blocks (CDI_DOMINATORS,
 				  single_succ (ENTRY_BLOCK_PTR));
-  FOR_EACH_VEC_ELT (basic_block, bbs, i, bb)
+  FOR_EACH_VEC_ELT (bbs, i, bb)
     for (gsi = gsi_start_phis (bb); !gsi_end_p (gsi); gsi_next (&gsi))
       did_something |= propagate_with_phi (bb, gsi_stmt (gsi), phivn, n);
 
   if (did_something)
     gsi_commit_edge_inserts ();
 
-  VEC_free (basic_block, heap, bbs);
+  bbs.release ();
   free (phivn);
 
   return 0;
@@ -416,6 +409,7 @@ struct gimple_opt_pass pass_phiprop =
  {
   GIMPLE_PASS,
   "phiprop",			/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_phiprop,			/* gate */
   tree_ssa_phiprop,		/* execute */
   NULL,				/* sub */

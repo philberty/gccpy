@@ -1,6 +1,5 @@
 /* Tree-dumping functionality for intermediate representation.
-   Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 1999-2013 Free Software Foundation, Inc.
    Written by Mark Mitchell <mark@codesourcery.com>
 
 This file is part of GCC.
@@ -200,6 +199,15 @@ dump_op (dump_info_p di, tree t)
     default:
       break;
   }
+}
+
+/* Dump information common to statements from STMT.  */
+
+static void
+dump_stmt (dump_info_p di, const_tree t)
+{
+  if (EXPR_HAS_LOCATION (t))
+    dump_int (di, "line", EXPR_LINENO (t));
 }
 
 bool

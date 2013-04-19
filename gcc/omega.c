@@ -5,8 +5,7 @@
    This code has no license restrictions, and is considered public
    domain.
 
-   Changes copyright (C) 2005, 2006, 2007, 2008, 2009,
-   2010 Free Software Foundation, Inc.
+   Changes copyright (C) 2005-2013 Free Software Foundation, Inc.
    Contributed by Sebastian Pop <sebastian.pop@inria.fr>
 
 This file is part of GCC.
@@ -36,7 +35,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "coretypes.h"
 #include "tree.h"
 #include "diagnostic-core.h"
-#include "tree-pass.h"
+#include "dumpfile.h"
 #include "omega.h"
 
 /* When set to true, keep substitution variables.  When set to false,

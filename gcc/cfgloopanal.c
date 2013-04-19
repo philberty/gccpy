@@ -1,6 +1,5 @@
 /* Natural loop analysis code for GNU compiler.
-   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -28,7 +27,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "basic-block.h"
 #include "cfgloop.h"
 #include "expr.h"
-#include "output.h"
 #include "graphds.h"
 #include "params.h"
 
@@ -130,7 +128,7 @@ mark_irreducible_loops (void)
 	    if (depth == loop_depth (act->loop_father))
 	      cloop = act->loop_father;
 	    else
-	      cloop = VEC_index (loop_p, act->loop_father->superloops, depth);
+	      cloop = (*act->loop_father->superloops)[depth];
 
 	    src = LOOP_REPR (cloop);
 	  }
@@ -447,3 +445,73 @@ mark_loop_exit_edges (void)
     }
 }
 
+/* Return exit edge if loop has only one exit that is likely
+   to be executed on runtime (i.e. it is not EH or leading
+   to noreturn call.  */
+
+edge
+single_likely_exit (struct loop *loop)
+{
+  edge found = single_exit (loop);
+  vec<edge> exits;
+  unsigned i;
+  edge ex;
+
+  if (found)
+    return found;
+  exits = get_loop_exit_edges (loop);
+  FOR_EACH_VEC_ELT (exits, i, ex)
+    {
+      if (ex->flags & (EDGE_EH | EDGE_ABNORMAL_CALL))
+	continue;
+      /* The constant of 5 is set in a way so noreturn calls are
+	 ruled out by this test.  The static branch prediction algorithm
+         will not assign such a low probability to conditionals for usual
+         reasons.  */
+      if (profile_status != PROFILE_ABSENT
+	  && ex->probability < 5 && !ex->count)
+	continue;
+      if (!found)
+	found = ex;
+      else
+	{
+	  exits.release ();
+	  return NULL;
+	}
+    }
+  exits.release ();
+  return found;
+}
+
+
+/* Gets basic blocks of a LOOP.  Header is the 0-th block, rest is in dfs
+   order against direction of edges from latch.  Specially, if
+   header != latch, latch is the 1-st block.  */
+
+vec<basic_block>
+get_loop_hot_path (const struct loop *loop)
+{
+  basic_block bb = loop->header;
+  vec<basic_block> path = vNULL;
+  bitmap visited = BITMAP_ALLOC (NULL);
+
+  while (true)
+    {
+      edge_iterator ei;
+      edge e;
+      edge best = NULL;
+
+      path.safe_push (bb);
+      bitmap_set_bit (visited, bb->index);
+      FOR_EACH_EDGE (e, ei, bb->succs)
+        if ((!best || e->probability > best->probability)
+	    && !loop_exit_edge_p (loop, e)
+	    && !bitmap_bit_p (visited, e->dest->index))
+	  best = e;
+      if (!best || best->dest == loop->header)
+	break;
+      bb = best->dest;
+    }
+  BITMAP_FREE (visited);
+  return path;
+}

@@ -1,6 +1,5 @@
 /* Conditional Dead Call Elimination pass for the GNU compiler.
-   Copyright (C) 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2008-2013 Free Software Foundation, Inc.
    Contributed by Xinliang David Li <davidxl@google.com>
 
 This file is part of GCC.
@@ -28,9 +27,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-pretty-print.h"
 #include "tree-flow.h"
 #include "gimple.h"
-#include "tree-dump.h"
 #include "tree-pass.h"
-#include "timevar.h"
 #include "flags.h"
 
 
@@ -205,7 +202,7 @@ check_pow (gimple pow_call)
     }
   else if (bc == SSA_NAME)
     {
-      tree base_val0, base_var, type;
+      tree base_val0, type;
       gimple base_def;
       int bit_sz;
 
@@ -219,11 +216,7 @@ check_pow (gimple pow_call)
         return false;
       base_val0 = gimple_assign_rhs1 (base_def);
 
-      base_var = SSA_NAME_VAR (base_val0);
-      if (!DECL_P  (base_var))
-        return false;
-
-      type = TREE_TYPE (base_var);
+      type = TREE_TYPE (base_val0);
       if (TREE_CODE (type) != INTEGER_TYPE)
         return false;
       bit_sz = TYPE_PRECISION (type);
@@ -324,7 +317,7 @@ gen_one_condition (tree arg, int lbub,
                    enum tree_code tcode,
                    const char *temp_name1,
 		   const char *temp_name2,
-                   VEC (gimple, heap) *conds,
+                   vec<gimple> conds,
                    unsigned *nconds)
 {
   tree lbub_real_cst, lbub_cst, float_type;
@@ -349,9 +342,9 @@ gen_one_condition (tree arg, int lbub,
   gimple_assign_set_lhs (stmt2, tempcn);
 
   stmt3 = gimple_build_cond_from_tree (tempcn, NULL_TREE, NULL_TREE);
-  VEC_quick_push (gimple, conds, stmt1);
-  VEC_quick_push (gimple, conds, stmt2);
-  VEC_quick_push (gimple, conds, stmt3);
+  conds.quick_push (stmt1);
+  conds.quick_push (stmt2);
+  conds.quick_push (stmt3);
   (*nconds)++;
 }
 
@@ -366,7 +359,7 @@ gen_one_condition (tree arg, int lbub,
 
 static void
 gen_conditions_for_domain (tree arg, inp_domain domain,
-                           VEC (gimple, heap) *conds,
+                           vec<gimple> conds,
                            unsigned *nconds)
 {
   if (domain.has_lb)
@@ -380,7 +373,7 @@ gen_conditions_for_domain (tree arg, inp_domain domain,
     {
       /* Now push a separator.  */
       if (domain.has_lb)
-        VEC_quick_push (gimple, conds, NULL);
+        conds.quick_push (NULL);
 
       gen_one_condition (arg, domain.ub,
                          (domain.is_ub_inclusive
@@ -409,7 +402,7 @@ gen_conditions_for_domain (tree arg, inp_domain domain,
 
 static void
 gen_conditions_for_pow_cst_base (tree base, tree expn,
-                                 VEC (gimple, heap) *conds,
+                                 vec<gimple> conds,
                                  unsigned *nconds)
 {
   inp_domain exp_domain;
@@ -445,12 +438,12 @@ gen_conditions_for_pow_cst_base (tree base, tree expn,
 
 static void
 gen_conditions_for_pow_int_base (tree base, tree expn,
-                                 VEC (gimple, heap) *conds,
+                                 vec<gimple> conds,
                                  unsigned *nconds)
 {
   gimple base_def;
   tree base_val0;
-  tree base_var, int_type;
+  tree int_type;
   tree temp, tempn;
   tree cst0;
   gimple stmt1, stmt2;
@@ -459,8 +452,7 @@ gen_conditions_for_pow_int_base (tree base, tree expn,
 
   base_def = SSA_NAME_DEF_STMT (base);
   base_val0 = gimple_assign_rhs1 (base_def);
-  base_var = SSA_NAME_VAR (base_val0);
-  int_type = TREE_TYPE (base_var);
+  int_type = TREE_TYPE (base_val0);
   bit_sz = TYPE_PRECISION (int_type);
   gcc_assert (bit_sz > 0
               && bit_sz <= MAX_BASE_INT_BIT_SIZE);
@@ -503,7 +495,7 @@ gen_conditions_for_pow_int_base (tree base, tree expn,
      type is integer.  */
 
   /* Push a separator.  */
-  VEC_quick_push (gimple, conds, NULL);
+  conds.quick_push (NULL);
 
   temp = create_tmp_var (int_type, "DCE_COND1");
   cst0 = build_int_cst (int_type, 0);
@@ -512,15 +504,15 @@ gen_conditions_for_pow_int_base (tree base, tree expn,
   gimple_assign_set_lhs (stmt1, tempn);
   stmt2 = gimple_build_cond (LE_EXPR, tempn, cst0, NULL_TREE, NULL_TREE);
 
-  VEC_quick_push (gimple, conds, stmt1);
-  VEC_quick_push (gimple, conds, stmt2);
+  conds.quick_push (stmt1);
+  conds.quick_push (stmt2);
   (*nconds)++;
 }
 
 /* Method to generate conditional statements for guarding conditionally
    dead calls to pow.  One or more statements can be generated for
    each logical condition.  Statement groups of different conditions
-   are separated by a NULL tree and they are stored in the VEC
+   are separated by a NULL tree and they are stored in the vec
    conds.  The number of logical conditions are stored in *nconds.
 
    See C99 standard, 7.12.7.4:2, for description of pow (x, y).
@@ -535,7 +527,7 @@ gen_conditions_for_pow_int_base (tree base, tree expn,
    and *NCONDS is the number of logical conditions.  */
 
 static void
-gen_conditions_for_pow (gimple pow_call, VEC (gimple, heap) *conds,
+gen_conditions_for_pow (gimple pow_call, vec<gimple> conds,
                         unsigned *nconds)
 {
   tree base, expn;
@@ -671,15 +663,15 @@ get_no_error_domain (enum built_in_function fnc)
    condition are separated by NULL tree in the vector.  */
 
 static void
-gen_shrink_wrap_conditions (gimple bi_call, VEC (gimple, heap) *conds,
+gen_shrink_wrap_conditions (gimple bi_call, vec<gimple> conds,
                             unsigned int *nconds)
 {
   gimple call;
   tree fn;
   enum built_in_function fnc;
 
-  gcc_assert (nconds && conds);
-  gcc_assert (VEC_length (gimple, conds) == 0);
+  gcc_assert (nconds && conds.exists ());
+  gcc_assert (conds.length () == 0);
   gcc_assert (is_gimple_call (bi_call));
 
   call = bi_call;
@@ -718,7 +710,7 @@ shrink_wrap_one_built_in_call (gimple bi_call)
   basic_block bi_call_bb, join_tgt_bb, guard_bb, guard_bb0;
   edge join_tgt_in_edge_from_call, join_tgt_in_edge_fall_thru;
   edge bi_call_in_edge0, guard_bb_in_edge;
-  VEC (gimple, heap) *conds;
+  vec<gimple> conds;
   unsigned tn_cond_stmts, nconds;
   unsigned ci;
   gimple cond_expr = NULL;
@@ -726,7 +718,7 @@ shrink_wrap_one_built_in_call (gimple bi_call)
   tree bi_call_label_decl;
   gimple bi_call_label;
 
-  conds = VEC_alloc (gimple, heap, 12);
+  conds.create (12);
   gen_shrink_wrap_conditions (bi_call, conds, &nconds);
 
   /* This can happen if the condition generator decides
@@ -750,12 +742,12 @@ shrink_wrap_one_built_in_call (gimple bi_call)
   /* Now it is time to insert the first conditional expression
      into bi_call_bb and split this bb so that bi_call is
      shrink-wrapped.  */
-  tn_cond_stmts = VEC_length (gimple, conds);
+  tn_cond_stmts = conds.length ();
   cond_expr = NULL;
-  cond_expr_start = VEC_index (gimple, conds, 0);
+  cond_expr_start = conds[0];
   for (ci = 0; ci < tn_cond_stmts; ci++)
     {
-      gimple c = VEC_index (gimple, conds, ci);
+      gimple c = conds[ci];
       gcc_assert (c || ci != 0);
       if (!c)
         break;
@@ -780,8 +772,13 @@ shrink_wrap_one_built_in_call (gimple bi_call)
                                           EDGE_FALSE_VALUE);
 
   bi_call_in_edge0->probability = REG_BR_PROB_BASE * ERR_PROB;
+  bi_call_in_edge0->count =
+      apply_probability (guard_bb0->count,
+			 bi_call_in_edge0->probability);
   join_tgt_in_edge_fall_thru->probability =
-      REG_BR_PROB_BASE - bi_call_in_edge0->probability;
+      inverse_probability (bi_call_in_edge0->probability);
+  join_tgt_in_edge_fall_thru->count =
+      guard_bb0->count - bi_call_in_edge0->count;
 
   /* Code generation for the rest of the conditions  */
   guard_bb = guard_bb0;
@@ -791,10 +788,10 @@ shrink_wrap_one_built_in_call (gimple bi_call)
       edge bi_call_in_edge;
       gimple_stmt_iterator guard_bsi = gsi_for_stmt (cond_expr_start);
       ci0 = ci;
-      cond_expr_start = VEC_index (gimple, conds, ci0);
+      cond_expr_start = conds[ci0];
       for (; ci < tn_cond_stmts; ci++)
         {
-          gimple c = VEC_index (gimple, conds, ci);
+          gimple c = conds[ci];
           gcc_assert (c || ci != ci0);
           if (!c)
             break;
@@ -811,11 +808,15 @@ shrink_wrap_one_built_in_call (gimple bi_call)
       bi_call_in_edge = make_edge (guard_bb, bi_call_bb, EDGE_TRUE_VALUE);
 
       bi_call_in_edge->probability = REG_BR_PROB_BASE * ERR_PROB;
+      bi_call_in_edge->count =
+	  apply_probability (guard_bb->count,
+			     bi_call_in_edge->probability);
       guard_bb_in_edge->probability =
-          REG_BR_PROB_BASE - bi_call_in_edge->probability;
+          inverse_probability (bi_call_in_edge->probability);
+      guard_bb_in_edge->count = guard_bb->count - bi_call_in_edge->count;
     }
 
-  VEC_free (gimple, heap, conds);
+  conds.release ();
   if (dump_file && (dump_flags & TDF_DETAILS))
     {
       location_t loc;
@@ -833,18 +834,18 @@ shrink_wrap_one_built_in_call (gimple bi_call)
    wrapping transformation.  */
 
 static bool
-shrink_wrap_conditional_dead_built_in_calls (VEC (gimple, heap) *calls)
+shrink_wrap_conditional_dead_built_in_calls (vec<gimple> calls)
 {
   bool changed = false;
   unsigned i = 0;
 
-  unsigned n = VEC_length (gimple, calls);
+  unsigned n = calls.length ();
   if (n == 0)
     return false;
 
   for (; i < n ; i++)
     {
-      gimple bi_call = VEC_index (gimple, calls, i);
+      gimple bi_call = calls[i];
       changed |= shrink_wrap_one_built_in_call (bi_call);
     }
 
@@ -859,7 +860,7 @@ tree_call_cdce (void)
   basic_block bb;
   gimple_stmt_iterator i;
   bool something_changed = false;
-  VEC (gimple, heap) *cond_dead_built_in_calls = NULL;
+  vec<gimple> cond_dead_built_in_calls = vNULL;
   FOR_EACH_BB (bb)
     {
       /* Collect dead call candidates.  */
@@ -875,20 +876,20 @@ tree_call_cdce (void)
                   print_gimple_stmt (dump_file, stmt, 0, TDF_SLIM);
                   fprintf (dump_file, "\n");
                 }
-	      if (cond_dead_built_in_calls == NULL)
-		cond_dead_built_in_calls = VEC_alloc (gimple, heap, 64);
-	      VEC_safe_push (gimple, heap, cond_dead_built_in_calls, stmt);
+	      if (!cond_dead_built_in_calls.exists ())
+		cond_dead_built_in_calls.create (64);
+	      cond_dead_built_in_calls.safe_push (stmt);
             }
 	}
     }
 
-  if (cond_dead_built_in_calls == NULL)
+  if (!cond_dead_built_in_calls.exists ())
     return 0;
 
   something_changed
     = shrink_wrap_conditional_dead_built_in_calls (cond_dead_built_in_calls);
 
-  VEC_free (gimple, heap, cond_dead_built_in_calls);
+  cond_dead_built_in_calls.release ();
 
   if (something_changed)
     {
@@ -896,7 +897,7 @@ tree_call_cdce (void)
       free_dominance_info (CDI_POST_DOMINATORS);
       /* As we introduced new control-flow we need to insert PHI-nodes
          for the call-clobbers of the remaining call.  */
-      mark_sym_for_renaming (gimple_vop (cfun));
+      mark_virtual_operands_for_renaming (cfun);
       return (TODO_update_ssa | TODO_cleanup_cfg | TODO_ggc_collect
               | TODO_remove_unused_locals);
     }
@@ -918,6 +919,7 @@ struct gimple_opt_pass pass_call_cdce =
  {
   GIMPLE_PASS,
   "cdce",                               /* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_call_cdce,                       /* gate */
   tree_call_cdce,                       /* execute */
   NULL,                                 /* sub */

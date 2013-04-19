@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2001-2012, Free Software Foundation, Inc.         --
+--          Copyright (C) 2001-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -754,7 +754,7 @@ package body Prj.Env is
          exit when Data = No_Source;
 
          if Data.Unit /= No_Unit_Index then
-            if Data.Locally_Removed then
+            if Data.Locally_Removed and then not Data.Suppressed then
                Fmap.Add_Forbidden_File_Name (Data.File);
             else
                Fmap.Add_To_File_Map
@@ -829,7 +829,8 @@ package body Prj.Env is
             Source := Prj.Element (Iter);
             exit when Source = No_Source;
 
-            if Source.Replaced_By = No_Source
+            if not Source.Suppressed
+              and then Source.Replaced_By = No_Source
               and then Source.Path.Name /= No_Path
               and then (Source.Language.Config.Kind = File_Based
                          or else Source.Unit /= No_Unit_Index)
@@ -1835,8 +1836,9 @@ package body Prj.Env is
    ---------------------
 
    procedure Add_Directories
-     (Self : in out Project_Search_Path;
-      Path : String)
+     (Self    : in out Project_Search_Path;
+      Path    : String;
+      Prepend : Boolean := False)
    is
       Tmp : String_Access;
    begin
@@ -1844,7 +1846,11 @@ package body Prj.Env is
          Self.Path := new String'(Uninitialized_Prefix & Path);
       else
          Tmp := Self.Path;
-         Self.Path := new String'(Tmp.all & Path_Separator & Path);
+         if Prepend then
+            Self.Path := new String'(Path & Path_Separator & Tmp.all);
+         else
+            Self.Path := new String'(Tmp.all & Path_Separator & Path);
+         end if;
          Free (Tmp);
       end if;
 
@@ -2042,8 +2048,7 @@ package body Prj.Env is
                   --  $prefix/$target/lib/gnat
 
                   Add_Str_To_Name_Buffer
-                    (Path_Separator & Prefix.all &
-                     Target_Name);
+                    (Path_Separator & Prefix.all & Target_Name);
 
                   --  Note: Target_Name has a trailing / when it comes from
                   --  Sdefault.
@@ -2183,7 +2188,7 @@ package body Prj.Env is
 
       function Try_Path_Name is new Find_Name_In_Path
         (Check_Filename => Is_Regular_File);
-      --  Find a file in the project search path.
+      --  Find a file in the project search path
 
       --  Local Declarations
 

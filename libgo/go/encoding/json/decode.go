@@ -67,8 +67,8 @@ func Unmarshal(data []byte, v interface{}) error {
 
 // Unmarshaler is the interface implemented by objects
 // that can unmarshal a JSON description of themselves.
-// The input can be assumed to be a valid JSON object
-// encoding.  UnmarshalJSON must copy the JSON data
+// The input can be assumed to be a valid encoding of
+// a JSON value. UnmarshalJSON must copy the JSON data
 // if it wishes to retain the data after returning.
 type Unmarshaler interface {
 	UnmarshalJSON([]byte) error
@@ -87,6 +87,7 @@ func (e *UnmarshalTypeError) Error() string {
 
 // An UnmarshalFieldError describes a JSON object key that
 // led to an unexported (and therefore unwritable) struct field.
+// (No longer used; kept for compatibility.)
 type UnmarshalFieldError struct {
 	Key   string
 	Type  reflect.Type
@@ -125,16 +126,31 @@ func (d *decodeState) unmarshal(v interface{}) (err error) {
 	}()
 
 	rv := reflect.ValueOf(v)
-	pv := rv
-	if pv.Kind() != reflect.Ptr || pv.IsNil() {
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
 		return &InvalidUnmarshalError{reflect.TypeOf(v)}
 	}
 
 	d.scan.reset()
-	// We decode rv not pv.Elem because the Unmarshaler interface
+	// We decode rv not rv.Elem because the Unmarshaler interface
 	// test must be applied at the top level of the value.
 	d.value(rv)
 	return d.savedError
+}
+
+// A Number represents a JSON number literal.
+type Number string
+
+// String returns the literal text of the number.
+func (n Number) String() string { return string(n) }
+
+// Float64 returns the number as a float64.
+func (n Number) Float64() (float64, error) {
+	return strconv.ParseFloat(string(n), 64)
+}
+
+// Int64 returns the number as an int64.
+func (n Number) Int64() (int64, error) {
+	return strconv.ParseInt(string(n), 10, 64)
 }
 
 // decodeState represents the state while decoding a JSON value.
@@ -145,6 +161,7 @@ type decodeState struct {
 	nextscan   scanner // for calls to nextValue
 	savedError error
 	tempstr    string // scratch space to avoid some allocations
+	useNumber  bool
 }
 
 // errPhase is used for errors that should not happen unless
@@ -265,47 +282,32 @@ func (d *decodeState) indirect(v reflect.Value, decodingNull bool) (Unmarshaler,
 		v = v.Addr()
 	}
 	for {
-		var isUnmarshaler bool
-		if v.Type().NumMethod() > 0 {
-			// Remember that this is an unmarshaler,
-			// but wait to return it until after allocating
-			// the pointer (if necessary).
-			_, isUnmarshaler = v.Interface().(Unmarshaler)
-		}
-
 		// Load value from interface, but only if the result will be
 		// usefully addressable.
-		if iv := v; iv.Kind() == reflect.Interface && !iv.IsNil() {
-			e := iv.Elem()
+		if v.Kind() == reflect.Interface && !v.IsNil() {
+			e := v.Elem()
 			if e.Kind() == reflect.Ptr && !e.IsNil() && (!decodingNull || e.Elem().Kind() == reflect.Ptr) {
 				v = e
 				continue
 			}
 		}
 
-		pv := v
-		if pv.Kind() != reflect.Ptr {
+		if v.Kind() != reflect.Ptr {
 			break
 		}
 
-		if pv.Elem().Kind() != reflect.Ptr && decodingNull && pv.CanSet() {
-			return nil, pv
+		if v.Elem().Kind() != reflect.Ptr && decodingNull && v.CanSet() {
+			break
 		}
-		if pv.IsNil() {
-			pv.Set(reflect.New(pv.Type().Elem()))
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
 		}
-		if isUnmarshaler {
-			// Using v.Interface().(Unmarshaler)
-			// here means that we have to use a pointer
-			// as the struct field.  We cannot use a value inside
-			// a pointer to a struct, because in that case
-			// v.Interface() is the value (x.f) not the pointer (&x.f).
-			// This is an unfortunate consequence of reflect.
-			// An alternative would be to look up the
-			// UnmarshalJSON method and return a FuncValue.
-			return v.Interface().(Unmarshaler), reflect.Value{}
+		if v.Type().NumMethod() > 0 {
+			if unmarshaler, ok := v.Interface().(Unmarshaler); ok {
+				return unmarshaler, reflect.Value{}
+			}
 		}
-		v = pv.Elem()
+		v = v.Elem()
 	}
 	return nil, v
 }
@@ -327,14 +329,18 @@ func (d *decodeState) array(v reflect.Value) {
 
 	// Check type of target.
 	switch v.Kind() {
+	case reflect.Interface:
+		if v.NumMethod() == 0 {
+			// Decoding into nil interface?  Switch to non-reflect code.
+			v.Set(reflect.ValueOf(d.arrayInterface()))
+			return
+		}
+		// Otherwise it's invalid.
+		fallthrough
 	default:
 		d.saveError(&UnmarshalTypeError{"array", v.Type()})
 		d.off--
 		d.next()
-		return
-	case reflect.Interface:
-		// Decoding into nil interface?  Switch to non-reflect code.
-		v.Set(reflect.ValueOf(d.arrayInterface()))
 		return
 	case reflect.Array:
 	case reflect.Slice:
@@ -421,36 +427,27 @@ func (d *decodeState) object(v reflect.Value) {
 	v = pv
 
 	// Decoding into nil interface?  Switch to non-reflect code.
-	iv := v
-	if iv.Kind() == reflect.Interface {
-		iv.Set(reflect.ValueOf(d.objectInterface()))
+	if v.Kind() == reflect.Interface && v.NumMethod() == 0 {
+		v.Set(reflect.ValueOf(d.objectInterface()))
 		return
 	}
 
 	// Check type of target: struct or map[string]T
-	var (
-		mv reflect.Value
-		sv reflect.Value
-	)
 	switch v.Kind() {
 	case reflect.Map:
-		// map must have string type
+		// map must have string kind
 		t := v.Type()
-		if t.Key() != reflect.TypeOf("") {
+		if t.Key().Kind() != reflect.String {
 			d.saveError(&UnmarshalTypeError{"object", v.Type()})
 			break
 		}
-		mv = v
-		if mv.IsNil() {
-			mv.Set(reflect.MakeMap(t))
+		if v.IsNil() {
+			v.Set(reflect.MakeMap(t))
 		}
 	case reflect.Struct:
-		sv = v
+
 	default:
 		d.saveError(&UnmarshalTypeError{"object", v.Type()})
-	}
-
-	if !mv.IsValid() && !sv.IsValid() {
 		d.off--
 		d.next() // skip over { } in input
 		return
@@ -482,8 +479,8 @@ func (d *decodeState) object(v reflect.Value) {
 		var subv reflect.Value
 		destring := false // whether the value is wrapped in a string to be decoded first
 
-		if mv.IsValid() {
-			elemType := mv.Type().Elem()
+		if v.Kind() == reflect.Map {
+			elemType := v.Type().Elem()
 			if !mapElem.IsValid() {
 				mapElem = reflect.New(elemType).Elem()
 			} else {
@@ -491,51 +488,30 @@ func (d *decodeState) object(v reflect.Value) {
 			}
 			subv = mapElem
 		} else {
-			var f reflect.StructField
-			var ok bool
-			st := sv.Type()
-			for i := 0; i < sv.NumField(); i++ {
-				sf := st.Field(i)
-				tag := sf.Tag.Get("json")
-				if tag == "-" {
-					// Pretend this field doesn't exist.
-					continue
+			var f *field
+			fields := cachedTypeFields(v.Type())
+			for i := range fields {
+				ff := &fields[i]
+				if ff.name == key {
+					f = ff
+					break
 				}
-				if sf.Anonymous {
-					// Pretend this field doesn't exist,
-					// so that we can do a good job with
-					// these in a later version.
-					continue
-				}
-				// First, tag match
-				tagName, _ := parseTag(tag)
-				if tagName == key {
-					f = sf
-					ok = true
-					break // no better match possible
-				}
-				// Second, exact field name match
-				if sf.Name == key {
-					f = sf
-					ok = true
-				}
-				// Third, case-insensitive field name match,
-				// but only if a better match hasn't already been seen
-				if !ok && strings.EqualFold(sf.Name, key) {
-					f = sf
-					ok = true
+				if f == nil && strings.EqualFold(ff.name, key) {
+					f = ff
 				}
 			}
-
-			// Extract value; name must be exported.
-			if ok {
-				if f.PkgPath != "" {
-					d.saveError(&UnmarshalFieldError{key, st, f})
-				} else {
-					subv = sv.FieldByIndex(f.Index)
+			if f != nil {
+				subv = v
+				destring = f.quoted
+				for _, i := range f.index {
+					if subv.Kind() == reflect.Ptr {
+						if subv.IsNil() {
+							subv.Set(reflect.New(subv.Type().Elem()))
+						}
+						subv = subv.Elem()
+					}
+					subv = subv.Field(i)
 				}
-				_, opts := parseTag(f.Tag.Get("json"))
-				destring = opts.Contains("string")
 			}
 		}
 
@@ -554,10 +530,12 @@ func (d *decodeState) object(v reflect.Value) {
 		} else {
 			d.value(subv)
 		}
+
 		// Write value back to map;
 		// if using struct, subv points into struct already.
-		if mv.IsValid() {
-			mv.SetMapIndex(reflect.ValueOf(key), subv)
+		if v.Kind() == reflect.Map {
+			kv := reflect.ValueOf(key).Convert(v.Type().Key())
+			v.SetMapIndex(kv, subv)
 		}
 
 		// Next token must be , or }.
@@ -586,6 +564,21 @@ func (d *decodeState) literal(v reflect.Value) {
 	d.literalStore(d.data[start:d.off], v, false)
 }
 
+// convertNumber converts the number literal s to a float64 or a Number
+// depending on the setting of d.useNumber.
+func (d *decodeState) convertNumber(s string) (interface{}, error) {
+	if d.useNumber {
+		return Number(s), nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil, &UnmarshalTypeError{"number " + s, reflect.TypeOf(0.0)}
+	}
+	return f, nil
+}
+
+var numberType = reflect.TypeOf(Number(""))
+
 // literalStore decodes a literal stored in item into v.
 //
 // fromQuoted indicates whether this literal came from unwrapping a
@@ -612,12 +605,10 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 	switch c := item[0]; c {
 	case 'n': // null
 		switch v.Kind() {
-		default:
-			d.saveError(&UnmarshalTypeError{"null", v.Type()})
 		case reflect.Interface, reflect.Ptr, reflect.Map, reflect.Slice:
 			v.Set(reflect.Zero(v.Type()))
+			// otherwise, ignore null for primitives/string
 		}
-
 	case 't', 'f': // true, false
 		value := c == 't'
 		switch v.Kind() {
@@ -630,7 +621,11 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 		case reflect.Bool:
 			v.SetBool(value)
 		case reflect.Interface:
-			v.Set(reflect.ValueOf(value))
+			if v.NumMethod() == 0 {
+				v.Set(reflect.ValueOf(value))
+			} else {
+				d.saveError(&UnmarshalTypeError{"bool", v.Type()})
+			}
 		}
 
 	case '"': // string
@@ -660,7 +655,11 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 		case reflect.String:
 			v.SetString(string(s))
 		case reflect.Interface:
-			v.Set(reflect.ValueOf(string(s)))
+			if v.NumMethod() == 0 {
+				v.Set(reflect.ValueOf(string(s)))
+			} else {
+				d.saveError(&UnmarshalTypeError{"string", v.Type()})
+			}
 		}
 
 	default: // number
@@ -674,15 +673,23 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 		s := string(item)
 		switch v.Kind() {
 		default:
+			if v.Kind() == reflect.String && v.Type() == numberType {
+				v.SetString(s)
+				break
+			}
 			if fromQuoted {
 				d.error(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
 			} else {
 				d.error(&UnmarshalTypeError{"number", v.Type()})
 			}
 		case reflect.Interface:
-			n, err := strconv.ParseFloat(s, 64)
+			n, err := d.convertNumber(s)
 			if err != nil {
-				d.saveError(&UnmarshalTypeError{"number " + s, v.Type()})
+				d.saveError(err)
+				break
+			}
+			if v.NumMethod() != 0 {
+				d.saveError(&UnmarshalTypeError{"number", v.Type()})
 				break
 			}
 			v.Set(reflect.ValueOf(n))
@@ -836,9 +843,9 @@ func (d *decodeState) literalInterface() interface{} {
 		if c != '-' && (c < '0' || c > '9') {
 			d.error(errPhase)
 		}
-		n, err := strconv.ParseFloat(string(item), 64)
+		n, err := d.convertNumber(string(item))
 		if err != nil {
-			d.saveError(&UnmarshalTypeError{"number " + string(item), reflect.TypeOf(0.0)})
+			d.saveError(err)
 		}
 		return n
 	}
@@ -979,11 +986,3 @@ func unquoteBytes(s []byte) (t []byte, ok bool) {
 	}
 	return b[0:w], true
 }
-
-// The following is issue 3069.
-
-// BUG(rsc): This package ignores anonymous (embedded) struct fields
-// during encoding and decoding.  A future version may assign meaning
-// to them.  To force an anonymous field to be ignored in all future
-// versions of this package, use an explicit `json:"-"` tag in the struct
-// definition.

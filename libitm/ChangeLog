@@ -1,37 +1,119 @@
+2013-02-03  Richard Sandiford  <rdsandiford@googlemail.com>
+
+	Update copyright years.
+
+2012-11-09  Torvald Riegel  <triegel@redhat.com>
+
+	* beginend.cc (htm_fastpath): New.
+	(gtm_thread::begin_transaction, _ITM_commitTransaction,
+	_ITM_commitTransactionEH): Add HTM fastpath handling.
+	* config/linux/rwlock.h (gtm_rwlock.is_write_locked): New.
+	* config/posix/rwlock.h (gtm_rwlock.is_write_locked): New.
+	* config/x86/target.h (htm_available, htm_init, htm_begin_success,
+	htm_begin, htm_commit, htm_abort, htm_abort_should_retry): New.
+	* configure.tgt: Add -mrtm to XCFLAGS.
+	* method-serial.cc (htm_mg, o_htm_mg, htm_dispatch, dispatch_htm): New.
+	(gtm_thread::serialirr_mode): Add HTM fastpath handling.
+	* libitm_i.h (htm_fastpath, dispatch_htm): Declare.
+	* retry.cc (parse_default_method): Add HTM method parsing.
+	(gtm_thread::number_of_threads_changed): Use HTM by default if
+	available.
+
+2012-11-04  Thomas Schwinge  <thomas@codesourcery.com>
+
+	* configure: Regenerate.
+
+2012-10-31  Richard Henderson  <rth@redhat.com>
+
+	* acinclude.m4 (LIBITM_CHECK_AS_RTM): New.
+	* configure.ac: Use it.
+	* config.h.in, configure: Rebuild.
+	* testsuite/Makefile.in: Rebuild.
+
+2012-10-24  Torvald Riegel  <triegel@redhat.com>
+
+	* libitm.texi: Clarify ABI requirements for data-logging functions.
+
+2012-10-24  Torvald Riegel  <triegel@redhat.com>
+
+	* retry.cc (gtm_thread::decide_begin_dispatch): Ask dispatch whether
+	it requires serial mode instead of assuming that for certain
+	dispatchs.
+	* dispatch.h (abi_dispatch::requires_serial): New.
+	(abi_dispatch::abi_dispatch): Adapt.
+	* method-gl.cc (gl_wt_dispatch::gl_wt_dispatch): Adapt.
+	* method-ml.cc (ml_wt_dispatch::ml_wt_dispatch): Same.
+	* method-serial.cc (serialirr_dispatch::serialirr_dispatch,
+	serial_dispatch::serial_dispatch,
+	serialirr_onwrite_dispatch::serialirr_onwrite_dispatch): Same.
+
+2012-10-02  Uros Bizjak  <ubizjak@gmail.com>
+
+	* config/x86/target.h (struct gtm_jmpbuf): Merge x86_64
+	and ia32 declarations some more.
+	* config/x86/sjlj.S (_ITM_beginTransaction): Move ret to common code.
+
 2012-09-20  Jakub Jelinek  <jakub@redhat.com>
 
 	PR other/43620
 	* configure.ac (AM_INIT_AUTOMAKE): Add no-dist.
-	* Makefile.in: Regenerated.
+	* configure: Regenerate.
+	* Makefile.in: Regenerate.
+
+2012-09-14  David Edelsohn  <dje.gcc@gmail.com>
+
 	* configure: Regenerated.
-	* testsuite/Makefile.in: Regenerated.
 
-2012-09-20  Release Manager
+2012-07-31  Uros Bizjak  <ubizjak@gmail.com>
 
-	* GCC 4.7.2 released.
+	* config/x86/target.h (cpu_relax): Use __builtin_ia32_pause.
 
-2012-06-14  Release Manager
+2012-05-21  Patrick Marlier  <patrick.marlier@gmail.com>
 
-	* GCC 4.7.1 released.
+	* eh_cpp.cc: Fix __cxa_end_catch declaration.
+
+2012-05-16  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* configure: Regenerated.
 
 2012-04-04  H.J. Lu  <hongjiu.lu@intel.com>
-
-	Backported from mainline
-	2012-04-04  H.J. Lu  <hongjiu.lu@intel.com>
 
 	PR libitm/52854
 	* config/x86/target.h (gtm_jmpbuf): Replace long with long long
 	for x86-64.
 
-2012-03-22  Release Manager
+2012-04-03  Tristan Gingold  <gingold@adacore.com>
 
-	* GCC 4.7.0 released.
+	* configure: Regenerate.
+
+2012-03-31  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR bootstrap/52812
+	* configure.tgt (i[456]86-*-linux*): Handle -mx32 like -m64.
+
+2012-03-16  Bernhard Reutner-Fischer  <aldot@gcc.gnu.org>
+
+	* testsuite/lib/libitm.exp: load fortran-modules.exp
+
+2012-03-14  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	* configure.tgt (*-*-irix6*): Remove.
 
 2012-03-13  Torvald Riegel  <triegel@redhat.com>
 
 	PR libitm/52526
 	* config/linux/rwlock.cc (GTM::gtm_rwlock::read_lock): Fix lost
 	wake-up.
+
+2012-03-12  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	* configure.tgt (*-*-osf*): Remove.
+	* configure: Regenerate.
+
+2012-03-05  Torvald Riegel  <triegel@redhat.com>
+
+	* dispatch.h (CREATE_DISPATCH_METHODS_MEM): Don't execute
+	memtransfer/memset if size isn't larger than zero.
 
 2012-03-02  Torvald Riegel  <triegel@redhat.com>
 

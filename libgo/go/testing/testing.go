@@ -10,10 +10,21 @@
 // [a-z]) and serves to identify the test routine.
 // These TestXxx routines should be declared within the package they are testing.
 //
+// Tests may be skipped if not applicable like this:
+//     func TestTimeConsuming(t *testing.T) {
+//         if testing.Short() {
+//             t.Skip("skipping test in short mode.")
+//         }
+//         ...
+//     }
+//
 // Functions of the form
 //     func BenchmarkXxx(*testing.B)
 // are considered benchmarks, and are executed by the "go test" command when
-// the -test.bench flag is provided.
+// the -test.bench flag is provided. Benchmarks are run sequentially.
+//
+// For a description of the testing flags, see
+// http://golang.org/cmd/go/#Description_of_testing_flags.
 //
 // A sample benchmark function looks like this:
 //     func BenchmarkHello(b *testing.B) {
@@ -24,15 +35,14 @@
 //
 // The benchmark package will vary b.N until the benchmark function lasts
 // long enough to be timed reliably.  The output
-//     testing.BenchmarkHello    10000000    282 ns/op
+//     BenchmarkHello    10000000    282 ns/op
 // means that the loop ran 10000000 times at a speed of 282 ns per loop.
 //
 // If a benchmark needs some expensive setup before running, the timer
-// may be stopped:
+// may be reset:
 //     func BenchmarkBigLen(b *testing.B) {
-//         b.StopTimer()
 //         big := NewBig()
-//         b.StartTimer()
+//         b.ResetTimer()
 //         for i := 0; i < b.N; i++ {
 //             big.Len()
 //         }
@@ -40,8 +50,8 @@
 //
 // The package also runs and verifies example code. Example functions may
 // include a concluding comment that begins with "Output:" and is compared with
-// the standard output of the function when the tests are run, as in these
-// examples of an example:
+// the standard output of the function when the tests are run. (The comparison
+// ignores leading and trailing space.) These are examples of an example:
 //
 //     func ExampleHello() {
 //             fmt.Println("hello")
@@ -79,7 +89,6 @@
 package testing
 
 import (
-	_ "debug/elf"
 	"bytes"
 	"flag"
 	"fmt"
@@ -101,14 +110,16 @@ var (
 	short = flag.Bool("test.short", false, "run smaller test suite to save time")
 
 	// Report as tests are run; default is silent for success.
-	chatty         = flag.Bool("test.v", false, "verbose: print additional output")
-	match          = flag.String("test.run", "", "regular expression to select tests and examples to run")
-	memProfile     = flag.String("test.memprofile", "", "write a memory profile to the named file after execution")
-	memProfileRate = flag.Int("test.memprofilerate", 0, "if >=0, sets runtime.MemProfileRate")
-	cpuProfile     = flag.String("test.cpuprofile", "", "write a cpu profile to the named file during execution")
-	timeout        = flag.Duration("test.timeout", 0, "if positive, sets an aggregate time limit for all tests")
-	cpuListStr     = flag.String("test.cpu", "", "comma-separated list of number of CPUs to use for each test")
-	parallel       = flag.Int("test.parallel", runtime.GOMAXPROCS(0), "maximum test parallelism")
+	chatty           = flag.Bool("test.v", false, "verbose: print additional output")
+	match            = flag.String("test.run", "", "regular expression to select tests and examples to run")
+	memProfile       = flag.String("test.memprofile", "", "write a memory profile to the named file after execution")
+	memProfileRate   = flag.Int("test.memprofilerate", 0, "if >=0, sets runtime.MemProfileRate")
+	cpuProfile       = flag.String("test.cpuprofile", "", "write a cpu profile to the named file during execution")
+	blockProfile     = flag.String("test.blockprofile", "", "write a goroutine blocking profile to the named file after execution")
+	blockProfileRate = flag.Int("test.blockprofilerate", 1, "if >= 0, calls runtime.SetBlockProfileRate()")
+	timeout          = flag.Duration("test.timeout", 0, "if positive, sets an aggregate time limit for all tests")
+	cpuListStr       = flag.String("test.cpu", "", "comma-separated list of number of CPUs to use for each test")
+	parallel         = flag.Int("test.parallel", runtime.GOMAXPROCS(0), "maximum test parallelism")
 
 	haveExamples bool // are there examples?
 
@@ -133,6 +144,11 @@ func Short() bool {
 	return *short
 }
 
+// Verbose reports whether the -test.v flag is set.
+func Verbose() bool {
+	return *chatty
+}
+
 // decorate prefixes the string with the file and line of the call site
 // and inserts the final newline if needed and indentation tabs for formatting.
 func decorate(s string) string {
@@ -152,6 +168,9 @@ func decorate(s string) string {
 	fmt.Fprintf(buf, "%s:%d: ", file, line)
 
 	lines := strings.Split(s, "\n")
+	if l := len(lines); l > 1 && lines[l-1] == "" {
+		lines = lines[:l-1]
+	}
 	for i, line := range lines {
 		if i > 0 {
 			buf.WriteByte('\n')
@@ -164,10 +183,7 @@ func decorate(s string) string {
 		}
 		buf.WriteString(line)
 	}
-	if l := len(s); l > 0 && s[len(s)-1] != '\n' {
-		// Add final new line if needed.
-		buf.WriteByte('\n')
-	}
+	buf.WriteByte('\n')
 	return buf.String()
 }
 
@@ -177,6 +193,7 @@ type T struct {
 	common
 	name          string    // Name of test.
 	startParallel chan bool // Parallel tests will wait on this.
+	skipped       bool      // Test has been skipped.
 }
 
 // Fail marks the function as having failed but continues execution.
@@ -186,7 +203,7 @@ func (c *common) Fail() {
 	c.failed = true
 }
 
-// Failed returns whether the function has failed.
+// Failed reports whether the function has failed.
 func (c *common) Failed() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -259,7 +276,7 @@ func (c *common) Fatalf(format string, args ...interface{}) {
 	c.FailNow()
 }
 
-// Parallel signals that this test is to be run in parallel with (and only with) 
+// Parallel signals that this test is to be run in parallel with (and only with)
 // other parallel tests in this CPU group.
 func (t *T) Parallel() {
 	t.signal <- (*T)(nil) // Release main testing loop
@@ -277,7 +294,7 @@ func tRunner(t *T, test *InternalTest) {
 	t.start = time.Now()
 
 	// When this goroutine is done, either because test.F(t)
-	// returned normally or because a test failure triggered 
+	// returned normally or because a test failure triggered
 	// a call to runtime.Goexit, record the duration and send
 	// a signal saying that the test is done.
 	defer func() {
@@ -320,8 +337,44 @@ func (t *T) report() {
 	if t.Failed() {
 		fmt.Printf(format, "FAIL", t.name, tstr, t.output)
 	} else if *chatty {
-		fmt.Printf(format, "PASS", t.name, tstr, t.output)
+		if t.Skipped() {
+			fmt.Printf(format, "SKIP", t.name, tstr, t.output)
+		} else {
+			fmt.Printf(format, "PASS", t.name, tstr, t.output)
+		}
 	}
+}
+
+// Skip is equivalent to Log() followed by SkipNow().
+func (t *T) Skip(args ...interface{}) {
+	t.log(fmt.Sprintln(args...))
+	t.SkipNow()
+}
+
+// Skipf is equivalent to Logf() followed by SkipNow().
+func (t *T) Skipf(format string, args ...interface{}) {
+	t.log(fmt.Sprintf(format, args...))
+	t.SkipNow()
+}
+
+// SkipNow marks the function as having been skipped and stops its execution.
+// Execution will continue at the next test or benchmark. See also, t.FailNow.
+func (t *T) SkipNow() {
+	t.skip()
+	runtime.Goexit()
+}
+
+func (t *T) skip() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.skipped = true
+}
+
+// Skipped reports whether the function was skipped.
+func (t *T) Skipped() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.skipped
 }
 
 func RunTests(matchString func(pat, str string) (bool, error), tests []InternalTest) (ok bool) {
@@ -414,7 +467,9 @@ func before() {
 		}
 		// Could save f so after can call f.Close; not worth the effort.
 	}
-
+	if *blockProfile != "" && *blockProfileRate >= 0 {
+		runtime.SetBlockProfileRate(*blockProfileRate)
+	}
 }
 
 // after runs after all testing.
@@ -430,6 +485,17 @@ func after() {
 		}
 		if err = pprof.WriteHeapProfile(f); err != nil {
 			fmt.Fprintf(os.Stderr, "testing: can't write %s: %s", *memProfile, err)
+		}
+		f.Close()
+	}
+	if *blockProfile != "" && *blockProfileRate >= 0 {
+		f, err := os.Create(*blockProfile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testing: %s", err)
+			return
+		}
+		if err = pprof.Lookup("block").WriteTo(f, 0); err != nil {
+			fmt.Fprintf(os.Stderr, "testing: can't write %s: %s", *blockProfile, err)
 		}
 		f.Close()
 	}

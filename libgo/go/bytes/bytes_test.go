@@ -6,6 +6,7 @@ package bytes_test
 
 import (
 	. "bytes"
+	"math/rand"
 	"reflect"
 	"testing"
 	"unicode"
@@ -24,16 +25,16 @@ func eq(a, b []string) bool {
 	return true
 }
 
-func arrayOfString(a [][]byte) []string {
-	result := make([]string, len(a))
-	for j := 0; j < len(a); j++ {
-		result[j] = string(a[j])
+func sliceOfString(s [][]byte) []string {
+	result := make([]string, len(s))
+	for i, v := range s {
+		result[i] = string(v)
 	}
 	return result
 }
 
 // For ease of reading, the test cases use strings that are converted to byte
-// arrays before invoking the functions.
+// slices before invoking the functions.
 
 var abcd = "abcd"
 var faces = "☺☻☹"
@@ -434,7 +435,7 @@ var explodetests = []ExplodeTest{
 func TestExplode(t *testing.T) {
 	for _, tt := range explodetests {
 		a := SplitN([]byte(tt.s), nil, tt.n)
-		result := arrayOfString(a)
+		result := sliceOfString(a)
 		if !eq(result, tt.a) {
 			t.Errorf(`Explode("%s", %d) = %v; want %v`, tt.s, tt.n, result, tt.a)
 			continue
@@ -472,7 +473,7 @@ var splittests = []SplitTest{
 func TestSplit(t *testing.T) {
 	for _, tt := range splittests {
 		a := SplitN([]byte(tt.s), []byte(tt.sep), tt.n)
-		result := arrayOfString(a)
+		result := sliceOfString(a)
 		if !eq(result, tt.a) {
 			t.Errorf(`Split(%q, %q, %d) = %v; want %v`, tt.s, tt.sep, tt.n, result, tt.a)
 			continue
@@ -488,6 +489,12 @@ func TestSplit(t *testing.T) {
 			b := Split([]byte(tt.s), []byte(tt.sep))
 			if !reflect.DeepEqual(a, b) {
 				t.Errorf("Split disagrees withSplitN(%q, %q, %d) = %v; want %v", tt.s, tt.sep, tt.n, b, a)
+			}
+		}
+		if len(a) > 0 {
+			in, out := a[0], s
+			if cap(in) == cap(out) && &in[:1][0] == &out[:1][0] {
+				t.Errorf("Join(%#v, %q) didn't copy", a, tt.sep)
 			}
 		}
 	}
@@ -512,7 +519,7 @@ var splitaftertests = []SplitTest{
 func TestSplitAfter(t *testing.T) {
 	for _, tt := range splitaftertests {
 		a := SplitAfterN([]byte(tt.s), []byte(tt.sep), tt.n)
-		result := arrayOfString(a)
+		result := sliceOfString(a)
 		if !eq(result, tt.a) {
 			t.Errorf(`Split(%q, %q, %d) = %v; want %v`, tt.s, tt.sep, tt.n, result, tt.a)
 			continue
@@ -552,7 +559,7 @@ var fieldstests = []FieldsTest{
 func TestFields(t *testing.T) {
 	for _, tt := range fieldstests {
 		a := Fields([]byte(tt.s))
-		result := arrayOfString(a)
+		result := sliceOfString(a)
 		if !eq(result, tt.a) {
 			t.Errorf("Fields(%q) = %v; want %v", tt.s, a, tt.a)
 			continue
@@ -561,6 +568,14 @@ func TestFields(t *testing.T) {
 }
 
 func TestFieldsFunc(t *testing.T) {
+	for _, tt := range fieldstests {
+		a := FieldsFunc([]byte(tt.s), unicode.IsSpace)
+		result := sliceOfString(a)
+		if !eq(result, tt.a) {
+			t.Errorf("FieldsFunc(%q, unicode.IsSpace) = %v; want %v", tt.s, a, tt.a)
+			continue
+		}
+	}
 	pred := func(c rune) bool { return c == 'X' }
 	var fieldsFuncTests = []FieldsTest{
 		{"", []string{}},
@@ -570,15 +585,15 @@ func TestFieldsFunc(t *testing.T) {
 	}
 	for _, tt := range fieldsFuncTests {
 		a := FieldsFunc([]byte(tt.s), pred)
-		result := arrayOfString(a)
+		result := sliceOfString(a)
 		if !eq(result, tt.a) {
 			t.Errorf("FieldsFunc(%q) = %v, want %v", tt.s, a, tt.a)
 		}
 	}
 }
 
-// Test case for any function which accepts and returns a byte array.
-// For ease of creation, we write the byte arrays as strings.
+// Test case for any function which accepts and returns a byte slice.
+// For ease of creation, we write the byte slices as strings.
 type StringTest struct {
 	in, out string
 }
@@ -1006,5 +1021,41 @@ func TestEqualFold(t *testing.T) {
 		if out := EqualFold([]byte(tt.t), []byte(tt.s)); out != tt.out {
 			t.Errorf("EqualFold(%#q, %#q) = %v, want %v", tt.t, tt.s, out, tt.out)
 		}
+	}
+}
+
+var makeFieldsInput = func() []byte {
+	x := make([]byte, 1<<20)
+	// Input is ~10% space, ~10% 2-byte UTF-8, rest ASCII non-space.
+	for i := range x {
+		switch rand.Intn(10) {
+		case 0:
+			x[i] = ' '
+		case 1:
+			if i > 0 && x[i-1] == 'x' {
+				copy(x[i-1:], "χ")
+				break
+			}
+			fallthrough
+		default:
+			x[i] = 'x'
+		}
+	}
+	return x
+}
+
+var fieldsInput = makeFieldsInput()
+
+func BenchmarkFields(b *testing.B) {
+	b.SetBytes(int64(len(fieldsInput)))
+	for i := 0; i < b.N; i++ {
+		Fields(fieldsInput)
+	}
+}
+
+func BenchmarkFieldsFunc(b *testing.B) {
+	b.SetBytes(int64(len(fieldsInput)))
+	for i := 0; i < b.N; i++ {
+		FieldsFunc(fieldsInput, unicode.IsSpace)
 	}
 }

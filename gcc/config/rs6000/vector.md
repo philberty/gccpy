@@ -3,8 +3,7 @@
 ;; expander, and the actual vector instructions will be in altivec.md and
 ;; vsx.md
 
-;; Copyright (C) 2009, 2010, 2011
-;; Free Software Foundation, Inc.
+;; Copyright (C) 2009-2013 Free Software Foundation, Inc.
 ;; Contributed by Michael Meissner <meissner@linux.vnet.ibm.com>
 
 ;; This file is part of GCC.
@@ -172,7 +171,7 @@
 
 
 
-;; Reload patterns for vector operations.  We may need an addtional base
+;; Reload patterns for vector operations.  We may need an additional base
 ;; register to convert the reg+offset addressing to reg+reg for vector
 ;; registers and reg+reg or (reg+reg)&(-16) addressing to just an index
 ;; register for gpr registers.

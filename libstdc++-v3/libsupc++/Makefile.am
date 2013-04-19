@@ -1,8 +1,6 @@
 ## Makefile for the GNU C++ Support library.
 ##
-## Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-## 2009, 2010, 2011, 2012
-## Free Software Foundation, Inc.
+## Copyright (C) 2000-2013 Free Software Foundation, Inc.
 ##
 ## Process this file with automake to produce Makefile.in.
 ##
@@ -48,6 +46,7 @@ endif
 sources = \
 	array_type_info.cc \
 	atexit_arm.cc \
+	atexit_thread.cc \
 	bad_alloc.cc \
 	bad_cast.cc \
 	bad_typeid.cc \
@@ -123,6 +122,11 @@ guard.lo: guard.cc
 guard.o: guard.cc
 	$(CXXCOMPILE) -std=gnu++0x -c $<
 
+atexit_thread.lo: atexit_thread.cc
+	$(LTCXXCOMPILE) -std=gnu++0x -c $<
+atexit_thread.o: atexit_thread.cc
+	$(CXXCOMPILE) -std=gnu++0x -c $<
+
 nested_exception.lo: nested_exception.cc
 	$(LTCXXCOMPILE) -std=gnu++0x -c $<
 nested_exception.o: nested_exception.cc
@@ -179,14 +183,14 @@ LTCOMPILE = $(LIBTOOL) --tag CC --tag disable-shared $(LIBTOOLFLAGS) --mode=comp
 # placed after --tag CXX lest things CXX undo the affect of
 # disable-shared.
 
-# 2) Need to explicitly set LTCXXCOMPILE so that AM_CXXFLAGS is
+# 2) Need to explicitly set LTCXXCOMPILE so that EXTRA_CXX_FLAGS is
 # last. (That way, things like -O2 passed down from the toplevel can
 # be overridden by --enable-debug.)
 LTCXXCOMPILE = \
 	$(LIBTOOL) --tag CXX --tag disable-shared \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=compile $(CXX) $(TOPLEVEL_INCLUDES) \
-	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS)
+	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) $(EXTRA_CXX_FLAGS)
 
 LTLDFLAGS = $(shell $(SHELL) $(top_srcdir)/../libtool-ldflags $(LDFLAGS))
 

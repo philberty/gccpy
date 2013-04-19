@@ -1,7 +1,5 @@
 /* Combine stack adjustments.
-   Copyright (C) 1987, 1988, 1989, 1992, 1993, 1994, 1995, 1996, 1997,
-   1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2012 Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -48,7 +46,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm_p.h"
 #include "insn-config.h"
 #include "recog.h"
-#include "output.h"
 #include "regs.h"
 #include "hard-reg-set.h"
 #include "flags.h"
@@ -58,7 +55,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "df.h"
 #include "except.h"
 #include "reload.h"
-#include "timevar.h"
 #include "tree-pass.h"
 
 
@@ -214,7 +210,8 @@ try_apply_stack_adjustment (rtx insn, struct csa_reflist *reflist,
 
   for (ml = reflist; ml ; ml = ml->next)
     {
-      rtx new_addr = plus_constant (stack_pointer_rtx, ml->sp_offset - delta);
+      rtx new_addr = plus_constant (Pmode, stack_pointer_rtx,
+				    ml->sp_offset - delta);
       rtx new_val;
 
       if (MEM_P (*ml->ref))
@@ -626,26 +623,23 @@ combine_stack_adjustments_for_block (basic_block bb)
 static bool
 gate_handle_stack_adjustments (void)
 {
+  /* This is kind of a heuristic.  We need to run combine_stack_adjustments
+     even for machines with possibly nonzero TARGET_RETURN_POPS_ARGS
+     and ACCUMULATE_OUTGOING_ARGS.  We expect that only ports having
+     push instructions will have popping returns.  */
+#ifndef PUSH_ROUNDING
+  if (ACCUMULATE_OUTGOING_ARGS)
+    return false;
+#endif
   return flag_combine_stack_adjustments;
 }
 
 static unsigned int
 rest_of_handle_stack_adjustments (void)
 {
-  cleanup_cfg (flag_crossjumping ? CLEANUP_CROSSJUMP : 0);
-
-  /* This is kind of a heuristic.  We need to run combine_stack_adjustments
-     even for machines with possibly nonzero TARGET_RETURN_POPS_ARGS
-     and ACCUMULATE_OUTGOING_ARGS.  We expect that only ports having
-     push instructions will have popping returns.  */
-#ifndef PUSH_ROUNDING
-  if (!ACCUMULATE_OUTGOING_ARGS)
-#endif
-    {
-      df_note_add_problem ();
-      df_analyze ();
-      combine_stack_adjustments ();
-    }
+  df_note_add_problem ();
+  df_analyze ();
+  combine_stack_adjustments ();
   return 0;
 }
 
@@ -654,6 +648,7 @@ struct rtl_opt_pass pass_stack_adjustments =
  {
   RTL_PASS,
   "csa",                                /* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_handle_stack_adjustments,        /* gate */
   rest_of_handle_stack_adjustments,     /* execute */
   NULL,                                 /* sub */

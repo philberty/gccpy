@@ -1,5 +1,5 @@
 /* { dg-do run } */
-/* { dg-skip-if "Variadic funcs have all args on stack. Normal funcs have args in registers." { "avr-*-*" } { "*" } { "" } } */
+/* { dg-skip-if "Variadic funcs have all args on stack. Normal funcs have args in registers." { "aarch64*-*-* avr-*-* " } { "*" } { "" } } */
 /* { dg-skip-if "Variadic funcs use Base AAPCS.  Normal funcs use VFP variant." { "arm*-*-*" } { "-mfloat-abi=hard" } { "" } } */
 
 /* PR target/12503 */
@@ -17,6 +17,9 @@
    E, F and G are passed on stack.  So the size of the stack argument
    data is 20.  */
 #define STACK_ARGUMENTS_SIZE  20
+#elif defined __MMIX__
+/* No parameters on stack for bar.  */
+#define STACK_ARGUMENTS_SIZE 0
 #else
 #define STACK_ARGUMENTS_SIZE  64
 #endif

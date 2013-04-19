@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1991-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1991-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,6 +23,7 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Atree;    use Atree;
 with Err_Vars; use Err_Vars;
 with Erroutc;  use Erroutc;
 with Namet;    use Namet;
@@ -210,6 +211,7 @@ package body Errutil is
       Errors.Table (Cur_Msg).Col      := Get_Column_Number (Sptr);
       Errors.Table (Cur_Msg).Style    := Is_Style_Msg;
       Errors.Table (Cur_Msg).Warn     := Is_Warning_Msg;
+      Errors.Table (Cur_Msg).Warn_Chr := Warning_Msg_Char;
       Errors.Table (Cur_Msg).Serious  := Is_Serious_Error;
       Errors.Table (Cur_Msg).Uncond   := Is_Unconditional_Msg;
       Errors.Table (Cur_Msg).Msg_Cont := Continuation;

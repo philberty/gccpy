@@ -1,7 +1,5 @@
 /* Perform type resolution on the various structures.
-   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 2001-2013 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -22,6 +20,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "config.h"
 #include "system.h"
+#include "coretypes.h"
 #include "flags.h"
 #include "gfortran.h"
 #include "obstack.h"
@@ -63,6 +62,14 @@ static code_stack *cs_base = NULL;
 static int forall_flag;
 static int do_concurrent_flag;
 
+/* True when we are resolving an expression that is an actual argument to
+   a procedure.  */
+static bool actual_arg = false;
+/* True when we are resolving an expression that is the first actual argument
+   to a procedure.  */
+static bool first_actual_arg = false;
+
+
 /* Nonzero if we're inside a OpenMP WORKSHARE or PARALLEL WORKSHARE block.  */
 
 static int omp_workshare_flag;
@@ -72,7 +79,7 @@ static int omp_workshare_flag;
 static int formal_arg_flag = 0;
 
 /* True if we are resolving a specification expression.  */
-static int specification_expr = 0;
+static bool specification_expr = false;
 
 /* The id of the last entry seen.  */
 static int current_entry_id;
@@ -82,6 +89,7 @@ static bitmap_obstack labels_obstack;
 
 /* True when simplifying a EXPR_VARIABLE argument to an inquiry function.  */
 static bool inquiry_argument = false;
+
 
 int
 gfc_is_formal_arg (void)
@@ -128,8 +136,55 @@ resolve_typespec_used (gfc_typespec* ts, locus* where, const char* name)
 }
 
 
+static gfc_try
+check_proc_interface (gfc_symbol *ifc, locus *where)
+{
+  /* Several checks for F08:C1216.  */
+  if (ifc->attr.procedure)
+    {
+      gfc_error ("Interface '%s' at %L is declared "
+		 "in a later PROCEDURE statement", ifc->name, where);
+      return FAILURE;
+    }
+  if (ifc->generic)
+    {
+      /* For generic interfaces, check if there is
+	 a specific procedure with the same name.  */
+      gfc_interface *gen = ifc->generic;
+      while (gen && strcmp (gen->sym->name, ifc->name) != 0)
+	gen = gen->next;
+      if (!gen)
+	{
+	  gfc_error ("Interface '%s' at %L may not be generic",
+		     ifc->name, where);
+	  return FAILURE;
+	}
+    }
+  if (ifc->attr.proc == PROC_ST_FUNCTION)
+    {
+      gfc_error ("Interface '%s' at %L may not be a statement function",
+		 ifc->name, where);
+      return FAILURE;
+    }
+  if (gfc_is_intrinsic (ifc, 0, ifc->declared_at)
+      || gfc_is_intrinsic (ifc, 1, ifc->declared_at))
+    ifc->attr.intrinsic = 1;
+  if (ifc->attr.intrinsic && !gfc_intrinsic_actual_ok (ifc->name, 0))
+    {
+      gfc_error ("Intrinsic procedure '%s' not allowed in "
+		 "PROCEDURE statement at %L", ifc->name, where);
+      return FAILURE;
+    }
+  if (!ifc->attr.if_source && !ifc->attr.intrinsic && ifc->name[0] != '\0')
+    {
+      gfc_error ("Interface '%s' at %L must be explicit", ifc->name, where);
+      return FAILURE;
+    }
+  return SUCCESS;
+}
+
+
 static void resolve_symbol (gfc_symbol *sym);
-static gfc_try resolve_intrinsic (gfc_symbol *sym, locus *loc);
 
 
 /* Resolve the interface for a PROCEDURE declaration or procedure pointer.  */
@@ -137,28 +192,26 @@ static gfc_try resolve_intrinsic (gfc_symbol *sym, locus *loc);
 static gfc_try
 resolve_procedure_interface (gfc_symbol *sym)
 {
-  if (sym->ts.interface == sym)
+  gfc_symbol *ifc = sym->ts.interface;
+
+  if (!ifc)
+    return SUCCESS;
+
+  if (ifc == sym)
     {
       gfc_error ("PROCEDURE '%s' at %L may not be used as its own interface",
 		 sym->name, &sym->declared_at);
       return FAILURE;
     }
-  if (sym->ts.interface->attr.procedure)
-    {
-      gfc_error ("Interface '%s', used by procedure '%s' at %L, is declared "
-		 "in a later PROCEDURE statement", sym->ts.interface->name,
-		 sym->name, &sym->declared_at);
-      return FAILURE;
-    }
+  if (check_proc_interface (ifc, &sym->declared_at) == FAILURE)
+    return FAILURE;
 
-  /* Get the attributes from the interface (now resolved).  */
-  if (sym->ts.interface->attr.if_source || sym->ts.interface->attr.intrinsic)
+  if (ifc->attr.if_source || ifc->attr.intrinsic)
     {
-      gfc_symbol *ifc = sym->ts.interface;
+      /* Resolve interface and copy attributes.  */
       resolve_symbol (ifc);
-
       if (ifc->attr.intrinsic)
-	resolve_intrinsic (ifc, &ifc->declared_at);
+	gfc_resolve_intrinsic (ifc, &ifc->declared_at);
 
       if (ifc->result)
 	{
@@ -170,7 +223,6 @@ resolve_procedure_interface (gfc_symbol *sym)
       sym->ts.interface = ifc;
       sym->attr.function = ifc->attr.function;
       sym->attr.subroutine = ifc->attr.subroutine;
-      gfc_copy_formal_args (sym, ifc);
 
       sym->attr.allocatable = ifc->attr.allocatable;
       sym->attr.pointer = ifc->attr.pointer;
@@ -182,32 +234,17 @@ resolve_procedure_interface (gfc_symbol *sym)
       sym->attr.always_explicit = ifc->attr.always_explicit;
       sym->attr.ext_attr |= ifc->attr.ext_attr;
       sym->attr.is_bind_c = ifc->attr.is_bind_c;
+      sym->attr.class_ok = ifc->attr.class_ok;
       /* Copy array spec.  */
       sym->as = gfc_copy_array_spec (ifc->as);
-      if (sym->as)
-	{
-	  int i;
-	  for (i = 0; i < sym->as->rank; i++)
-	    {
-	      gfc_expr_replace_symbols (sym->as->lower[i], sym);
-	      gfc_expr_replace_symbols (sym->as->upper[i], sym);
-	    }
-	}
       /* Copy char length.  */
       if (ifc->ts.type == BT_CHARACTER && ifc->ts.u.cl)
 	{
 	  sym->ts.u.cl = gfc_new_charlen (sym->ns, ifc->ts.u.cl);
-	  gfc_expr_replace_symbols (sym->ts.u.cl->length, sym);
 	  if (sym->ts.u.cl->length && !sym->ts.u.cl->resolved
 	      && gfc_resolve_expr (sym->ts.u.cl->length) == FAILURE)
 	    return FAILURE;
 	}
-    }
-  else if (sym->ts.interface->name[0] != '\0')
-    {
-      gfc_error ("Interface '%s' of procedure '%s' at %L must be explicit",
-		 sym->ts.interface->name, sym->name, &sym->declared_at);
-      return FAILURE;
     }
 
   return SUCCESS;
@@ -228,6 +265,7 @@ resolve_formal_arglist (gfc_symbol *proc)
 {
   gfc_formal_arglist *f;
   gfc_symbol *sym;
+  bool saved_specification_expr;
   int i;
 
   if (proc->result != NULL)
@@ -237,7 +275,7 @@ resolve_formal_arglist (gfc_symbol *proc)
 
   if (gfc_elemental (proc)
       || sym->attr.pointer || sym->attr.allocatable
-      || (sym->as && sym->as->rank > 0))
+      || (sym->as && sym->as->rank != 0))
     {
       proc->attr.always_explicit = 1;
       sym->attr.always_explicit = 1;
@@ -247,6 +285,8 @@ resolve_formal_arglist (gfc_symbol *proc)
 
   for (f = proc->formal; f; f = f->next)
     {
+      gfc_array_spec *as;
+
       sym = f->sym;
 
       if (sym == NULL)
@@ -262,9 +302,9 @@ resolve_formal_arglist (gfc_symbol *proc)
 		       &proc->declared_at);
 	  continue;
 	}
-      else if (sym->attr.procedure && sym->ts.interface
-	       && sym->attr.if_source != IFSRC_DECL)
-	resolve_procedure_interface (sym);
+      else if (sym->attr.procedure && sym->attr.if_source != IFSRC_DECL
+	       && resolve_procedure_interface (sym) == FAILURE)
+	return;
 
       if (sym->attr.if_source != IFSRC_UNKNOWN)
 	resolve_formal_arglist (sym);
@@ -281,23 +321,37 @@ resolve_formal_arglist (gfc_symbol *proc)
 	    gfc_set_default_type (sym, 1, sym->ns);
 	}
 
-      gfc_resolve_array_spec (sym->as, 0);
+      as = sym->ts.type == BT_CLASS && sym->attr.class_ok
+	   ? CLASS_DATA (sym)->as : sym->as;
+
+      saved_specification_expr = specification_expr;
+      specification_expr = true;
+      gfc_resolve_array_spec (as, 0);
+      specification_expr = saved_specification_expr;
 
       /* We can't tell if an array with dimension (:) is assumed or deferred
 	 shape until we know if it has the pointer or allocatable attributes.
       */
-      if (sym->as && sym->as->rank > 0 && sym->as->type == AS_DEFERRED
-	  && !(sym->attr.pointer || sym->attr.allocatable)
+      if (as && as->rank > 0 && as->type == AS_DEFERRED
+	  && ((sym->ts.type != BT_CLASS
+	       && !(sym->attr.pointer || sym->attr.allocatable))
+              || (sym->ts.type == BT_CLASS
+		  && !(CLASS_DATA (sym)->attr.class_pointer
+		       || CLASS_DATA (sym)->attr.allocatable)))
 	  && sym->attr.flavor != FL_PROCEDURE)
 	{
-	  sym->as->type = AS_ASSUMED_SHAPE;
-	  for (i = 0; i < sym->as->rank; i++)
-	    sym->as->lower[i] = gfc_get_int_expr (gfc_default_integer_kind,
-						  NULL, 1);
+	  as->type = AS_ASSUMED_SHAPE;
+	  for (i = 0; i < as->rank; i++)
+	    as->lower[i] = gfc_get_int_expr (gfc_default_integer_kind, NULL, 1);
 	}
 
-      if ((sym->as && sym->as->rank > 0 && sym->as->type == AS_ASSUMED_SHAPE)
+      if ((as && as->rank > 0 && as->type == AS_ASSUMED_SHAPE)
+	  || (as && as->type == AS_ASSUMED_RANK)
 	  || sym->attr.pointer || sym->attr.allocatable || sym->attr.target
+	  || (sym->ts.type == BT_CLASS && sym->attr.class_ok
+	      && (CLASS_DATA (sym)->attr.class_pointer
+		  || CLASS_DATA (sym)->attr.allocatable
+		  || CLASS_DATA (sym)->attr.target))
 	  || sym->attr.optional)
 	{
 	  proc->attr.always_explicit = 1;
@@ -328,7 +382,7 @@ resolve_formal_arglist (gfc_symbol *proc)
 	      if (proc->attr.function && sym->attr.intent != INTENT_IN)
 		{
 		  if (sym->attr.value)
-		    gfc_notify_std (GFC_STD_F2008, "Fortran 2008: Argument '%s'"
+		    gfc_notify_std (GFC_STD_F2008, "Argument '%s'"
 				    " of pure function '%s' at %L with VALUE "
 				    "attribute but without INTENT(IN)",
 				    sym->name, proc->name, &sym->declared_at);
@@ -341,7 +395,7 @@ resolve_formal_arglist (gfc_symbol *proc)
 	      if (proc->attr.subroutine && sym->attr.intent == INTENT_UNKNOWN)
 		{
 		  if (sym->attr.value)
-		    gfc_notify_std (GFC_STD_F2008, "Fortran 2008: Argument '%s'"
+		    gfc_notify_std (GFC_STD_F2008, "Argument '%s'"
 				    " of pure subroutine '%s' at %L with VALUE "
 				    "attribute but without INTENT", sym->name,
 				    proc->name, &sym->declared_at);
@@ -421,10 +475,12 @@ resolve_formal_arglist (gfc_symbol *proc)
 	      continue;
 	    }
 
-	  if (sym->attr.intent == INTENT_UNKNOWN)
+	  /* Fortran 2008 Corrigendum 1, C1290a.  */
+	  if (sym->attr.intent == INTENT_UNKNOWN && !sym->attr.value)
 	    {
 	      gfc_error ("Argument '%s' of elemental procedure '%s' at %L must "
-			 "have its INTENT specified", sym->name, proc->name,
+			 "have its INTENT specified or have the VALUE "
+			 "attribute", sym->name, proc->name,
 			 &sym->declared_at);
 	      continue;
 	    }
@@ -722,7 +778,7 @@ resolve_entries (gfc_namespace *ns)
 			   && ts->u.cl->length->expr_type == EXPR_CONSTANT
 		           && mpz_cmp (ts->u.cl->length->value.integer,
 				       fts->u.cl->length->value.integer) != 0)))
-	    gfc_notify_std (GFC_STD_GNU, "Extension: Function %s at %L with "
+	    gfc_notify_std (GFC_STD_GNU, "Function %s at %L with "
 			    "entries returning variables of different "
 			    "string lengths", ns->entries->sym->name,
 			    &ns->entries->sym->declared_at);
@@ -860,6 +916,10 @@ resolve_common_vars (gfc_symbol *sym, bool named_common)
 			    &csym->declared_at);
 	}
 
+      if (UNLIMITED_POLY (csym))
+	gfc_error_now ("'%s' in cannot appear in COMMON at %L "
+		       "[F2008:C5100]", csym->name, &csym->declared_at);
+
       if (csym->ts.type != BT_DERIVED)
 	continue;
 
@@ -915,12 +975,12 @@ resolve_common_blocks (gfc_symtree *common_root)
 	       sym->name, &common_root->n.common->where);
   else if (sym->attr.result
 	   || gfc_is_function_return_value (sym, gfc_current_ns))
-    gfc_notify_std (GFC_STD_F2003, "Fortran 2003: COMMON block '%s' at %L "
+    gfc_notify_std (GFC_STD_F2003, "COMMON block '%s' at %L "
 		    "that is also a function result", sym->name,
 		    &common_root->n.common->where);
   else if (sym->attr.flavor == FL_PROCEDURE && sym->attr.proc != PROC_INTERNAL
 	   && sym->attr.proc != PROC_ST_FUNCTION)
-    gfc_notify_std (GFC_STD_F2003, "Fortran 2003: COMMON block '%s' at %L "
+    gfc_notify_std (GFC_STD_F2003, "COMMON block '%s' at %L "
 		    "that is also a global procedure", sym->name,
 		    &common_root->n.common->where);
 }
@@ -1032,23 +1092,28 @@ resolve_structure_cons (gfc_expr *expr, int init)
       if (!comp->attr.proc_pointer &&
 	  !gfc_compare_types (&cons->expr->ts, &comp->ts))
 	{
-	  t = FAILURE;
 	  if (strcmp (comp->name, "_extends") == 0)
 	    {
 	      /* Can afford to be brutal with the _extends initializer.
 		 The derived type can get lost because it is PRIVATE
 		 but it is not usage constrained by the standard.  */
 	      cons->expr->ts = comp->ts;
-	      t = SUCCESS;
 	    }
 	  else if (comp->attr.pointer && cons->expr->ts.type != BT_UNKNOWN)
-	    gfc_error ("The element in the structure constructor at %L, "
-		       "for pointer component '%s', is %s but should be %s",
-		       &cons->expr->where, comp->name,
-		       gfc_basic_typename (cons->expr->ts.type),
-		       gfc_basic_typename (comp->ts.type));
+	    {
+	      gfc_error ("The element in the structure constructor at %L, "
+			 "for pointer component '%s', is %s but should be %s",
+			 &cons->expr->where, comp->name,
+			 gfc_basic_typename (cons->expr->ts.type),
+			 gfc_basic_typename (comp->ts.type));
+	      t = FAILURE;
+	    }
 	  else
-	    t = gfc_convert_type (cons->expr, &comp->ts, 1);
+	    {
+	      gfc_try t2 = gfc_convert_type (cons->expr, &comp->ts, 1);
+	      if (t != FAILURE)
+		t = t2;
+	    }
 	}
 
       /* For strings, the length of the constructor should be the same as
@@ -1135,7 +1200,8 @@ resolve_structure_cons (gfc_expr *expr, int init)
 	  const char *name;
 	  char err[200];
 
-	  if (gfc_is_proc_ptr_comp (cons->expr, &c2))
+	  c2 = gfc_get_proc_ptr_comp (cons->expr);
+	  if (c2)
 	    {
 	      s2 = c2->ts.interface;
 	      name = c2->name;
@@ -1152,7 +1218,7 @@ resolve_structure_cons (gfc_expr *expr, int init)
 	    }
 
 	  if (s2 && !gfc_compare_interfaces (comp->ts.interface, s2, name, 0, 1,
-					     err, sizeof (err)))
+					     err, sizeof (err), NULL, NULL))
 	    {
 	      gfc_error ("Interface mismatch for procedure-pointer component "
 			 "'%s' in structure constructor at %L: %s",
@@ -1401,7 +1467,7 @@ count_specific_procs (gfc_expr *e)
 
 
 /* See if a call to sym could possibly be a not allowed RECURSION because of
-   a missing RECURIVE declaration.  This means that either sym is the current
+   a missing RECURSIVE declaration.  This means that either sym is the current
    context itself, or sym is the parent of a contained procedure calling its
    non-RECURSIVE containing procedure.
    This also works if sym is an ENTRY.  */
@@ -1478,8 +1544,8 @@ is_illegal_recursion (gfc_symbol* sym, gfc_namespace* context)
 /* Resolve an intrinsic procedure: Set its function/subroutine attribute,
    its typespec and formal argument list.  */
 
-static gfc_try
-resolve_intrinsic (gfc_symbol *sym, locus *loc)
+gfc_try
+gfc_resolve_intrinsic (gfc_symbol *sym, locus *loc)
 {
   gfc_intrinsic_sym* isym = NULL;
   const char* symstd;
@@ -1567,7 +1633,7 @@ resolve_procedure_expression (gfc_expr* expr)
   sym = expr->symtree->n.sym;
 
   if (sym->attr.intrinsic)
-    resolve_intrinsic (sym, &expr->where);
+    gfc_resolve_intrinsic (sym, &expr->where);
 
   if (sym->attr.flavor != FL_PROCEDURE
       || (sym->attr.function && sym->result == sym))
@@ -1598,6 +1664,11 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
   gfc_symtree *parent_st;
   gfc_expr *e;
   int save_need_full_assumed_size;
+  gfc_try return_value = FAILURE;
+  bool actual_arg_sav = actual_arg, first_actual_arg_sav = first_actual_arg;
+
+  actual_arg = true;
+  first_actual_arg = true;
 
   for (; arg; arg = arg->next)
     {
@@ -1611,9 +1682,10 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 		{
 		  gfc_error ("Label %d referenced at %L is never defined",
 			     arg->label->value, &arg->label->where);
-		  return FAILURE;
+		  goto cleanup;
 		}
 	    }
+	  first_actual_arg = false;
 	  continue;
 	}
 
@@ -1621,7 +1693,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 	    && e->symtree->n.sym->attr.generic
 	    && no_formal_args
 	    && count_specific_procs (e) != 1)
-	return FAILURE;
+	goto cleanup;
 
       if (e->ts.type != BT_PROCEDURE)
 	{
@@ -1629,7 +1701,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 	  if (e->expr_type != EXPR_VARIABLE)
 	    need_full_assumed_size = 0;
 	  if (gfc_resolve_expr (e) != SUCCESS)
-	    return FAILURE;
+	    goto cleanup;
 	  need_full_assumed_size = save_need_full_assumed_size;
 	  goto argument_list;
 	}
@@ -1646,10 +1718,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 
 	  /* If a procedure is not already determined to be something else
 	     check if it is intrinsic.  */
-	  if (!sym->attr.intrinsic
-	      && !(sym->attr.external || sym->attr.use_assoc
-		   || sym->attr.if_source == IFSRC_IFBODY)
-	      && gfc_is_intrinsic (sym, sym->attr.subroutine, e->where))
+	  if (gfc_is_intrinsic (sym, sym->attr.subroutine, e->where))
 	    sym->attr.intrinsic = 1;
 
 	  if (sym->attr.proc == PROC_ST_FUNCTION)
@@ -1670,10 +1739,10 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 	      && sym->ns->proc_name->attr.flavor != FL_MODULE)
 	    {
 	      if (gfc_notify_std (GFC_STD_F2008,
-				  "Fortran 2008: Internal procedure '%s' is"
+				  "Internal procedure '%s' is"
 				  " used as actual argument at %L",
 				  sym->name, &e->where) == FAILURE)
-		return FAILURE;
+		goto cleanup;
 	    }
 
 	  if (sym->attr.elemental && !sym->attr.intrinsic)
@@ -1686,7 +1755,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 	  /* Check if a generic interface has a specific procedure
 	    with the same name before emitting an error.  */
 	  if (sym->attr.generic && count_specific_procs (e) != 1)
-	    return FAILURE;
+	    goto cleanup;
 
 	  /* Just in case a specific was found for the expression.  */
 	  sym = e->symtree->n.sym;
@@ -1708,7 +1777,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 		  gfc_error ("Unable to find a specific INTRINSIC procedure "
 			     "for the reference '%s' at %L", sym->name,
 			     &e->where);
-		  return FAILURE;
+		  goto cleanup;
 		}
 	      sym->ts = isym->ts;
 	      sym->attr.intrinsic = 1;
@@ -1716,7 +1785,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 	    }
 
 	  if (gfc_resolve_expr (e) == FAILURE)
-	    return FAILURE;
+	    goto cleanup;
 	  goto argument_list;
 	}
 
@@ -1728,7 +1797,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
       if (gfc_find_sym_tree (sym->name, sym->ns->parent, 1, &parent_st))
 	{
 	  gfc_error ("Symbol '%s' at %L is ambiguous", sym->name, &e->where);
-	  return FAILURE;
+	  goto cleanup;
 	}
 
       if (parent_st == NULL)
@@ -1742,7 +1811,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 	  || sym->attr.external)
 	{
 	  if (gfc_resolve_expr (e) == FAILURE)
-	    return FAILURE;
+	    goto cleanup;
 	  goto argument_list;
 	}
 
@@ -1770,7 +1839,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
       if (e->expr_type != EXPR_VARIABLE)
 	need_full_assumed_size = 0;
       if (gfc_resolve_expr (e) != SUCCESS)
-	return FAILURE;
+	goto cleanup;
       need_full_assumed_size = save_need_full_assumed_size;
 
     argument_list:
@@ -1784,14 +1853,14 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 		{
 		  gfc_error ("By-value argument at %L is not of numeric "
 			     "type", &e->where);
-		  return FAILURE;
+		  goto cleanup;
 		}
 
 	      if (e->rank)
 		{
 		  gfc_error ("By-value argument at %L cannot be an array or "
 			     "an array section", &e->where);
-		return FAILURE;
+		  goto cleanup;
 		}
 
 	      /* Intrinsics are still PROC_UNKNOWN here.  However,
@@ -1805,7 +1874,7 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 		{
 		  gfc_error ("By-value argument at %L is not allowed "
 			     "in this context", &e->where);
-		  return FAILURE;
+		  goto cleanup;
 		}
 	    }
 
@@ -1817,22 +1886,30 @@ resolve_actual_arglist (gfc_actual_arglist *arg, procedure_type ptype,
 		{
 		  gfc_error ("Passing internal procedure at %L by location "
 			     "not allowed", &e->where);
-		  return FAILURE;
+		  goto cleanup;
 		}
 	    }
 	}
 
       /* Fortran 2008, C1237.  */
       if (e->expr_type == EXPR_VARIABLE && gfc_is_coindexed (e)
-          && gfc_has_ultimate_pointer (e))
-        {
-          gfc_error ("Coindexed actual argument at %L with ultimate pointer "
+	  && gfc_has_ultimate_pointer (e))
+	{
+	  gfc_error ("Coindexed actual argument at %L with ultimate pointer "
 		     "component", &e->where);
-          return FAILURE;
-        }
+	  goto cleanup;
+	}
+
+      first_actual_arg = false;
     }
 
-  return SUCCESS;
+  return_value = SUCCESS;
+
+cleanup:
+  actual_arg = actual_arg_sav;
+  first_actual_arg = first_actual_arg_sav;
+
+  return return_value;
 }
 
 
@@ -1892,7 +1969,7 @@ resolve_elemental_actual (gfc_expr *expr, gfc_code *c)
   /* The rank of an elemental is the rank of its array argument(s).  */
   for (arg = arg0; arg; arg = arg->next)
     {
-      if (arg->expr != NULL && arg->expr->rank > 0)
+      if (arg->expr != NULL && arg->expr->rank != 0)
 	{
 	  rank = arg->expr->rank;
 	  if (arg->expr->expr_type == EXPR_VARIABLE
@@ -1954,7 +2031,6 @@ resolve_elemental_actual (gfc_expr *expr, gfc_code *c)
 		       "ELEMENTAL procedure unless there is a non-optional "
 		       "argument with the same rank (12.4.1.5)",
 		       arg->expr->symtree->n.sym->name, &arg->expr->where);
-	  return FAILURE;
 	}
     }
 
@@ -2192,6 +2268,15 @@ resolve_global_procedure (gfc_symbol *sym, locus *where,
 			   sym->name, &sym->declared_at, arg->sym->name);
 		break;
 	      }
+	    /* TS 29113, 6.2.  */
+	    else if (arg->sym && arg->sym->as
+		     && arg->sym->as->type == AS_ASSUMED_RANK)
+	      {
+		gfc_error ("Procedure '%s' at %L with assumed-rank dummy "
+			   "argument '%s' must have an explicit interface",
+			   sym->name, &sym->declared_at, arg->sym->name);
+		break;
+	      }
 	    /* F2008, 12.4.2.2 (2c)  */
 	    else if (arg->sym->attr.codimension)
 	      {
@@ -2213,6 +2298,15 @@ resolve_global_procedure (gfc_symbol *sym, locus *where,
 	    else if (arg->sym->ts.type == BT_CLASS)
 	      {
 		gfc_error ("Procedure '%s' at %L with polymorphic dummy "
+			   "argument '%s' must have an explicit interface",
+			   sym->name, &sym->declared_at, arg->sym->name);
+		break;
+	      }
+	    /* As assumed-type is unlimited polymorphic (cf. above).
+	       See also  TS 29113, Note 6.1.  */
+	    else if (arg->sym->ts.type == BT_ASSUMED)
+	      {
+		gfc_error ("Procedure '%s' at %L with assumed-type dummy "
 			   "argument '%s' must have an explicit interface",
 			   sym->name, &sym->declared_at, arg->sym->name);
 		break;
@@ -2550,8 +2644,7 @@ static bool
 is_external_proc (gfc_symbol *sym)
 {
   if (!sym->attr.dummy && !sym->attr.contained
-	&& !(sym->attr.intrinsic
-	      || gfc_is_intrinsic (sym, sym->attr.subroutine, sym->declared_at))
+	&& !gfc_is_intrinsic (sym, sym->attr.subroutine, sym->declared_at)
 	&& sym->attr.proc != PROC_ST_FUNCTION
 	&& !sym->attr.proc_pointer
 	&& !sym->attr.use_assoc
@@ -2960,20 +3053,18 @@ gfc_iso_c_func_interface (gfc_symbol *sym, gfc_actual_arglist *args,
             {
               /* TODO: Update this error message to allow for procedure
                  pointers once they are implemented.  */
-              gfc_error_now ("Parameter '%s' to '%s' at %L must be a "
+              gfc_error_now ("Argument '%s' to '%s' at %L must be a "
                              "procedure",
                              args_sym->name, sym->name,
                              &(args->expr->where));
               retval = FAILURE;
             }
-	  else if (args_sym->attr.is_bind_c != 1)
-	    {
-	      gfc_error_now ("Parameter '%s' to '%s' at %L must be "
-			     "BIND(C)",
-			     args_sym->name, sym->name,
-			     &(args->expr->where));
-	      retval = FAILURE;
-	    }
+	  else if (args_sym->attr.is_bind_c != 1
+		   && gfc_notify_std (GFC_STD_F2008_TS, "Noninteroperable "
+				      "argument '%s' to '%s' at %L",
+				      args_sym->name, sym->name,
+				      &(args->expr->where)) == FAILURE)
+	    retval = FAILURE;
         }
 
       /* for c_loc/c_funloc, the new symbol is the same as the old one */
@@ -3008,11 +3099,11 @@ resolve_function (gfc_expr *expr)
     sym = expr->symtree->n.sym;
 
   /* If this is a procedure pointer component, it has already been resolved.  */
-  if (gfc_is_proc_ptr_comp (expr, NULL))
+  if (gfc_is_proc_ptr_comp (expr))
     return SUCCESS;
 
   if (sym && sym->attr.intrinsic
-      && resolve_intrinsic (sym, &expr->where) == FAILURE)
+      && gfc_resolve_intrinsic (sym, &expr->where) == FAILURE)
     return FAILURE;
 
   if (sym && (sym->attr.flavor == FL_VARIABLE || sym->attr.subroutine))
@@ -3039,7 +3130,8 @@ resolve_function (gfc_expr *expr)
 
   if (expr->value.function.isym && expr->value.function.isym->inquiry)
     inquiry_argument = true;
-  no_formal_args = sym && is_external_proc (sym) && sym->formal == NULL;
+  no_formal_args = sym && is_external_proc (sym)
+  		       && gfc_sym_get_dummy_args (sym) == NULL;
 
   if (resolve_actual_arglist (expr->value.function.actual,
 			      p, no_formal_args) == FAILURE)
@@ -3428,7 +3520,11 @@ gfc_iso_c_sub_interface (gfc_code *c, gfc_symbol *sym)
 
   /* Make sure the actual arguments are in the necessary order (based on the
      formal args) before resolving.  */
-  gfc_procedure_use (sym, &c->ext.actual, &(c->loc));
+  if (gfc_procedure_use (sym, &c->ext.actual, &(c->loc)) == FAILURE)
+    {
+      c->resolved_sym = sym;
+      return MATCH_ERROR;
+    }
 
   if ((sym->intmod_sym_id == ISOCBINDING_F_POINTER) ||
       (sym->intmod_sym_id == ISOCBINDING_F_PROCPOINTER))
@@ -3439,30 +3535,67 @@ gfc_iso_c_sub_interface (gfc_code *c, gfc_symbol *sym)
 	{
 	  if (c->ext.actual != NULL && c->ext.actual->next != NULL)
 	    {
-	      /* Make sure we got a third arg if the second arg has non-zero
-		 rank.	We must also check that the type and rank are
+	      gfc_actual_arglist *arg1 = c->ext.actual;
+	      gfc_actual_arglist *arg2 = c->ext.actual->next;
+	      gfc_actual_arglist *arg3 = c->ext.actual->next->next;
+
+	      /* Check first argument (CPTR).  */
+	      if (arg1->expr->ts.type != BT_DERIVED
+		  || arg1->expr->ts.u.derived->intmod_sym_id != ISOCBINDING_PTR)
+		{
+		  gfc_error ("Argument CPTR to C_F_POINTER at %L shall have "
+			     "the type C_PTR", &arg1->expr->where);
+		  m = MATCH_ERROR;
+		}
+
+	      /* Check second argument (FPTR).  */
+	      if (arg2->expr->ts.type == BT_CLASS)
+		{
+		  gfc_error ("Argument FPTR to C_F_POINTER at %L must not be "
+			     "polymorphic", &arg2->expr->where);
+		  m = MATCH_ERROR;
+		}
+
+	      /* Make sure we got a third arg (SHAPE) if the second arg has
+		 non-zero rank. We must also check that the type and rank are
 		 correct since we short-circuit this check in
 		 gfc_procedure_use() (called above to sort actual args).  */
-	      if (c->ext.actual->next->expr->rank != 0)
+	      if (arg2->expr->rank != 0)
 		{
-		  if(c->ext.actual->next->next == NULL
-		     || c->ext.actual->next->next->expr == NULL)
+		  if (arg3 == NULL || arg3->expr == NULL)
 		    {
 		      m = MATCH_ERROR;
-		      gfc_error ("Missing SHAPE parameter for call to %s "
-				 "at %L", sym->name, &(c->loc));
+		      gfc_error ("Missing SHAPE argument for call to %s at %L",
+				 sym->name, &c->loc);
 		    }
-		  else if (c->ext.actual->next->next->expr->ts.type
-			   != BT_INTEGER
-			   || c->ext.actual->next->next->expr->rank != 1)
+		  else if (arg3->expr->ts.type != BT_INTEGER
+			   || arg3->expr->rank != 1)
 		    {
 		      m = MATCH_ERROR;
-		      gfc_error ("SHAPE parameter for call to %s at %L must "
-				 "be a rank 1 INTEGER array", sym->name,
-				 &(c->loc));
+		      gfc_error ("SHAPE argument for call to %s at %L must be "
+				 "a rank 1 INTEGER array", sym->name, &c->loc);
 		    }
 		}
 	    }
+	}
+      else /* ISOCBINDING_F_PROCPOINTER.  */
+	{
+	  if (c->ext.actual
+	      && (c->ext.actual->expr->ts.type != BT_DERIVED
+		  || c->ext.actual->expr->ts.u.derived->intmod_sym_id
+		     != ISOCBINDING_FUNPTR))
+	    {
+	      gfc_error ("Argument at %L to C_F_FUNPOINTER shall have the type "
+	                 "C_FUNPTR", &c->ext.actual->expr->where);
+              m = MATCH_ERROR;
+	    }
+	  if (c->ext.actual && c->ext.actual->next
+	      && !gfc_expr_attr (c->ext.actual->next->expr).is_bind_c
+	      && gfc_notify_std (GFC_STD_F2008_TS, "Noninteroperable "
+				 "procedure-pointer at %L to C_F_FUNPOINTER",
+				 &c->ext.actual->next->expr->where)
+		   == FAILURE)
+	    m = MATCH_ERROR;
 	}
 
       if (m != MATCH_ERROR)
@@ -3683,7 +3816,8 @@ resolve_call (gfc_code *c)
   if (csym)
     ptype = csym->attr.proc;
 
-  no_formal_args = csym && is_external_proc (csym) && csym->formal == NULL;
+  no_formal_args = csym && is_external_proc (csym)
+			&& gfc_sym_get_dummy_args (csym) == NULL;
   if (resolve_actual_arglist (c->ext.actual, ptype,
 			      no_formal_args) == FAILURE)
     return FAILURE;
@@ -3915,6 +4049,28 @@ resolve_operator (gfc_expr *e)
 
 	  e->ts.type = BT_LOGICAL;
 	  e->ts.kind = gfc_default_logical_kind;
+
+	  if (gfc_option.warn_compare_reals)
+	    {
+	      gfc_intrinsic_op op = e->value.op.op;
+
+	      /* Type conversion has made sure that the types of op1 and op2
+		 agree, so it is only necessary to check the first one.   */
+	      if ((op1->ts.type == BT_REAL || op1->ts.type == BT_COMPLEX)
+		  && (op == INTRINSIC_EQ || op == INTRINSIC_EQ_OS
+		      || op == INTRINSIC_NE || op == INTRINSIC_NE_OS))
+		{
+		  const char *msg;
+
+		  if (op == INTRINSIC_EQ || op == INTRINSIC_EQ_OS)
+		    msg = "Equality comparison for %s at %L";
+		  else
+		    msg = "Inequality comparison for %s at %L";
+
+		  gfc_warning (msg, gfc_typename (&op1->ts), &op1->where);
+		}
+	    }
+
 	  break;
 	}
 
@@ -4447,7 +4603,7 @@ gfc_resolve_index_1 (gfc_expr *index, int check_scalar,
     }
 
   if (index->ts.type == BT_REAL)
-    if (gfc_notify_std (GFC_STD_LEGACY, "Extension: REAL array index at %L",
+    if (gfc_notify_std (GFC_STD_LEGACY, "REAL array index at %L",
 			&index->where) == FAILURE)
       return FAILURE;
 
@@ -4812,7 +4968,11 @@ gfc_resolve_substring_charlen (gfc_expr *e)
     end = NULL;
 
   if (!start || !end)
-    return;
+    {
+      gfc_free_expr (start);
+      gfc_free_expr (end);
+      return;
+    }
 
   /* Length = (end - start +1).  */
   e->ts.u.cl->length = gfc_subtract (end, start);
@@ -4901,14 +5061,19 @@ resolve_ref (gfc_expr *expr)
 	    {
 	      /* F03:C614.  */
 	      if (ref->u.c.component->attr.pointer
-		  || ref->u.c.component->attr.proc_pointer)
+		  || ref->u.c.component->attr.proc_pointer
+		  || (ref->u.c.component->ts.type == BT_CLASS
+			&& CLASS_DATA (ref->u.c.component)->attr.pointer))
 		{
 		  gfc_error ("Component to the right of a part reference "
 			     "with nonzero rank must not have the POINTER "
 			     "attribute at %L", &expr->where);
 		  return FAILURE;
 		}
-	      else if (ref->u.c.component->attr.allocatable)
+	      else if (ref->u.c.component->attr.allocatable
+			|| (ref->u.c.component->ts.type == BT_CLASS
+			    && CLASS_DATA (ref->u.c.component)->attr.allocatable))
+
 		{
 		  gfc_error ("Component to the right of a part reference "
 			     "with nonzero rank must not have the ALLOCATABLE "
@@ -4957,7 +5122,7 @@ expression_shape (gfc_expr *e)
   mpz_t array[GFC_MAX_DIMENSIONS];
   int i;
 
-  if (e->rank == 0 || e->shape != NULL)
+  if (e->rank <= 0 || e->shape != NULL)
     return;
 
   for (i = 0; i < e->rank; i++)
@@ -5059,10 +5224,90 @@ resolve_variable (gfc_expr *e)
     return FAILURE;
   sym = e->symtree->n.sym;
 
+  /* TS 29113, 407b.  */
+  if (e->ts.type == BT_ASSUMED)
+    {
+      if (!actual_arg)
+	{
+	  gfc_error ("Assumed-type variable %s at %L may only be used "
+		     "as actual argument", sym->name, &e->where);
+	  return FAILURE;
+	}
+      else if (inquiry_argument && !first_actual_arg)
+	{
+	  /* FIXME: It doesn't work reliably as inquiry_argument is not set
+	     for all inquiry functions in resolve_function; the reason is
+	     that the function-name resolution happens too late in that
+	     function.  */
+	  gfc_error ("Assumed-type variable %s at %L as actual argument to "
+		     "an inquiry function shall be the first argument",
+		     sym->name, &e->where);
+	  return FAILURE;
+	}
+    }
+
+  /* TS 29113, C535b.  */
+  if ((sym->ts.type == BT_CLASS && sym->attr.class_ok
+	&& CLASS_DATA (sym)->as
+	&& CLASS_DATA (sym)->as->type == AS_ASSUMED_RANK)
+       || (sym->ts.type != BT_CLASS && sym->as
+	   && sym->as->type == AS_ASSUMED_RANK))
+    {
+      if (!actual_arg)
+	{
+	  gfc_error ("Assumed-rank variable %s at %L may only be used as "
+		     "actual argument", sym->name, &e->where);
+	  return FAILURE;
+	}
+      else if (inquiry_argument && !first_actual_arg)
+	{
+	  /* FIXME: It doesn't work reliably as inquiry_argument is not set
+	     for all inquiry functions in resolve_function; the reason is
+	     that the function-name resolution happens too late in that
+	     function.  */
+	  gfc_error ("Assumed-rank variable %s at %L as actual argument "
+		     "to an inquiry function shall be the first argument",
+		     sym->name, &e->where);
+	  return FAILURE;
+	}
+    }
+
+  /* TS 29113, 407b.  */
+  if (e->ts.type == BT_ASSUMED && e->ref
+      && !(e->ref->type == REF_ARRAY && e->ref->u.ar.type == AR_FULL
+	   && e->ref->next == NULL))
+    {
+      gfc_error ("Assumed-type variable %s at %L shall not have a subobject "
+		 "reference", sym->name, &e->ref->u.ar.where);
+      return FAILURE;
+    }
+
+  /* TS 29113, C535b.  */
+  if (((sym->ts.type == BT_CLASS && sym->attr.class_ok
+	&& CLASS_DATA (sym)->as
+	&& CLASS_DATA (sym)->as->type == AS_ASSUMED_RANK)
+       || (sym->ts.type != BT_CLASS && sym->as
+	   && sym->as->type == AS_ASSUMED_RANK))
+      && e->ref
+      && !(e->ref->type == REF_ARRAY && e->ref->u.ar.type == AR_FULL
+	   && e->ref->next == NULL))
+    {
+      gfc_error ("Assumed-rank variable %s at %L shall not have a subobject "
+		 "reference", sym->name, &e->ref->u.ar.where);
+      return FAILURE;
+    }
+
+
   /* If this is an associate-name, it may be parsed with an array reference
-     in error even though the target is scalar.  Fail directly in this case.  */
-  if (sym->assoc && !sym->attr.dimension && e->ref && e->ref->type == REF_ARRAY)
-    return FAILURE;
+     in error even though the target is scalar.  Fail directly in this case.
+     TODO Understand why class scalar expressions must be excluded.  */
+  if (sym->assoc && !(sym->ts.type == BT_CLASS && e->rank == 0))
+    {
+      if (sym->ts.type == BT_CLASS)
+	gfc_fix_class_refs (e);
+      if (!sym->attr.dimension && e->ref && e->ref->type == REF_ARRAY)
+	return FAILURE;
+    }
 
   if (sym->ts.type == BT_DERIVED && sym->ts.u.derived->attr.generic)
     sym->ts.u.derived = gfc_find_dt_in_generic (sym->ts.u.derived);
@@ -5114,7 +5359,7 @@ resolve_variable (gfc_expr *e)
       gfc_entry_list *entry;
       gfc_formal_arglist *formal;
       int n;
-      bool seen;
+      bool seen, saved_specification_expr;
 
       /* If the symbol is a dummy...  */
       if (sym->attr.dummy && sym->ns == gfc_current_ns)
@@ -5147,7 +5392,8 @@ resolve_variable (gfc_expr *e)
 	}
 
       /* Now do the same check on the specification expressions.  */
-      specification_expr = 1;
+      saved_specification_expr = specification_expr;
+      specification_expr = true;
       if (sym->ts.type == BT_CHARACTER
 	  && gfc_resolve_expr (sym->ts.u.cl->length) == FAILURE)
 	t = FAILURE;
@@ -5155,14 +5401,12 @@ resolve_variable (gfc_expr *e)
       if (sym->as)
 	for (n = 0; n < sym->as->rank; n++)
 	  {
-	     specification_expr = 1;
 	     if (gfc_resolve_expr (sym->as->lower[n]) == FAILURE)
 	       t = FAILURE;
-	     specification_expr = 1;
 	     if (gfc_resolve_expr (sym->as->upper[n]) == FAILURE)
 	       t = FAILURE;
 	  }
-      specification_expr = 0;
+      specification_expr = saved_specification_expr;
 
       if (t == SUCCESS)
 	/* Update the symbol's entry level.  */
@@ -5354,7 +5598,12 @@ gfc_resolve_character_operator (gfc_expr *e)
   e->ts.u.cl = gfc_new_charlen (gfc_current_ns, NULL);
 
   if (!e1 || !e2)
-    return;
+    {
+      gfc_free_expr (e1);
+      gfc_free_expr (e2);
+
+      return;
+    }
 
   e->ts.u.cl->length = gfc_add (e1, e2);
   e->ts.u.cl->length->ts.type = BT_INTEGER;
@@ -5525,7 +5774,8 @@ update_ppc_arglist (gfc_expr* e)
   gfc_component *ppc;
   gfc_typebound_proc* tb;
 
-  if (!gfc_is_proc_ptr_comp (e, &ppc))
+  ppc = gfc_get_proc_ptr_comp (e);
+  if (!ppc)
     return FAILURE;
 
   tb = ppc->tb;
@@ -5540,7 +5790,7 @@ update_ppc_arglist (gfc_expr* e)
     return FAILURE;
 
   /* F08:R739.  */
-  if (po->rank > 0)
+  if (po->rank != 0)
     {
       gfc_error ("Passed-object at %L must be scalar", &e->where);
       return FAILURE;
@@ -5578,6 +5828,9 @@ check_typebound_baseobject (gfc_expr* e)
 
   gcc_assert (base->ts.type == BT_DERIVED || base->ts.type == BT_CLASS);
 
+  if (base->ts.type == BT_CLASS && !gfc_expr_attr (base).class_ok)
+    return FAILURE;
+
   /* F08:C611.  */
   if (base->ts.type == BT_DERIVED && base->ts.u.derived->attr.abstract)
     {
@@ -5588,7 +5841,7 @@ check_typebound_baseobject (gfc_expr* e)
 
   /* F08:C1230. If the procedure called is NOPASS,
      the base object must be scalar.  */
-  if (e->value.compcall.tbp->nopass && base->rank > 0)
+  if (e->value.compcall.tbp->nopass && base->rank != 0)
     {
       gfc_error ("Base object for NOPASS type-bound procedure call at %L must"
 		 " be scalar", &e->where);
@@ -5639,7 +5892,7 @@ resolve_typebound_static (gfc_expr* e, gfc_symtree** target,
       derived = e->value.compcall.base_object->ts.u.derived;
       st = NULL;
 
-      /* If necessary, go throught the inheritance chain.  */
+      /* If necessary, go through the inheritance chain.  */
       while (!st && derived)
 	{
 	  /* Look for the typebound procedure 'name'.  */
@@ -5745,7 +5998,10 @@ resolve_typebound_generic_call (gfc_expr* e, const char **name)
 	      gfc_expr* po;
 	      po = extract_compcall_passed_object (e);
 	      if (!po)
-		return FAILURE;
+		{
+		  gfc_free_actual_arglist (args);
+		  return FAILURE;
+		}
 
 	      gcc_assert (g->specific->pass_arg_num > 0);
 	      gcc_assert (!g->specific->error);
@@ -5753,7 +6009,8 @@ resolve_typebound_generic_call (gfc_expr* e, const char **name)
 					  g->specific->pass_arg);
 	    }
 	  resolve_actual_arglist (args, target->attr.proc,
-				  is_external_proc (target) && !target->formal);
+				  is_external_proc (target)
+				  && gfc_sym_get_dummy_args (target) == NULL);
 
 	  /* Check if this arglist matches the formal.  */
 	  matches = gfc_arglist_matches_symbol (&args, target);
@@ -5994,7 +6251,10 @@ resolve_typebound_function (gfc_expr* e)
   /* Treat the call as if it is a typebound procedure, in order to roll
      out the correct name for the specific function.  */
   if (resolve_compcall (e, &name) == FAILURE)
-    return FAILURE;
+    {
+      gfc_free_ref_list (new_ref);
+      return FAILURE;
+    }
   ts = e->ts;
 
   if (overridable)
@@ -6115,7 +6375,10 @@ resolve_typebound_subroutine (gfc_code *code)
     }
 
   if (resolve_typebound_call (code, &name) == FAILURE)
-    return FAILURE;
+    {
+      gfc_free_ref_list (new_ref);
+      return FAILURE;
+    }
   ts = code->expr1->ts;
 
   if (overridable)
@@ -6148,10 +6411,9 @@ static gfc_try
 resolve_ppc_call (gfc_code* c)
 {
   gfc_component *comp;
-  bool b;
 
-  b = gfc_is_proc_ptr_comp (c->expr1, &comp);
-  gcc_assert (b);
+  comp = gfc_get_proc_ptr_comp (c->expr1);
+  gcc_assert (comp != NULL);
 
   c->resolved_sym = c->expr1->symtree->n.sym;
   c->expr1->expr_type = EXPR_VARIABLE;
@@ -6168,7 +6430,7 @@ resolve_ppc_call (gfc_code* c)
   c->ext.actual = c->expr1->value.compcall.actual;
 
   if (resolve_actual_arglist (c->ext.actual, comp->attr.proc,
-			      comp->formal == NULL) == FAILURE)
+			      !(comp->ts.interface && comp->ts.interface->formal)) == FAILURE)
     return FAILURE;
 
   gfc_ppc_use (comp, &c->expr1->value.compcall.actual, &c->expr1->where);
@@ -6183,10 +6445,9 @@ static gfc_try
 resolve_expr_ppc (gfc_expr* e)
 {
   gfc_component *comp;
-  bool b;
 
-  b = gfc_is_proc_ptr_comp (e, &comp);
-  gcc_assert (b);
+  comp = gfc_get_proc_ptr_comp (e);
+  gcc_assert (comp != NULL);
 
   /* Convert to EXPR_FUNCTION.  */
   e->expr_type = EXPR_FUNCTION;
@@ -6203,7 +6464,7 @@ resolve_expr_ppc (gfc_expr* e)
     return FAILURE;
 
   if (resolve_actual_arglist (e->value.function.actual, comp->attr.proc,
-			      comp->formal == NULL) == FAILURE)
+			      !(comp->ts.interface && comp->ts.interface->formal)) == FAILURE)
     return FAILURE;
 
   if (update_ppc_arglist (e) == FAILURE)
@@ -6250,15 +6511,22 @@ gfc_try
 gfc_resolve_expr (gfc_expr *e)
 {
   gfc_try t;
-  bool inquiry_save;
+  bool inquiry_save, actual_arg_save, first_actual_arg_save;
 
   if (e == NULL)
     return SUCCESS;
 
   /* inquiry_argument only applies to variables.  */
   inquiry_save = inquiry_argument;
+  actual_arg_save = actual_arg;
+  first_actual_arg_save = first_actual_arg;
+
   if (e->expr_type != EXPR_VARIABLE)
-    inquiry_argument = false;
+    {
+      inquiry_argument = false;
+      actual_arg = false;
+      first_actual_arg = false;
+    }
 
   switch (e->expr_type)
     {
@@ -6348,6 +6616,8 @@ gfc_resolve_expr (gfc_expr *e)
     fixup_charlen (e);
 
   inquiry_argument = inquiry_save;
+  actual_arg = actual_arg_save;
+  first_actual_arg = first_actual_arg_save;
 
   return t;
 }
@@ -6375,7 +6645,7 @@ gfc_resolve_iterator_expr (gfc_expr *expr, bool real_ok,
 	{
 	  if (real_ok)
 	    return gfc_notify_std (GFC_STD_F95_DEL,
-				   "Deleted feature: %s at %L must be integer",
+				   "%s at %L must be integer",
 				   _(name_msgid), &expr->where);
 	  else
 	    {
@@ -6395,16 +6665,19 @@ gfc_resolve_iterator_expr (gfc_expr *expr, bool real_ok,
 
 
 /* Resolve the expressions in an iterator structure.  If REAL_OK is
-   false allow only INTEGER type iterators, otherwise allow REAL types.  */
+   false allow only INTEGER type iterators, otherwise allow REAL types.
+   Set own_scope to true for ac-implied-do and data-implied-do as those
+   have a separate scope such that, e.g., a INTENT(IN) doesn't apply.  */
 
 gfc_try
-gfc_resolve_iterator (gfc_iterator *iter, bool real_ok)
+gfc_resolve_iterator (gfc_iterator *iter, bool real_ok, bool own_scope)
 {
   if (gfc_resolve_iterator_expr (iter->var, real_ok, "Loop variable")
       == FAILURE)
     return FAILURE;
 
-  if (gfc_check_vardef_context (iter->var, false, false, _("iterator variable"))
+  if (gfc_check_vardef_context (iter->var, false, false, own_scope,
+				_("iterator variable"))
       == FAILURE)
     return FAILURE;
 
@@ -6605,6 +6878,7 @@ resolve_deallocate_expr (gfc_expr *e)
   gfc_ref *ref;
   gfc_symbol *sym;
   gfc_component *c;
+  bool unlimited;
 
   if (gfc_resolve_expr (e) == FAILURE)
     return FAILURE;
@@ -6613,6 +6887,7 @@ resolve_deallocate_expr (gfc_expr *e)
     goto bad;
 
   sym = e->symtree->n.sym;
+  unlimited = UNLIMITED_POLY(sym);
 
   if (sym->ts.type == BT_CLASS)
     {
@@ -6657,7 +6932,7 @@ resolve_deallocate_expr (gfc_expr *e)
 
   attr = gfc_expr_attr (e);
 
-  if (allocatable == 0 && attr.pointer == 0)
+  if (allocatable == 0 && attr.pointer == 0 && !unlimited)
     {
     bad:
       gfc_error ("Allocate-object at %L must be ALLOCATABLE or a POINTER",
@@ -6673,10 +6948,10 @@ resolve_deallocate_expr (gfc_expr *e)
     }
 
   if (pointer
-      && gfc_check_vardef_context (e, true, true, _("DEALLOCATE object"))
+      && gfc_check_vardef_context (e, true, true, false, _("DEALLOCATE object"))
 	 == FAILURE)
     return FAILURE;
-  if (gfc_check_vardef_context (e, false, true, _("DEALLOCATE object"))
+  if (gfc_check_vardef_context (e, false, true, false, _("DEALLOCATE object"))
       == FAILURE)
     return FAILURE;
 
@@ -6825,6 +7100,7 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
   int i, pointer, allocatable, dimension, is_abstract;
   int codimension;
   bool coindexed;
+  bool unlimited;
   symbol_attribute attr;
   gfc_ref *ref, *ref2;
   gfc_expr *e2;
@@ -6834,7 +7110,7 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
   gfc_component *c;
   gfc_try t;
 
-  /* Mark the ultimost array component as being in allocate to allow DIMEN_STAR
+  /* Mark the utmost array component as being in allocate to allow DIMEN_STAR
      checking of coarrays.  */
   for (ref = e->ref; ref; ref = ref->next)
     if (ref->next == NULL)
@@ -6855,6 +7131,9 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
 
   /* Check whether ultimate component is abstract and CLASS.  */
   is_abstract = 0;
+
+  /* Is the allocate-object unlimited polymorphic?  */
+  unlimited = UNLIMITED_POLY(e);
 
   if (e->expr_type != EXPR_VARIABLE)
     {
@@ -6941,7 +7220,8 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
 	}
     }
 
-  if (allocatable == 0 && pointer == 0)
+  /* Check for F08:C628.  */
+  if (allocatable == 0 && pointer == 0 && !unlimited)
     {
       gfc_error ("Allocate-object at %L must be ALLOCATABLE or a POINTER",
 		 &e->where);
@@ -6960,12 +7240,12 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
 	}
 
       /* Check F03:C632 and restriction following Note 6.18.  */
-      if (code->expr3->rank > 0
+      if (code->expr3->rank > 0 && !unlimited
 	  && conformable_arrays (code->expr3, e) == FAILURE)
 	goto failure;
 
       /* Check F03:C633.  */
-      if (code->expr3->ts.kind != e->ts.kind)
+      if (code->expr3->ts.kind != e->ts.kind && !unlimited)
 	{
 	  gfc_error ("The allocate-object at %L and the source-expr at %L "
 		      "shall have the same kind type parameter",
@@ -7018,9 +7298,9 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
   e2 = remove_last_array_ref (e);
   t = SUCCESS;
   if (t == SUCCESS && pointer)
-    t = gfc_check_vardef_context (e2, true, true, _("ALLOCATE object"));
+    t = gfc_check_vardef_context (e2, true, true, false, _("ALLOCATE object"));
   if (t == SUCCESS)
-    t = gfc_check_vardef_context (e2, false, true, _("ALLOCATE object"));
+    t = gfc_check_vardef_context (e2, false, true, false, _("ALLOCATE object"));
   gfc_free_expr (e2);
   if (t == FAILURE)
     goto failure;
@@ -7068,7 +7348,7 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
       code->expr3 = rhs;
     }
 
-  if (e->ts.type == BT_CLASS)
+  if (e->ts.type == BT_CLASS && !unlimited && !UNLIMITED_POLY (code->expr3))
     {
       /* Make sure the vtab symbol is present when
 	 the module variables are generated.  */
@@ -7077,7 +7357,29 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
 	ts = code->expr3->ts;
       else if (code->ext.alloc.ts.type == BT_DERIVED)
 	ts = code->ext.alloc.ts;
+
       gfc_find_derived_vtab (ts.u.derived);
+
+      if (dimension)
+	e = gfc_expr_to_initialize (e);
+    }
+  else if (unlimited && !UNLIMITED_POLY (code->expr3))
+    {
+      /* Again, make sure the vtab symbol is present when
+	 the module variables are generated.  */
+      gfc_typespec *ts = NULL;
+      if (code->expr3)
+	ts = &code->expr3->ts;
+      else
+	ts = &code->ext.alloc.ts;
+
+      gcc_assert (ts);
+
+      if (ts->type == BT_CLASS || ts->type == BT_DERIVED)
+        gfc_find_derived_vtab (ts->u.derived);
+      else
+        gfc_find_intrinsic_vtab (ts);
+
       if (dimension)
 	e = gfc_expr_to_initialize (e);
     }
@@ -7085,7 +7387,7 @@ resolve_allocate_expr (gfc_expr *e, gfc_code *code)
   if (dimension == 0 && codimension == 0)
     goto success;
 
-  /* Make sure the last reference node is an array specifiction.  */
+  /* Make sure the last reference node is an array specification.  */
 
   if (!ref2 || ref2->type != REF_ARRAY || ref2->u.ar.type == AR_FULL
       || (dimension && ref2->u.ar.dimen == 0))
@@ -7169,7 +7471,7 @@ check_symbols:
 			 "statement at %L", &e->where);
 	      goto failure;
 	    }
-	  break;
+	  continue;
 	}
 
       if (ar->dimen_type[i] == DIMEN_STAR && i == (ar->dimen + ar->codimen - 1)
@@ -7200,7 +7502,7 @@ resolve_allocate_deallocate (gfc_code *code, const char *fcn)
   /* Check the stat variable.  */
   if (stat)
     {
-      gfc_check_vardef_context (stat, false, false, _("STAT variable"));
+      gfc_check_vardef_context (stat, false, false, false, _("STAT variable"));
 
       if ((stat->ts.type != BT_INTEGER
 	   && !(stat->ref && (stat->ref->type == REF_ARRAY
@@ -7243,7 +7545,8 @@ resolve_allocate_deallocate (gfc_code *code, const char *fcn)
 	gfc_warning ("ERRMSG at %L is useless without a STAT tag",
 		     &errmsg->where);
 
-      gfc_check_vardef_context (errmsg, false, false, _("ERRMSG variable"));
+      gfc_check_vardef_context (errmsg, false, false, false,
+				_("ERRMSG variable"));
 
       if ((errmsg->ts.type != BT_CHARACTER
 	   && !(errmsg->ref
@@ -7922,11 +8225,13 @@ resolve_select (gfc_code *code, bool select_type)
 bool
 gfc_type_is_extensible (gfc_symbol *sym)
 {
-  return !(sym->attr.is_bind_c || sym->attr.sequence);
+  return !(sym->attr.is_bind_c || sym->attr.sequence
+	   || (sym->attr.is_class
+	       && sym->components->ts.u.derived->attr.unlimited_polymorphic));
 }
 
 
-/* Resolve an associate name:  Resolve target and ensure the type-spec is
+/* Resolve an associate-name:  Resolve target and ensure the type-spec is
    correct as well as possibly the array-spec.  */
 
 static void
@@ -7982,8 +8287,25 @@ resolve_assoc_var (gfc_symbol* sym, bool resolve_target)
       sym->attr.dimension = 0;
       return;
     }
-  if (target->rank > 0)
+
+  /* We cannot deal with class selectors that need temporaries.  */
+  if (target->ts.type == BT_CLASS
+	&& gfc_ref_needs_temporary_p (target->ref))
+    {
+      gfc_error ("CLASS selector at %L needs a temporary which is not "
+		 "yet implemented", &target->where);
+      return;
+    }
+
+  if (target->ts.type != BT_CLASS && target->rank > 0)
     sym->attr.dimension = 1;
+  else if (target->ts.type == BT_CLASS)
+    gfc_fix_class_refs (target);
+
+  /* The associate-name will have a correct type by now. Make absolutely
+     sure that it has not picked up a dimension attribute.  */
+  if (sym->ts.type == BT_CLASS)
+    sym->attr.dimension = 0;
 
   if (sym->attr.dimension)
     {
@@ -7995,6 +8317,13 @@ resolve_assoc_var (gfc_symbol* sym, bool resolve_target)
 	 has no corank.  */
       sym->as->corank = 0;
     }
+
+  /* Mark this as an associate variable.  */
+  sym->attr.associate_var = 1;
+
+  /* If the target is a good class object, so is the associate variable.  */
+  if (sym->ts.type == BT_CLASS && gfc_expr_attr (target).class_ok)
+    sym->attr.class_ok = 1;
 }
 
 
@@ -8011,6 +8340,7 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
   char name[GFC_MAX_SYMBOL_LEN];
   gfc_namespace *ns;
   int error = 0;
+  int charlen = 0;
 
   ns = code->ext.block.ns;
   gfc_resolve (ns);
@@ -8032,9 +8362,27 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
       if (code->expr1->symtree->n.sym->attr.untyped)
 	code->expr1->symtree->n.sym->ts = code->expr2->ts;
       selector_type = CLASS_DATA (code->expr2)->ts.u.derived;
+
+      /* F2008: C803 The selector expression must not be coindexed.  */
+      if (gfc_is_coindexed (code->expr2))
+	{
+	  gfc_error ("Selector at %L must not be coindexed",
+		     &code->expr2->where);
+	  return;
+	}
+
     }
   else
-    selector_type = CLASS_DATA (code->expr1)->ts.u.derived;
+    {
+      selector_type = CLASS_DATA (code->expr1)->ts.u.derived;
+
+      if (gfc_is_coindexed (code->expr1))
+	{
+	  gfc_error ("Selector at %L must not be coindexed",
+		     &code->expr1->where);
+	  return;
+	}
+    }
 
   /* Loop over TYPE IS / CLASS IS cases.  */
   for (body = code->block; body; body = body->block)
@@ -8043,6 +8391,7 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
 
       /* Check F03:C815.  */
       if ((c->ts.type == BT_DERIVED || c->ts.type == BT_CLASS)
+	  && !selector_type->attr.unlimited_polymorphic
 	  && !gfc_type_is_extensible (c->ts.u.derived))
 	{
 	  gfc_error ("Derived type '%s' at %L must be extensible",
@@ -8052,11 +8401,25 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
 	}
 
       /* Check F03:C816.  */
-      if ((c->ts.type == BT_DERIVED || c->ts.type == BT_CLASS)
-	  && !gfc_type_is_extension_of (selector_type, c->ts.u.derived))
+      if (c->ts.type != BT_UNKNOWN && !selector_type->attr.unlimited_polymorphic
+	  && ((c->ts.type != BT_DERIVED && c->ts.type != BT_CLASS)
+	      || !gfc_type_is_extension_of (selector_type, c->ts.u.derived)))
 	{
-	  gfc_error ("Derived type '%s' at %L must be an extension of '%s'",
-		     c->ts.u.derived->name, &c->where, selector_type->name);
+	  if (c->ts.type == BT_DERIVED || c->ts.type == BT_CLASS)
+	    gfc_error ("Derived type '%s' at %L must be an extension of '%s'",
+		       c->ts.u.derived->name, &c->where, selector_type->name);
+	  else
+	    gfc_error ("Unexpected intrinsic type '%s' at %L",
+		       gfc_basic_typename (c->ts.type), &c->where);
+	  error++;
+	  continue;
+	}
+
+      /* Check F03:C814.  */
+      if (c->ts.type == BT_CHARACTER && c->ts.u.cl->length != NULL)
+	{
+	  gfc_error ("The type-spec at %L shall specify that each length "
+		     "type parameter is assumed", &c->where);
 	  error++;
 	  continue;
 	}
@@ -8119,6 +8482,7 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
     ns->code->next = new_st;
   code = new_st;
   code->op = EXEC_SELECT;
+
   gfc_add_vptr_component (code->expr1);
   gfc_add_hash_component (code->expr1);
 
@@ -8130,6 +8494,16 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
       if (c->ts.type == BT_DERIVED)
 	c->low = c->high = gfc_get_int_expr (gfc_default_integer_kind, NULL,
 					     c->ts.u.derived->hash_value);
+      else if (c->ts.type != BT_CLASS && c->ts.type != BT_UNKNOWN)
+	{
+	  gfc_symbol *ivtab;
+	  gfc_expr *e;
+
+	  ivtab = gfc_find_intrinsic_vtab (&c->ts);
+	  gcc_assert (ivtab && CLASS_DATA (ivtab)->initializer);
+	  e = CLASS_DATA (ivtab)->initializer;
+	  c->low = c->high = gfc_copy_expr (e);
+	}
 
       else if (c->ts.type == BT_UNKNOWN)
 	continue;
@@ -8141,13 +8515,25 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
 
       if (c->ts.type == BT_CLASS)
 	sprintf (name, "__tmp_class_%s", c->ts.u.derived->name);
-      else
+      else if (c->ts.type == BT_DERIVED)
 	sprintf (name, "__tmp_type_%s", c->ts.u.derived->name);
+      else if (c->ts.type == BT_CHARACTER)
+	{
+	  if (c->ts.u.cl && c->ts.u.cl->length
+	      && c->ts.u.cl->length->expr_type == EXPR_CONSTANT)
+	    charlen = mpz_get_si (c->ts.u.cl->length->value.integer);
+	  sprintf (name, "__tmp_%s_%d_%d", gfc_basic_typename (c->ts.type),
+	           charlen, c->ts.kind);
+	}
+      else
+	sprintf (name, "__tmp_%s_%d", gfc_basic_typename (c->ts.type),
+	         c->ts.kind);
+
       st = gfc_find_symtree (ns->sym_root, name);
       gcc_assert (st->n.sym->assoc);
       st->n.sym->assoc->target = gfc_get_variable_expr (code->expr1->symtree);
       st->n.sym->assoc->target->where = code->expr1->where;
-      if (c->ts.type == BT_DERIVED)
+      if (c->ts.type != BT_CLASS && c->ts.type != BT_UNKNOWN)
 	gfc_add_data_component (st->n.sym->assoc->target);
 
       new_st = gfc_get_code ();
@@ -8158,7 +8544,7 @@ resolve_select_type (gfc_code *code, gfc_namespace *old_ns)
 
       /* Chain in the new list only if it is marked as dangling.  Otherwise
 	 there is a CASE label overlap and this is already used.  Just ignore,
-	 the error is diagonsed elsewhere.  */
+	 the error is diagnosed elsewhere.  */
       if (st->n.sym->assoc->dangling)
 	{
 	  new_st->ext.block.assoc = st->n.sym->assoc;
@@ -8331,7 +8717,7 @@ resolve_transfer (gfc_code *code)
      code->ext.dt may be NULL if the TRANSFER is related to
      an INQUIRE statement -- but in this case, we are not reading, either.  */
   if (code->ext.dt && code->ext.dt->dt_io_kind->value.iokind == M_READ
-      && gfc_check_vardef_context (exp, false, false, _("item in READ"))
+      && gfc_check_vardef_context (exp, false, false, false, _("item in READ"))
 	 == FAILURE)
     return;
 
@@ -8452,7 +8838,7 @@ resolve_lock_unlock (gfc_code *code)
 	       &code->expr2->where);
 
   if (code->expr2
-      && gfc_check_vardef_context (code->expr2, false, false,
+      && gfc_check_vardef_context (code->expr2, false, false, false,
 				   _("STAT variable")) == FAILURE)
     return;
 
@@ -8464,7 +8850,7 @@ resolve_lock_unlock (gfc_code *code)
 	       &code->expr3->where);
 
   if (code->expr3
-      && gfc_check_vardef_context (code->expr3, false, false,
+      && gfc_check_vardef_context (code->expr3, false, false, false,
 				   _("ERRMSG variable")) == FAILURE)
     return;
 
@@ -8476,7 +8862,7 @@ resolve_lock_unlock (gfc_code *code)
 	       "variable", &code->expr4->where);
 
   if (code->expr4
-      && gfc_check_vardef_context (code->expr4, false, false,
+      && gfc_check_vardef_context (code->expr4, false, false, false,
 				   _("ACQUIRED_LOCK variable")) == FAILURE)
     return;
 }
@@ -8544,7 +8930,7 @@ resolve_branch (gfc_st_label *label, gfc_code *code)
       return;
     }
 
-  if (label->defined != ST_LABEL_TARGET)
+  if (label->defined != ST_LABEL_TARGET && label->defined != ST_LABEL_DO_TARGET)
     {
       gfc_error ("Statement at %L is not a valid branch target statement "
 		 "for the branch statement at %L", &label->where, &code->loc);
@@ -9114,7 +9500,7 @@ resolve_ordinary_assign (gfc_code *code, gfc_namespace *ns)
   rhs = code->expr2;
 
   if (rhs->is_boz
-      && gfc_notify_std (GFC_STD_GNU, "Extension: BOZ literal at %L outside "
+      && gfc_notify_std (GFC_STD_GNU, "BOZ literal at %L outside "
 			 "a DATA statement and outside INT/REAL/DBLE/CMPLX",
 			 &code->loc) == FAILURE)
     return false;
@@ -9262,6 +9648,409 @@ resolve_ordinary_assign (gfc_code *code, gfc_namespace *ns)
 }
 
 
+/* Add a component reference onto an expression.  */
+
+static void
+add_comp_ref (gfc_expr *e, gfc_component *c)
+{
+  gfc_ref **ref;
+  ref = &(e->ref);
+  while (*ref)
+    ref = &((*ref)->next);
+  *ref = gfc_get_ref ();
+  (*ref)->type = REF_COMPONENT;
+  (*ref)->u.c.sym = e->ts.u.derived;
+  (*ref)->u.c.component = c;
+  e->ts = c->ts;
+
+  /* Add a full array ref, as necessary.  */
+  if (c->as)
+    {
+      gfc_add_full_array_ref (e, c->as);
+      e->rank = c->as->rank;
+    }
+}
+
+
+/* Build an assignment.  Keep the argument 'op' for future use, so that
+   pointer assignments can be made.  */
+
+static gfc_code *
+build_assignment (gfc_exec_op op, gfc_expr *expr1, gfc_expr *expr2,
+		  gfc_component *comp1, gfc_component *comp2, locus loc)
+{
+  gfc_code *this_code;
+
+  this_code = gfc_get_code ();
+  this_code->op = op;
+  this_code->next = NULL;
+  this_code->expr1 = gfc_copy_expr (expr1);
+  this_code->expr2 = gfc_copy_expr (expr2);
+  this_code->loc = loc;
+  if (comp1 && comp2)
+    {
+      add_comp_ref (this_code->expr1, comp1);
+      add_comp_ref (this_code->expr2, comp2);
+    }
+
+  return this_code;
+}
+
+
+/* Makes a temporary variable expression based on the characteristics of
+   a given variable expression.  */
+
+static gfc_expr*
+get_temp_from_expr (gfc_expr *e, gfc_namespace *ns)
+{
+  static int serial = 0;
+  char name[GFC_MAX_SYMBOL_LEN];
+  gfc_symtree *tmp;
+  gfc_array_spec *as;
+  gfc_array_ref *aref;
+  gfc_ref *ref;
+
+  sprintf (name, "DA@%d", serial++);
+  gfc_get_sym_tree (name, ns, &tmp, false);
+  gfc_add_type (tmp->n.sym, &e->ts, NULL);
+
+  as = NULL;
+  ref = NULL;
+  aref = NULL;
+
+  /* This function could be expanded to support other expression type
+     but this is not needed here.  */
+  gcc_assert (e->expr_type == EXPR_VARIABLE);
+
+  /* Obtain the arrayspec for the temporary.  */
+  if (e->rank)
+    {
+      aref = gfc_find_array_ref (e);
+      if (e->expr_type == EXPR_VARIABLE
+	  && e->symtree->n.sym->as == aref->as)
+	as = aref->as;
+      else
+	{
+	  for (ref = e->ref; ref; ref = ref->next)
+	    if (ref->type == REF_COMPONENT
+		&& ref->u.c.component->as == aref->as)
+	      {
+		as = aref->as;
+		break;
+	      }
+	}
+    }
+
+  /* Add the attributes and the arrayspec to the temporary.  */
+  tmp->n.sym->attr = gfc_expr_attr (e);
+  if (as)
+    {
+      tmp->n.sym->as = gfc_copy_array_spec (as);
+      if (!ref)
+	ref = e->ref;
+      if (as->type == AS_DEFERRED)
+	tmp->n.sym->attr.allocatable = 1;
+    }
+  else
+    tmp->n.sym->attr.dimension = 0;
+
+  gfc_set_sym_referenced (tmp->n.sym);
+  gfc_add_flavor (&tmp->n.sym->attr, FL_VARIABLE, name, NULL);
+  e = gfc_lval_expr_from_sym (tmp->n.sym);
+
+  /* Should the lhs be a section, use its array ref for the
+     temporary expression.  */
+  if (aref && aref->type != AR_FULL)
+    {
+      gfc_free_ref_list (e->ref);
+      e->ref = gfc_copy_ref (ref);
+    }
+  return e;
+}
+
+
+/* Add one line of code to the code chain, making sure that 'head' and
+   'tail' are appropriately updated.  */
+
+static void
+add_code_to_chain (gfc_code **this_code, gfc_code **head, gfc_code **tail)
+{
+  gcc_assert (this_code);
+  if (*head == NULL)
+    *head = *tail = *this_code;
+  else
+    *tail = gfc_append_code (*tail, *this_code);
+  *this_code = NULL;
+}
+
+
+/* Counts the potential number of part array references that would
+   result from resolution of typebound defined assignments.  */
+
+static int
+nonscalar_typebound_assign (gfc_symbol *derived, int depth)
+{
+  gfc_component *c;
+  int c_depth = 0, t_depth;
+
+  for (c= derived->components; c; c = c->next)
+    {
+      if ((c->ts.type != BT_DERIVED
+	    || c->attr.pointer
+	    || c->attr.allocatable
+	    || c->attr.proc_pointer_comp
+	    || c->attr.class_pointer
+	    || c->attr.proc_pointer)
+	  && !c->attr.defined_assign_comp)
+	continue;
+
+      if (c->as && c_depth == 0)
+	c_depth = 1;
+
+      if (c->ts.u.derived->attr.defined_assign_comp)
+	t_depth = nonscalar_typebound_assign (c->ts.u.derived,
+					      c->as ? 1 : 0);
+      else
+	t_depth = 0;
+
+      c_depth = t_depth > c_depth ? t_depth : c_depth;
+    }
+  return depth + c_depth;
+}
+
+
+/* Implement 7.2.1.3 of the F08 standard:
+   "An intrinsic assignment where the variable is of derived type is
+   performed as if each component of the variable were assigned from the
+   corresponding component of expr using pointer assignment (7.2.2) for
+   each pointer component, deﬁned assignment for each nonpointer
+   nonallocatable component of a type that has a type-bound deﬁned
+   assignment consistent with the component, intrinsic assignment for
+   each other nonpointer nonallocatable component, ..."
+
+   The pointer assignments are taken care of by the intrinsic
+   assignment of the structure itself.  This function recursively adds
+   defined assignments where required.  The recursion is accomplished
+   by calling resolve_code.
+
+   When the lhs in a defined assignment has intent INOUT, we need a
+   temporary for the lhs.  In pseudo-code:
+
+   ! Only call function lhs once.
+      if (lhs is not a constant or an variable)
+	  temp_x = expr2
+          expr2 => temp_x
+   ! Do the intrinsic assignment
+      expr1 = expr2
+   ! Now do the defined assignments
+      do over components with typebound defined assignment [%cmp]
+	#if one component's assignment procedure is INOUT
+	  t1 = expr1
+	  #if expr2 non-variable
+	    temp_x = expr2
+	    expr2 => temp_x
+	  # endif
+	  expr1 = expr2
+	  # for each cmp
+	    t1%cmp {defined=} expr2%cmp
+	    expr1%cmp = t1%cmp
+	#else
+	  expr1 = expr2
+
+	# for each cmp
+	  expr1%cmp {defined=} expr2%cmp
+	#endif
+   */
+
+/* The temporary assignments have to be put on top of the additional
+   code to avoid the result being changed by the intrinsic assignment.
+   */
+static int component_assignment_level = 0;
+static gfc_code *tmp_head = NULL, *tmp_tail = NULL;
+
+static void
+generate_component_assignments (gfc_code **code, gfc_namespace *ns)
+{
+  gfc_component *comp1, *comp2;
+  gfc_code *this_code = NULL, *head = NULL, *tail = NULL;
+  gfc_expr *t1;
+  int error_count, depth;
+
+  gfc_get_errors (NULL, &error_count);
+
+  /* Filter out continuing processing after an error.  */
+  if (error_count
+      || (*code)->expr1->ts.type != BT_DERIVED
+      || (*code)->expr2->ts.type != BT_DERIVED)
+    return;
+
+  /* TODO: Handle more than one part array reference in assignments.  */
+  depth = nonscalar_typebound_assign ((*code)->expr1->ts.u.derived,
+				      (*code)->expr1->rank ? 1 : 0);
+  if (depth > 1)
+    {
+      gfc_warning ("TODO: type-bound deﬁned assignment(s) at %L not "
+		   "done because multiple part array references would "
+		   "occur in intermediate expressions.", &(*code)->loc);
+      return;
+    }
+
+  component_assignment_level++;
+
+  /* Create a temporary so that functions get called only once.  */
+  if ((*code)->expr2->expr_type != EXPR_VARIABLE
+      && (*code)->expr2->expr_type != EXPR_CONSTANT)
+    {
+      gfc_expr *tmp_expr;
+
+      /* Assign the rhs to the temporary.  */
+      tmp_expr = get_temp_from_expr ((*code)->expr1, ns);
+      this_code = build_assignment (EXEC_ASSIGN,
+				    tmp_expr, (*code)->expr2,
+				    NULL, NULL, (*code)->loc);
+      /* Add the code and substitute the rhs expression.  */
+      add_code_to_chain (&this_code, &tmp_head, &tmp_tail);
+      gfc_free_expr ((*code)->expr2);
+      (*code)->expr2 = tmp_expr;
+    }
+
+  /* Do the intrinsic assignment.  This is not needed if the lhs is one
+     of the temporaries generated here, since the intrinsic assignment
+     to the final result already does this.  */
+  if ((*code)->expr1->symtree->n.sym->name[2] != '@')
+    {
+      this_code = build_assignment (EXEC_ASSIGN,
+				    (*code)->expr1, (*code)->expr2,
+				    NULL, NULL, (*code)->loc);
+      add_code_to_chain (&this_code, &head, &tail);
+    }
+
+  comp1 = (*code)->expr1->ts.u.derived->components;
+  comp2 = (*code)->expr2->ts.u.derived->components;
+
+  t1 = NULL;
+  for (; comp1; comp1 = comp1->next, comp2 = comp2->next)
+    {
+      bool inout = false;
+
+      /* The intrinsic assignment does the right thing for pointers
+	 of all kinds and allocatable components.  */
+      if (comp1->ts.type != BT_DERIVED
+	  || comp1->attr.pointer
+	  || comp1->attr.allocatable
+	  || comp1->attr.proc_pointer_comp
+	  || comp1->attr.class_pointer
+	  || comp1->attr.proc_pointer)
+	continue;
+
+      /* Make an assigment for this component.  */
+      this_code = build_assignment (EXEC_ASSIGN,
+				    (*code)->expr1, (*code)->expr2,
+				    comp1, comp2, (*code)->loc);
+
+      /* Convert the assignment if there is a defined assignment for
+	 this type.  Otherwise, using the call from resolve_code,
+	 recurse into its components.  */
+      resolve_code (this_code, ns);
+
+      if (this_code->op == EXEC_ASSIGN_CALL)
+	{
+	  gfc_formal_arglist *dummy_args;
+	  gfc_symbol *rsym;
+	  /* Check that there is a typebound defined assignment.  If not,
+	     then this must be a module defined assignment.  We cannot
+	     use the defined_assign_comp attribute here because it must
+	     be this derived type that has the defined assignment and not
+	     a parent type.  */
+	  if (!(comp1->ts.u.derived->f2k_derived
+		&& comp1->ts.u.derived->f2k_derived
+					->tb_op[INTRINSIC_ASSIGN]))
+	    {
+	      gfc_free_statements (this_code);
+	      this_code = NULL;
+	      continue;
+	    }
+
+	  /* If the first argument of the subroutine has intent INOUT
+	     a temporary must be generated and used instead.  */
+	  rsym = this_code->resolved_sym;
+	  dummy_args = gfc_sym_get_dummy_args (rsym);
+	  if (dummy_args
+	      && dummy_args->sym->attr.intent == INTENT_INOUT)
+	    {
+	      gfc_code *temp_code;
+	      inout = true;
+
+	      /* Build the temporary required for the assignment and put
+		 it at the head of the generated code.  */
+	      if (!t1)
+		{
+		  t1 = get_temp_from_expr ((*code)->expr1, ns);
+		  temp_code = build_assignment (EXEC_ASSIGN,
+						t1, (*code)->expr1,
+				NULL, NULL, (*code)->loc);
+		  add_code_to_chain (&temp_code, &tmp_head, &tmp_tail);
+		}
+
+	      /* Replace the first actual arg with the component of the
+		 temporary.  */
+	      gfc_free_expr (this_code->ext.actual->expr);
+	      this_code->ext.actual->expr = gfc_copy_expr (t1);
+	      add_comp_ref (this_code->ext.actual->expr, comp1);
+	    }
+	  }
+      else if (this_code->op == EXEC_ASSIGN && !this_code->next)
+	{
+	  /* Don't add intrinsic assignments since they are already
+	     effected by the intrinsic assignment of the structure.  */
+	  gfc_free_statements (this_code);
+	  this_code = NULL;
+	  continue;
+	}
+
+      add_code_to_chain (&this_code, &head, &tail);
+
+      if (t1 && inout)
+	{
+	  /* Transfer the value to the final result.  */
+	  this_code = build_assignment (EXEC_ASSIGN,
+					(*code)->expr1, t1,
+					comp1, comp2, (*code)->loc);
+	  add_code_to_chain (&this_code, &head, &tail);
+	}
+    }
+
+  /* This is probably not necessary.  */
+  if (this_code)
+    {
+      gfc_free_statements (this_code);
+      this_code = NULL;
+    }
+
+  /* Put the temporary assignments at the top of the generated code.  */
+  if (tmp_head && component_assignment_level == 1)
+    {
+      gfc_append_code (tmp_head, head);
+      head = tmp_head;
+      tmp_head = tmp_tail = NULL;
+    }
+
+  /* Now attach the remaining code chain to the input code.  Step on
+     to the end of the new code since resolution is complete.  */
+  gcc_assert ((*code)->op == EXEC_ASSIGN);
+  tail->next = (*code)->next;
+  /* Overwrite 'code' because this would place the intrinsic assignment
+     before the temporary for the lhs is created.  */
+  gfc_free_expr ((*code)->expr1);
+  gfc_free_expr ((*code)->expr2);
+  **code = *head;
+  free (head);
+  *code = tail;
+
+  component_assignment_level--;
+}
+
+
 /* Given a block of code, recursively resolve everything pointed to by this
    code block.  */
 
@@ -9324,7 +10113,7 @@ resolve_code (gfc_code *code, gfc_namespace *ns)
 	    case EXEC_OMP_WORKSHARE:
 	      omp_workshare_save = omp_workshare_flag;
 	      omp_workshare_flag = 1;
-	      /* FALLTHROUGH */
+	      /* FALL THROUGH */
 	    default:
 	      gfc_resolve_blocks (code->block, ns);
 	      break;
@@ -9413,7 +10202,7 @@ resolve_code (gfc_code *code, gfc_namespace *ns)
 	  if (t == FAILURE)
 	    break;
 
-	  if (gfc_check_vardef_context (code->expr1, false, false,
+	  if (gfc_check_vardef_context (code->expr1, false, false, false,
 					_("assignment")) == FAILURE)
 	    break;
 
@@ -9424,6 +10213,12 @@ resolve_code (gfc_code *code, gfc_namespace *ns)
 	      else
 		goto call;
 	    }
+
+	  /* F03 7.4.1.3 for non-allocatable, non-pointer components.  */
+	  if (code->expr1->ts.type == BT_DERIVED
+	      && code->expr1->ts.u.derived->attr.defined_assign_comp)
+	    generate_component_assignments (&code, ns);
+
 	  break;
 
 	case EXEC_LABEL_ASSIGN:
@@ -9452,10 +10247,10 @@ resolve_code (gfc_code *code, gfc_namespace *ns)
 	       array ref may be present on the LHS and fool gfc_expr_attr
 	       used in gfc_check_vardef_context.  Remove it.  */
 	    e = remove_last_array_ref (code->expr1);
-	    t = gfc_check_vardef_context (e, true, false,
+	    t = gfc_check_vardef_context (e, true, false, false,
 					  _("pointer assignment"));
 	    if (t == SUCCESS)
-	      t = gfc_check_vardef_context (e, false, false,
+	      t = gfc_check_vardef_context (e, false, false, false,
 					    _("pointer assignment"));
 	    gfc_free_expr (e);
 	    if (t == FAILURE)
@@ -9517,7 +10312,7 @@ resolve_code (gfc_code *code, gfc_namespace *ns)
 	  if (code->ext.iterator != NULL)
 	    {
 	      gfc_iterator *iter = code->ext.iterator;
-	      if (gfc_resolve_iterator (iter, true) != FAILURE)
+	      if (gfc_resolve_iterator (iter, true, false) != FAILURE)
 		gfc_resolve_do_iterator (code, iter->var->symtree->n.sym);
 	    }
 	  break;
@@ -9670,7 +10465,7 @@ resolve_values (gfc_symbol *sym)
   if (t == FAILURE)
     return;
 
-  gfc_check_assign_symbol (sym, sym->value);
+  gfc_check_assign_symbol (sym, NULL, sym->value);
 }
 
 
@@ -9897,18 +10692,37 @@ static gfc_try
 resolve_charlen (gfc_charlen *cl)
 {
   int i, k;
+  bool saved_specification_expr;
 
   if (cl->resolved)
     return SUCCESS;
 
   cl->resolved = 1;
+  saved_specification_expr = specification_expr;
+  specification_expr = true;
 
-  specification_expr = 1;
-
-  if (resolve_index_expr (cl->length) == FAILURE)
+  if (cl->length_from_typespec)
     {
-      specification_expr = 0;
-      return FAILURE;
+      if (gfc_resolve_expr (cl->length) == FAILURE)
+	{
+	  specification_expr = saved_specification_expr;
+	  return FAILURE;
+	}
+
+      if (gfc_simplify_expr (cl->length, 0) == FAILURE)
+	{
+	  specification_expr = saved_specification_expr;
+	  return FAILURE;
+	}
+    }
+  else
+    {
+
+      if (resolve_index_expr (cl->length) == FAILURE)
+	{
+	  specification_expr = saved_specification_expr;
+	  return FAILURE;
+	}
     }
 
   /* "If the character length parameter value evaluates to a negative
@@ -9930,9 +10744,11 @@ resolve_charlen (gfc_charlen *cl)
       && mpz_cmp (cl->length->value.integer, gfc_integer_kinds[k].huge) > 0)
     {
       gfc_error ("String length at %L is too large", &cl->length->where);
+      specification_expr = saved_specification_expr;
       return FAILURE;
     }
 
+  specification_expr = saved_specification_expr;
   return SUCCESS;
 }
 
@@ -10235,11 +11051,6 @@ resolve_fl_var_and_proc (gfc_symbol *sym, int mp_flag)
 {
   gfc_array_spec *as;
 
-  /* Avoid double diagnostics for function result symbols.  */
-  if ((sym->result || sym->attr.result) && !sym->attr.dummy
-      && (sym->ns != gfc_current_ns))
-    return SUCCESS;
-
   if (sym->ts.type == BT_CLASS && sym->attr.class_ok)
     as = CLASS_DATA (sym)->as;
   else
@@ -10258,29 +11069,29 @@ resolve_fl_var_and_proc (gfc_symbol *sym, int mp_flag)
 	}
       else
 	{
-	  pointer = sym->attr.pointer;
+	  pointer = sym->attr.pointer && !sym->attr.select_type_temporary;
 	  allocatable = sym->attr.allocatable;
 	  dimension = sym->attr.dimension;
 	}
 
       if (allocatable)
 	{
-	  if (dimension)
+	  if (dimension && as->type != AS_ASSUMED_RANK)
 	    {
-	      gfc_error ("Allocatable array '%s' at %L must have "
-			 "a deferred shape", sym->name, &sym->declared_at);
+	      gfc_error ("Allocatable array '%s' at %L must have a deferred "
+			 "shape or assumed rank", sym->name, &sym->declared_at);
 	      return FAILURE;
 	    }
-	  else if (gfc_notify_std (GFC_STD_F2003, "Scalar object '%s' at %L "
-				   "may not be ALLOCATABLE", sym->name,
-				   &sym->declared_at) == FAILURE)
+	  else if (gfc_notify_std (GFC_STD_F2003, "Scalar object "
+				   "'%s' at %L may not be ALLOCATABLE",
+				   sym->name, &sym->declared_at) == FAILURE)
 	    return FAILURE;
 	}
 
-      if (pointer && dimension)
+      if (pointer && dimension && as->type != AS_ASSUMED_RANK)
 	{
-	  gfc_error ("Array pointer '%s' at %L must have a deferred shape",
-		     sym->name, &sym->declared_at);
+	  gfc_error ("Array pointer '%s' at %L must have a deferred shape or "
+		     "assumed rank", sym->name, &sym->declared_at);
 	  return FAILURE;
 	}
     }
@@ -10300,6 +11111,8 @@ resolve_fl_var_and_proc (gfc_symbol *sym, int mp_flag)
     {
       /* F03:C502.  */
       if (sym->attr.class_ok
+	  && !sym->attr.select_type_temporary
+	  && !UNLIMITED_POLY(sym)
 	  && !gfc_type_is_extensible (CLASS_DATA (sym)->ts.u.derived))
 	{
 	  gfc_error ("Type '%s' of CLASS variable '%s' at %L is not extensible",
@@ -10367,7 +11180,7 @@ resolve_fl_variable_derived (gfc_symbol *sym, int no_init_flag)
       && !sym->ns->save_all && !sym->attr.save
       && !sym->attr.pointer && !sym->attr.allocatable
       && gfc_has_default_initializer (sym->ts.u.derived)
-      && gfc_notify_std (GFC_STD_F2008, "Fortran 2008: Implied SAVE for "
+      && gfc_notify_std (GFC_STD_F2008, "Implied SAVE for "
 			 "module variable '%s' at %L, needed due to "
 			 "the default initialization", sym->name,
 			 &sym->declared_at) == FAILURE)
@@ -10392,6 +11205,7 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
   int no_init_flag, automatic_flag;
   gfc_expr *e;
   const char *auto_save_msg;
+  bool saved_specification_expr;
 
   auto_save_msg = "Automatic object '%s' at %L cannot have the "
 		  "SAVE attribute";
@@ -10402,7 +11216,8 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
   /* Set this flag to check that variables are parameters of all entries.
      This check is effected by the call to gfc_resolve_expr through
      is_non_constant_shape_array.  */
-  specification_expr = 1;
+  saved_specification_expr = specification_expr;
+  specification_expr = true;
 
   if (sym->ns->proc_name
       && (sym->ns->proc_name->attr.flavor == FL_MODULE
@@ -10416,7 +11231,7 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
 	 constant.  */
       gfc_error ("The module or main program array '%s' at %L must "
 		 "have constant shape", sym->name, &sym->declared_at);
-      specification_expr = 0;
+      specification_expr = saved_specification_expr;
       return FAILURE;
     }
 
@@ -10426,6 +11241,7 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
       gfc_error ("Entity '%s' at %L has a deferred type parameter and "
 		 "requires either the pointer or allocatable attribute",
 		     sym->name, &sym->declared_at);
+      specification_expr = saved_specification_expr;
       return FAILURE;
     }
 
@@ -10435,16 +11251,18 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
 	 dummy arguments.  */
       e = sym->ts.u.cl->length;
       if (e == NULL && !sym->attr.dummy && !sym->attr.result
-	  && !sym->ts.deferred)
+	  && !sym->ts.deferred && !sym->attr.select_type_temporary)
 	{
 	  gfc_error ("Entity with assumed character length at %L must be a "
 		     "dummy argument or a PARAMETER", &sym->declared_at);
+	  specification_expr = saved_specification_expr;
 	  return FAILURE;
 	}
 
       if (e && sym->attr.save == SAVE_EXPLICIT && !gfc_is_constant_expr (e))
 	{
 	  gfc_error (auto_save_msg, sym->name, &sym->declared_at);
+	  specification_expr = saved_specification_expr;
 	  return FAILURE;
 	}
 
@@ -10458,12 +11276,14 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
 	    {
 	      gfc_error ("'%s' at %L must have constant character length "
 			"in this context", sym->name, &sym->declared_at);
+	      specification_expr = saved_specification_expr;
 	      return FAILURE;
 	    }
 	  if (sym->attr.in_common)
 	    {
 	      gfc_error ("COMMON variable '%s' at %L must have constant "
 			 "character length", sym->name, &sym->declared_at);
+	      specification_expr = saved_specification_expr;
 	      return FAILURE;
 	    }
 	}
@@ -10494,6 +11314,7 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
       if (automatic_flag && sym->attr.save == SAVE_EXPLICIT)
 	{
 	  gfc_error (auto_save_msg, sym->name, &sym->declared_at);
+	  specification_expr = saved_specification_expr;
 	  return FAILURE;
 	}
     }
@@ -10527,13 +11348,19 @@ resolve_fl_variable (gfc_symbol *sym, int mp_flag)
 		   sym->name, &sym->declared_at);
       else
 	goto no_init_error;
+      specification_expr = saved_specification_expr;
       return FAILURE;
     }
 
 no_init_error:
   if (sym->ts.type == BT_DERIVED || sym->ts.type == BT_CLASS)
-    return resolve_fl_variable_derived (sym, no_init_flag);
+    {
+      gfc_try res = resolve_fl_variable_derived (sym, no_init_flag);
+      specification_expr = saved_specification_expr;
+      return res;
+    }
 
+  specification_expr = saved_specification_expr;
   return SUCCESS;
 }
 
@@ -10576,13 +11403,13 @@ resolve_fl_procedure (gfc_symbol *sym, int mp_flag)
     {
       gfc_interface *iface;
 
-      for (arg = sym->formal; arg; arg = arg->next)
+      for (arg = gfc_sym_get_dummy_args (sym); arg; arg = arg->next)
 	{
 	  if (arg->sym
 	      && arg->sym->ts.type == BT_DERIVED
 	      && !arg->sym->ts.u.derived->attr.use_assoc
 	      && !gfc_check_symbol_access (arg->sym->ts.u.derived)
-	      && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: '%s' is of a "
+	      && gfc_notify_std (GFC_STD_F2003, "'%s' is of a "
 				 "PRIVATE type and cannot be a dummy argument"
 				 " of '%s', which is PUBLIC at %L",
 				 arg->sym->name, sym->name, &sym->declared_at)
@@ -10598,13 +11425,13 @@ resolve_fl_procedure (gfc_symbol *sym, int mp_flag)
 	 PRIVATE to the containing module.  */
       for (iface = sym->generic; iface; iface = iface->next)
 	{
-	  for (arg = iface->sym->formal; arg; arg = arg->next)
+	  for (arg = gfc_sym_get_dummy_args (iface->sym); arg; arg = arg->next)
 	    {
 	      if (arg->sym
 		  && arg->sym->ts.type == BT_DERIVED
 		  && !arg->sym->ts.u.derived->attr.use_assoc
 		  && !gfc_check_symbol_access (arg->sym->ts.u.derived)
-		  && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: Procedure "
+		  && gfc_notify_std (GFC_STD_F2003, "Procedure "
 				     "'%s' in PUBLIC interface '%s' at %L "
 				     "takes dummy arguments of '%s' which is "
 				     "PRIVATE", iface->sym->name, sym->name,
@@ -10622,13 +11449,13 @@ resolve_fl_procedure (gfc_symbol *sym, int mp_flag)
 	 PRIVATE to the containing module.  */
       for (iface = sym->generic; iface; iface = iface->next)
 	{
-	  for (arg = iface->sym->formal; arg; arg = arg->next)
+	  for (arg = gfc_sym_get_dummy_args (iface->sym); arg; arg = arg->next)
 	    {
 	      if (arg->sym
 		  && arg->sym->ts.type == BT_DERIVED
 		  && !arg->sym->ts.u.derived->attr.use_assoc
 		  && !gfc_check_symbol_access (arg->sym->ts.u.derived)
-		  && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: Procedure "
+		  && gfc_notify_std (GFC_STD_F2003, "Procedure "
 				     "'%s' in PUBLIC interface '%s' at %L "
 				     "takes dummy arguments of '%s' which is "
 				     "PRIVATE", iface->sym->name, sym->name,
@@ -10685,7 +11512,7 @@ resolve_fl_procedure (gfc_symbol *sym, int mp_flag)
      actual length; (ii) To declare a named constant; or (iii) External
      function - but length must be declared in calling scoping unit.  */
   if (sym->attr.function
-      && sym->ts.type == BT_CHARACTER
+      && sym->ts.type == BT_CHARACTER && !sym->ts.deferred
       && sym->ts.u.cl && sym->ts.u.cl->length == NULL)
     {
       if ((sym->as && sym->as->rank) || (sym->attr.pointer)
@@ -10716,7 +11543,7 @@ resolve_fl_procedure (gfc_symbol *sym, int mp_flag)
       if (!sym->attr.contained
 	    && gfc_current_form != FORM_FIXED
 	    && !sym->ts.deferred)
-	gfc_notify_std (GFC_STD_F95_OBS, "Obsolescent feature: "
+	gfc_notify_std (GFC_STD_F95_OBS,
 			"CHARACTER(*) function '%s' at %L",
 			sym->name, &sym->declared_at);
     }
@@ -10742,7 +11569,7 @@ resolve_fl_procedure (gfc_symbol *sym, int mp_flag)
           sym->ts.is_c_interop = 1;
         }
 
-      curr_arg = sym->formal;
+      curr_arg = gfc_sym_get_dummy_args (sym);
       while (curr_arg != NULL)
         {
           /* Skip implicitly typed dummy args here.  */
@@ -10829,6 +11656,7 @@ gfc_resolve_finalizers (gfc_symbol* derived)
   prev_link = &derived->f2k_derived->finalizers;
   for (list = derived->f2k_derived->finalizers; list; list = *prev_link)
     {
+      gfc_formal_arglist *dummy_args;
       gfc_symbol* arg;
       gfc_finalizer* i;
       int my_rank;
@@ -10849,13 +11677,14 @@ gfc_resolve_finalizers (gfc_symbol* derived)
 	}
 
       /* We should have exactly one argument.  */
-      if (!list->proc_sym->formal || list->proc_sym->formal->next)
+      dummy_args = gfc_sym_get_dummy_args (list->proc_sym);
+      if (!dummy_args || dummy_args->next)
 	{
 	  gfc_error ("FINAL procedure at %L must have exactly one argument",
 		     &list->where);
 	  goto error;
 	}
-      arg = list->proc_sym->formal->sym;
+      arg = dummy_args->sym;
 
       /* This argument must be of our type.  */
       if (arg->ts.type != BT_DERIVED || arg->ts.u.derived != derived)
@@ -10894,7 +11723,7 @@ gfc_resolve_finalizers (gfc_symbol* derived)
 	}
 
       /* Warn if the procedure is non-scalar and not assumed shape.  */
-      if (gfc_option.warn_surprising && arg->as && arg->as->rank > 0
+      if (gfc_option.warn_surprising && arg->as && arg->as->rank != 0
 	  && arg->as->type != AS_ASSUMED_SHAPE)
 	gfc_warning ("Non-scalar FINAL procedure at %L should have assumed"
 		     " shape argument", &arg->declared_at);
@@ -10907,11 +11736,14 @@ gfc_resolve_finalizers (gfc_symbol* derived)
       my_rank = (arg->as ? arg->as->rank : 0);
       for (i = list->next; i; i = i->next)
 	{
+	  gfc_formal_arglist *dummy_args;
+
 	  /* Argument list might be empty; that is an error signalled earlier,
 	     but we nevertheless continued resolving.  */
-	  if (i->proc_sym->formal)
+	  dummy_args = gfc_sym_get_dummy_args (i->proc_sym);
+	  if (dummy_args)
 	    {
-	      gfc_symbol* i_arg = i->proc_sym->formal->sym;
+	      gfc_symbol* i_arg = dummy_args->sym;
 	      const int i_rank = (i_arg->as ? i_arg->as->rank : 0);
 	      if (i_rank == my_rank)
 		{
@@ -10956,6 +11788,7 @@ error:
   gfc_error ("Finalization at %L is not yet implemented",
 	     &derived->declared_at);
 
+  gfc_find_derived_vtab (derived);
   return result;
 }
 
@@ -10966,8 +11799,8 @@ static gfc_try
 check_generic_tbp_ambiguity (gfc_tbp_generic* t1, gfc_tbp_generic* t2,
 			     const char* generic_name, locus where)
 {
-  gfc_symbol* sym1;
-  gfc_symbol* sym2;
+  gfc_symbol *sym1, *sym2;
+  const char *pass1, *pass2;
 
   gcc_assert (t1->specific && t2->specific);
   gcc_assert (!t1->specific->is_generic);
@@ -10991,8 +11824,20 @@ check_generic_tbp_ambiguity (gfc_tbp_generic* t1, gfc_tbp_generic* t2,
     }
 
   /* Compare the interfaces.  */
+  if (t1->specific->nopass)
+    pass1 = NULL;
+  else if (t1->specific->pass_arg)
+    pass1 = t1->specific->pass_arg;
+  else
+    pass1 = gfc_sym_get_dummy_args (t1->specific->u.specific->n.sym)->sym->name;
+  if (t2->specific->nopass)
+    pass2 = NULL;
+  else if (t2->specific->pass_arg)
+    pass2 = t2->specific->pass_arg;
+  else
+    pass2 = gfc_sym_get_dummy_args (t2->specific->u.specific->n.sym)->sym->name;
   if (gfc_compare_interfaces (sym1, sym2, sym2->name, !t1->is_operator, 0,
-			      NULL, 0))
+			      NULL, 0, pass1, pass2))
     {
       gfc_error ("'%s' and '%s' for GENERIC '%s' at %L are ambiguous",
 		 sym1->name, sym2->name, generic_name, &where);
@@ -11148,7 +11993,7 @@ get_checked_tb_operator_target (gfc_tbp_generic* target, locus where)
   target_proc = target->specific->u.specific->n.sym;
   gcc_assert (target_proc);
 
-  /* All operator bindings must have a passed-object dummy argument.  */
+  /* F08:C468. All operator bindings must have a passed-object dummy argument.  */
   if (target->specific->nopass)
     {
       gfc_error ("Type-bound operator at %L can't be NOPASS", &where);
@@ -11198,6 +12043,22 @@ resolve_typebound_intrinsic_op (gfc_symbol* derived, gfc_intrinsic_op op,
 
       if (!gfc_check_operator_interface (target_proc, op, p->where))
 	goto error;
+
+      /* Add target to non-typebound operator list.  */
+      if (!target->specific->deferred && !derived->attr.use_assoc
+	  && p->access != ACCESS_PRIVATE && derived->ns == gfc_current_ns)
+	{
+	  gfc_interface *head, *intr;
+	  if (gfc_check_new_interface (derived->ns->op[op], target_proc,
+				       p->where) == FAILURE)
+	    return FAILURE;
+	  head = derived->ns->op[op];
+	  intr = gfc_get_interface ();
+	  intr->sym = target_proc;
+	  intr->where = p->where;
+	  intr->next = head;
+	  derived->ns->op[op] = intr;
+	}
     }
 
   return SUCCESS;
@@ -11307,17 +12168,25 @@ resolve_typebound_procedure (gfc_symtree* stree)
   /* Default access should already be resolved from the parser.  */
   gcc_assert (stree->n.tb->access != ACCESS_UNKNOWN);
 
-  /* It should be a module procedure or an external procedure with explicit
-     interface.  For DEFERRED bindings, abstract interfaces are ok as well.  */
-  if ((!proc->attr.subroutine && !proc->attr.function)
-      || (proc->attr.proc != PROC_MODULE
-	  && proc->attr.if_source != IFSRC_IFBODY)
-      || (proc->attr.abstract && !stree->n.tb->deferred))
+  if (stree->n.tb->deferred)
     {
-      gfc_error ("'%s' must be a module procedure or an external procedure with"
-		 " an explicit interface at %L", proc->name, &where);
-      goto error;
+      if (check_proc_interface (proc, &where) == FAILURE)
+	goto error;
     }
+  else
+    {
+      /* Check for F08:C465.  */
+      if ((!proc->attr.subroutine && !proc->attr.function)
+	  || (proc->attr.proc != PROC_MODULE
+	      && proc->attr.if_source != IFSRC_IFBODY)
+	  || proc->attr.abstract)
+	{
+	  gfc_error ("'%s' must be a module procedure or an external procedure with"
+		    " an explicit interface at %L", proc->name, &where);
+	  goto error;
+	}
+    }
+
   stree->n.tb->subroutine = proc->attr.subroutine;
   stree->n.tb->function = proc->attr.function;
 
@@ -11330,16 +12199,19 @@ resolve_typebound_procedure (gfc_symtree* stree)
      from a .mod file.  */
   if (!stree->n.tb->nopass && stree->n.tb->pass_arg_num == 0)
     {
+      gfc_formal_arglist *dummy_args;
+
+      dummy_args = gfc_sym_get_dummy_args (proc);
       if (stree->n.tb->pass_arg)
 	{
-	  gfc_formal_arglist* i;
+	  gfc_formal_arglist *i;
 
 	  /* If an explicit passing argument name is given, walk the arg-list
 	     and look for it.  */
 
 	  me_arg = NULL;
 	  stree->n.tb->pass_arg_num = 1;
-	  for (i = proc->formal; i; i = i->next)
+	  for (i = dummy_args; i; i = i->next)
 	    {
 	      if (!strcmp (i->sym->name, stree->n.tb->pass_arg))
 		{
@@ -11363,13 +12235,13 @@ resolve_typebound_procedure (gfc_symtree* stree)
 	  /* Otherwise, take the first one; there should in fact be at least
 	     one.  */
 	  stree->n.tb->pass_arg_num = 1;
-	  if (!proc->formal)
+	  if (!dummy_args)
 	    {
 	      gfc_error ("Procedure '%s' with PASS at %L must have at"
 			 " least one argument", proc->name, &where);
 	      goto error;
 	    }
-	  me_arg = proc->formal->sym;
+	  me_arg = dummy_args->sym;
 	}
 
       /* Now check that the argument-type matches and the passed-object
@@ -11394,7 +12266,7 @@ resolve_typebound_procedure (gfc_symtree* stree)
 	}
 
       gcc_assert (me_arg->ts.type == BT_CLASS);
-      if (CLASS_DATA (me_arg)->as && CLASS_DATA (me_arg)->as->rank > 0)
+      if (CLASS_DATA (me_arg)->as && CLASS_DATA (me_arg)->as->rank != 0)
 	{
 	  gfc_error ("Passed-object dummy argument of '%s' at %L must be"
 		     " scalar", proc->name, &where);
@@ -11472,7 +12344,7 @@ resolve_typebound_procedures (gfc_symbol* derived)
 
   super_type = gfc_get_derived_super_type (derived);
   if (super_type)
-    resolve_typebound_procedures (super_type);
+    resolve_symbol (super_type);
 
   resolve_bindings_derived = derived;
   resolve_bindings_result = SUCCESS;
@@ -11584,6 +12456,43 @@ ensure_not_abstract (gfc_symbol* sub, gfc_symbol* ancestor)
 }
 
 
+/* This check for typebound defined assignments is done recursively
+   since the order in which derived types are resolved is not always in
+   order of the declarations.  */
+
+static void
+check_defined_assignments (gfc_symbol *derived)
+{
+  gfc_component *c;
+
+  for (c = derived->components; c; c = c->next)
+    {
+      if (c->ts.type != BT_DERIVED
+	  || c->attr.pointer
+	  || c->attr.allocatable
+	  || c->attr.proc_pointer_comp
+	  || c->attr.class_pointer
+	  || c->attr.proc_pointer)
+	continue;
+
+      if (c->ts.u.derived->attr.defined_assign_comp
+	  || (c->ts.u.derived->f2k_derived
+	     && c->ts.u.derived->f2k_derived->tb_op[INTRINSIC_ASSIGN]))
+	{
+	  derived->attr.defined_assign_comp = 1;
+	  return;
+	}
+
+      check_defined_assignments (c->ts.u.derived);
+      if (c->ts.u.derived->attr.defined_assign_comp)
+	{
+	  derived->attr.defined_assign_comp = 1;
+	  return;
+	}
+    }
+}
+
+
 /* Resolve the components of a derived type. This does not have to wait until
    resolution stage, but can be done as soon as the dt declaration has been
    parsed.  */
@@ -11593,6 +12502,9 @@ resolve_fl_derived0 (gfc_symbol *sym)
 {
   gfc_symbol* super_type;
   gfc_component *c;
+
+  if (sym->attr.unlimited_polymorphic)
+    return SUCCESS;
 
   super_type = gfc_get_derived_super_type (sym);
 
@@ -11622,8 +12534,11 @@ resolve_fl_derived0 (gfc_symbol *sym)
 
   for ( ; c != NULL; c = c->next)
     {
+      if (c->attr.artificial)
+	continue;
+
       /* See PRs 51550, 47545, 48654, 49050, 51075 - and 45170.  */
-      if (c->ts.type == BT_CHARACTER && c->ts.deferred)
+      if (c->ts.type == BT_CHARACTER && c->ts.deferred && !c->attr.function)
 	{
 	  gfc_error ("Deferred-length character component '%s' at %L is not "
 		     "yet supported", c->name, &c->loc);
@@ -11670,22 +12585,19 @@ resolve_fl_derived0 (gfc_symbol *sym)
 
       if (c->attr.proc_pointer && c->ts.interface)
 	{
-	  if (c->ts.interface->attr.procedure && !sym->attr.vtype)
-	    gfc_error ("Interface '%s', used by procedure pointer component "
-		       "'%s' at %L, is declared in a later PROCEDURE statement",
-		       c->ts.interface->name, c->name, &c->loc);
+	  gfc_symbol *ifc = c->ts.interface;
 
-	  /* Get the attributes from the interface (now resolved).  */
-	  if (c->ts.interface->attr.if_source
-	      || c->ts.interface->attr.intrinsic)
+	  if (!sym->attr.vtype
+	      && check_proc_interface (ifc, &c->loc) == FAILURE)
+	    return FAILURE;
+
+	  if (ifc->attr.if_source || ifc->attr.intrinsic)
 	    {
-	      gfc_symbol *ifc = c->ts.interface;
-
+	      /* Resolve interface and copy attributes.  */
 	      if (ifc->formal && !ifc->formal_ns)
 		resolve_symbol (ifc);
-
 	      if (ifc->attr.intrinsic)
-		resolve_intrinsic (ifc, &ifc->declared_at);
+		gfc_resolve_intrinsic (ifc, &ifc->declared_at);
 
 	      if (ifc->result)
 		{
@@ -11694,6 +12606,7 @@ resolve_fl_derived0 (gfc_symbol *sym)
 		  c->attr.pointer = ifc->result->attr.pointer;
 		  c->attr.dimension = ifc->result->attr.dimension;
 		  c->as = gfc_copy_array_spec (ifc->result->as);
+		  c->attr.class_ok = ifc->result->attr.class_ok;
 		}
 	      else
 		{
@@ -11702,45 +12615,27 @@ resolve_fl_derived0 (gfc_symbol *sym)
 		  c->attr.pointer = ifc->attr.pointer;
 		  c->attr.dimension = ifc->attr.dimension;
 		  c->as = gfc_copy_array_spec (ifc->as);
+		  c->attr.class_ok = ifc->attr.class_ok;
 		}
 	      c->ts.interface = ifc;
 	      c->attr.function = ifc->attr.function;
 	      c->attr.subroutine = ifc->attr.subroutine;
-	      gfc_copy_formal_args_ppc (c, ifc);
 
 	      c->attr.pure = ifc->attr.pure;
 	      c->attr.elemental = ifc->attr.elemental;
 	      c->attr.recursive = ifc->attr.recursive;
 	      c->attr.always_explicit = ifc->attr.always_explicit;
 	      c->attr.ext_attr |= ifc->attr.ext_attr;
-	      /* Replace symbols in array spec.  */
-	      if (c->as)
-		{
-		  int i;
-		  for (i = 0; i < c->as->rank; i++)
-		    {
-		      gfc_expr_replace_comp (c->as->lower[i], c);
-		      gfc_expr_replace_comp (c->as->upper[i], c);
-		    }
-	        }
 	      /* Copy char length.  */
 	      if (ifc->ts.type == BT_CHARACTER && ifc->ts.u.cl)
 		{
 		  gfc_charlen *cl = gfc_new_charlen (sym->ns, ifc->ts.u.cl);
-		  gfc_expr_replace_comp (cl->length, c);
 		  if (cl->length && !cl->resolved
-		        && gfc_resolve_expr (cl->length) == FAILURE)
+		      && gfc_resolve_expr (cl->length) == FAILURE)
 		    return FAILURE;
 		  c->ts.u.cl = cl;
 		}
 	    }
-	  else if (!sym->attr.vtype && c->ts.interface->name[0] != '\0')
-	    {
-	      gfc_error ("Interface '%s' of procedure pointer component "
-			 "'%s' at %L must be explicit", c->ts.interface->name,
-			 c->name, &c->loc);
-	      return FAILURE;
- 	    }
 	}
       else if (c->attr.proc_pointer && c->ts.type == BT_UNKNOWN)
 	{
@@ -11764,7 +12659,7 @@ resolve_fl_derived0 (gfc_symbol *sym)
 
 	      me_arg = NULL;
 	      c->tb->pass_arg_num = 1;
-	      for (i = c->formal; i; i = i->next)
+	      for (i = c->ts.interface->formal; i; i = i->next)
 		{
 		  if (!strcmp (i->sym->name, c->tb->pass_arg))
 		    {
@@ -11788,7 +12683,7 @@ resolve_fl_derived0 (gfc_symbol *sym)
 	      /* Otherwise, take the first one; there should in fact be at least
 		one.  */
 	      c->tb->pass_arg_num = 1;
-	      if (!c->formal)
+	      if (!c->ts.interface->formal)
 		{
 		  gfc_error ("Procedure pointer component '%s' with PASS at %L "
 			     "must have at least one argument",
@@ -11796,7 +12691,7 @@ resolve_fl_derived0 (gfc_symbol *sym)
 		  c->tb->error = 1;
 		  return FAILURE;
 		}
-	      me_arg = c->formal->sym;
+	      me_arg = c->ts.interface->formal->sym;
 	    }
 
 	  /* Now check that the argument-type matches.  */
@@ -11907,7 +12802,7 @@ resolve_fl_derived0 (gfc_symbol *sym)
 	  && !is_sym_host_assoc (c->ts.u.derived, sym->ns)
 	  && !c->ts.u.derived->attr.use_assoc
 	  && !gfc_check_symbol_access (c->ts.u.derived)
-	  && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: the component '%s' "
+	  && gfc_notify_std (GFC_STD_F2003, "the component '%s' "
 			     "is a PRIVATE type and cannot be a component of "
 			     "'%s', which is PUBLIC at %L", c->name,
 			     sym->name, &sym->declared_at) == FAILURE)
@@ -11951,7 +12846,8 @@ resolve_fl_derived0 (gfc_symbol *sym)
       if (c->ts.type == BT_CLASS && c->attr.class_ok
 	  && CLASS_DATA (c)->attr.class_pointer
 	  && CLASS_DATA (c)->ts.u.derived->components == NULL
-	  && !CLASS_DATA (c)->ts.u.derived->attr.zero_comp)
+	  && !CLASS_DATA (c)->ts.u.derived->attr.zero_comp
+	  && !UNLIMITED_POLY (c))
 	{
 	  gfc_error ("The pointer component '%s' of '%s' at %L is a type "
 		     "that has not been declared", c->name, sym->name,
@@ -11984,7 +12880,17 @@ resolve_fl_derived0 (gfc_symbol *sym)
 					   || c->attr.proc_pointer
 					   || c->attr.allocatable)) == FAILURE)
 	return FAILURE;
+
+      if (c->initializer && !sym->attr.vtype
+	  && gfc_check_assign_symbol (sym, c, c->initializer) == FAILURE)
+	return FAILURE;
     }
+
+  check_defined_assignments (sym);
+
+  if (!sym->attr.defined_assign_comp && super_type)
+    sym->attr.defined_assign_comp
+			= super_type->attr.defined_assign_comp;
 
   /* If this is a non-ABSTRACT type extending an ABSTRACT one, ensure that
      all DEFERRED bindings are overridden.  */
@@ -11995,6 +12901,10 @@ resolve_fl_derived0 (gfc_symbol *sym)
 
   /* Add derived type to the derived type list.  */
   add_dt_to_dt_list (sym);
+
+  /* Check if the type is finalizable. This is done in order to ensure that the
+     finalization wrapper is generated early enough.  */
+  gfc_is_finalizable (sym, NULL);
 
   return SUCCESS;
 }
@@ -12010,12 +12920,15 @@ resolve_fl_derived (gfc_symbol *sym)
 {
   gfc_symbol *gen_dt = NULL;
 
+  if (sym->attr.unlimited_polymorphic)
+    return SUCCESS;
+
   if (!sym->attr.is_class)
     gfc_find_symbol (sym->name, sym->ns, 0, &gen_dt);
   if (gen_dt && gen_dt->generic && gen_dt->generic->next
       && (!gen_dt->generic->sym->attr.use_assoc
 	  || gen_dt->generic->sym->module != gen_dt->generic->next->sym->module)
-      && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: Generic name '%s' of "
+      && gfc_notify_std (GFC_STD_F2003, "Generic name '%s' of "
 			 "function '%s' at %L being the same name as derived "
 			 "type at %L", sym->name,
 			 gen_dt->generic->sym == sym
@@ -12027,12 +12940,20 @@ resolve_fl_derived (gfc_symbol *sym)
 			 &sym->declared_at) == FAILURE)
     return FAILURE;
 
+  /* Resolve the finalizer procedures.  */
+  if (gfc_resolve_finalizers (sym) == FAILURE)
+    return FAILURE;
+
   if (sym->attr.is_class && sym->ts.u.derived == NULL)
     {
       /* Fix up incomplete CLASS symbols.  */
       gfc_component *data = gfc_find_component (sym, "_data", true, true);
       gfc_component *vptr = gfc_find_component (sym, "_vptr", true, true);
-      if (vptr->ts.u.derived == NULL)
+
+      /* Nothing more to do for unlimited polymorphic entities.  */
+      if (data->ts.u.derived->attr.unlimited_polymorphic)
+	return SUCCESS;
+      else if (vptr->ts.u.derived == NULL)
 	{
 	  gfc_symbol *vtab = gfc_find_derived_vtab (data->ts.u.derived);
 	  gcc_assert (vtab);
@@ -12045,10 +12966,6 @@ resolve_fl_derived (gfc_symbol *sym)
 
   /* Resolve the type-bound procedures.  */
   if (resolve_typebound_procedures (sym) == FAILURE)
-    return FAILURE;
-
-  /* Resolve the finalizer procedures.  */
-  if (gfc_resolve_finalizers (sym) == FAILURE)
     return FAILURE;
 
   return SUCCESS;
@@ -12073,14 +12990,14 @@ resolve_fl_namelist (gfc_symbol *sym)
 	}
 
       if (nl->sym->as && nl->sym->as->type == AS_ASSUMED_SHAPE
-	  && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: NAMELIST array "
+	  && gfc_notify_std (GFC_STD_F2003, "NAMELIST array "
 			     "object '%s' with assumed shape in namelist "
 			     "'%s' at %L", nl->sym->name, sym->name,
 			     &sym->declared_at) == FAILURE)
 	return FAILURE;
 
       if (is_non_constant_shape_array (nl->sym)
-	  && gfc_notify_std (GFC_STD_F2003,  "Fortran 2003: NAMELIST array "
+	  && gfc_notify_std (GFC_STD_F2003, "NAMELIST array "
 			     "object '%s' with nonconstant shape in namelist "
 			     "'%s' at %L", nl->sym->name, sym->name,
 			     &sym->declared_at) == FAILURE)
@@ -12089,7 +13006,7 @@ resolve_fl_namelist (gfc_symbol *sym)
       if (nl->sym->ts.type == BT_CHARACTER
 	  && (nl->sym->ts.u.cl->length == NULL
 	      || !gfc_is_constant_expr (nl->sym->ts.u.cl->length))
-	  && gfc_notify_std (GFC_STD_F2003,  "Fortran 2003: NAMELIST object "
+	  && gfc_notify_std (GFC_STD_F2003, "NAMELIST object "
 			     "'%s' with nonconstant character length in "
 			     "namelist '%s' at %L", nl->sym->name, sym->name,
 			     &sym->declared_at) == FAILURE)
@@ -12109,7 +13026,7 @@ resolve_fl_namelist (gfc_symbol *sym)
 	  && (nl->sym->ts.u.derived->attr.alloc_comp
 	      || nl->sym->ts.u.derived->attr.pointer_comp))
 	{
-	  if (gfc_notify_std (GFC_STD_F2003,  "Fortran 2003: NAMELIST object "
+	  if (gfc_notify_std (GFC_STD_F2003, "NAMELIST object "
 			      "'%s' in namelist '%s' at %L with ALLOCATABLE "
 			      "or POINTER components", nl->sym->name,
 			      sym->name, &sym->declared_at) == FAILURE)
@@ -12178,7 +13095,7 @@ resolve_fl_namelist (gfc_symbol *sym)
 	  continue;
 
       nlsym = NULL;
-      if (nl->sym && nl->sym->name)
+      if (nl->sym->name)
 	gfc_find_symbol (nl->sym->name, sym->ns, 1, &nlsym);
       if (nlsym && nlsym->attr.flavor == FL_PROCEDURE)
 	{
@@ -12246,8 +13163,22 @@ resolve_symbol (gfc_symbol *sym)
   gfc_component *c;
   symbol_attribute class_attr;
   gfc_array_spec *as;
+  bool saved_specification_expr;
 
-  if (sym->attr.flavor == FL_UNKNOWN)
+  if (sym->resolved)
+    return;
+  sym->resolved = 1;
+
+  if (sym->attr.artificial)
+    return;
+
+  if (sym->attr.unlimited_polymorphic)
+    return;
+
+  if (sym->attr.flavor == FL_UNKNOWN
+      || (sym->attr.flavor == FL_PROCEDURE && !sym->attr.intrinsic
+	  && !sym->attr.generic && !sym->attr.external
+	  && sym->attr.if_source == IFSRC_UNKNOWN))
     {
 
     /* If we find that a flavorless symbol is an interface in one of the
@@ -12271,9 +13202,10 @@ resolve_symbol (gfc_symbol *sym)
 
       /* Otherwise give it a flavor according to such attributes as
 	 it has.  */
-      if (sym->attr.external == 0 && sym->attr.intrinsic == 0)
+      if (sym->attr.flavor == FL_UNKNOWN && sym->attr.external == 0
+	  && sym->attr.intrinsic == 0)
 	sym->attr.flavor = FL_VARIABLE;
-      else
+      else if (sym->attr.flavor == FL_UNKNOWN)
 	{
 	  sym->attr.flavor = FL_PROCEDURE;
 	  if (sym->attr.dimension)
@@ -12284,8 +13216,7 @@ resolve_symbol (gfc_symbol *sym)
   if (sym->attr.external && sym->ts.type != BT_UNKNOWN && !sym->attr.function)
     gfc_add_function (&sym->attr, sym->name, &sym->declared_at);
 
-  if (sym->attr.procedure && sym->ts.interface
-      && sym->attr.if_source != IFSRC_DECL
+  if (sym->attr.procedure && sym->attr.if_source != IFSRC_DECL
       && resolve_procedure_interface (sym) == FAILURE)
     return;
 
@@ -12316,7 +13247,7 @@ resolve_symbol (gfc_symbol *sym)
      representation. This needs to be done before assigning a default
      type to avoid spurious warnings.  */
   if (sym->attr.flavor != FL_MODULE && sym->attr.intrinsic
-      && resolve_intrinsic (sym, &sym->declared_at) == FAILURE)
+      && gfc_resolve_intrinsic (sym, &sym->declared_at) == FAILURE)
     return;
 
   /* Resolve associate names.  */
@@ -12360,7 +13291,12 @@ resolve_symbol (gfc_symbol *sym)
 	}
     }
   else if (mp_flag && sym->attr.flavor == FL_PROCEDURE && sym->attr.function)
-    gfc_resolve_array_spec (sym->result->as, false);
+    {
+      bool saved_specification_expr = specification_expr;
+      specification_expr = true;
+      gfc_resolve_array_spec (sym->result->as, false);
+      specification_expr = saved_specification_expr;
+    }
 
   if (sym->ts.type == BT_CLASS && sym->attr.class_ok)
     {
@@ -12377,11 +13313,12 @@ resolve_symbol (gfc_symbol *sym)
   /* F2008, C530. */
   if (sym->attr.contiguous
       && (!class_attr.dimension
-	  || (as->type != AS_ASSUMED_SHAPE && !class_attr.pointer)))
+	  || (as->type != AS_ASSUMED_SHAPE && as->type != AS_ASSUMED_RANK
+	      && !class_attr.pointer)))
     {
       gfc_error ("'%s' at %L has the CONTIGUOUS attribute but is not an "
-		  "array pointer or an assumed-shape array", sym->name,
-		  &sym->declared_at);
+		 "array pointer or an assumed-shape or assumed-rank array",
+		 sym->name, &sym->declared_at);
       return;
     }
 
@@ -12394,7 +13331,7 @@ resolve_symbol (gfc_symbol *sym)
       gcc_assert (as->type != AS_IMPLIED_SHAPE);
       if (((as->type == AS_ASSUMED_SIZE && !as->cp_was_assumed)
 	   || as->type == AS_ASSUMED_SHAPE)
-	  && sym->attr.dummy == 0)
+	  && !sym->attr.dummy && !sym->attr.select_type_temporary)
 	{
 	  if (as->type == AS_ASSUMED_SIZE)
 	    gfc_error ("Assumed size array at %L must be a dummy argument",
@@ -12402,6 +13339,21 @@ resolve_symbol (gfc_symbol *sym)
 	  else
 	    gfc_error ("Assumed shape array at %L must be a dummy argument",
 		       &sym->declared_at);
+	  return;
+	}
+      /* TS 29113, C535a.  */
+      if (as->type == AS_ASSUMED_RANK && !sym->attr.dummy
+	  && !sym->attr.select_type_temporary)
+	{
+	  gfc_error ("Assumed-rank array at %L must be a dummy argument",
+		     &sym->declared_at);
+	  return;
+	}
+      if (as->type == AS_ASSUMED_RANK
+	  && (sym->attr.codimension || sym->attr.value))
+	{
+	  gfc_error ("Assumed-rank array at %L may not have the VALUE or "
+		     "CODIMENSION attribute", &sym->declared_at);
 	  return;
 	}
     }
@@ -12455,6 +13407,38 @@ resolve_symbol (gfc_symbol *sym)
 		     "which has not been defined", sym->name,
 		     &sym->declared_at, sym->ts.u.derived->name);
 	  sym->ts.type = BT_UNKNOWN;
+	  return;
+	}
+    }
+
+  if (sym->ts.type == BT_ASSUMED)
+    {
+      /* TS 29113, C407a.  */
+      if (!sym->attr.dummy)
+	{
+	  gfc_error ("Assumed type of variable %s at %L is only permitted "
+		     "for dummy variables", sym->name, &sym->declared_at);
+	  return;
+	}
+      if (sym->attr.allocatable || sym->attr.codimension
+	  || sym->attr.pointer || sym->attr.value)
+    	{
+	  gfc_error ("Assumed-type variable %s at %L may not have the "
+		     "ALLOCATABLE, CODIMENSION, POINTER or VALUE attribute",
+		     sym->name, &sym->declared_at);
+	  return;
+	}
+      if (sym->attr.intent == INTENT_OUT)
+    	{
+	  gfc_error ("Assumed-type variable %s at %L may not have the "
+		     "INTENT(OUT) attribute",
+		     sym->name, &sym->declared_at);
+	  return;
+	}
+      if (sym->attr.dimension && sym->as->type == AS_EXPLICIT)
+	{
+	  gfc_error ("Assumed-type variable %s at %L shall not be an "
+		     "explicit-shape array", sym->name, &sym->declared_at);
 	  return;
 	}
     }
@@ -12558,7 +13542,7 @@ resolve_symbol (gfc_symbol *sym)
       && !sym->ts.u.derived->attr.use_assoc
       && gfc_check_symbol_access (sym)
       && !gfc_check_symbol_access (sym->ts.u.derived)
-      && gfc_notify_std (GFC_STD_F2003, "Fortran 2003: PUBLIC %s '%s' at %L "
+      && gfc_notify_std (GFC_STD_F2003, "PUBLIC %s '%s' at %L "
 		         "of PRIVATE derived type '%s'",
 			 (sym->attr.flavor == FL_PARAMETER) ? "parameter"
 			 : "variable", sym->name, &sym->declared_at,
@@ -12692,6 +13676,32 @@ resolve_symbol (gfc_symbol *sym)
       return;
     }
 
+  if (sym->ts.type == BT_LOGICAL
+      && ((sym->attr.function && sym->attr.is_bind_c && sym->result == sym)
+	  || ((sym->attr.dummy || sym->attr.result) && sym->ns->proc_name
+	      && sym->ns->proc_name->attr.is_bind_c)))
+    {
+      int i;
+      for (i = 0; gfc_logical_kinds[i].kind; i++)
+        if (gfc_logical_kinds[i].kind == sym->ts.kind)
+          break;
+      if (!gfc_logical_kinds[i].c_bool && sym->attr.dummy
+	  && gfc_notify_std (GFC_STD_GNU, "LOGICAL dummy argument '%s' at %L "
+			     "with non-C_Bool kind in BIND(C) procedure '%s'",
+			     sym->name, &sym->declared_at,
+			     sym->ns->proc_name->name) == FAILURE)
+	return;
+      else if (!gfc_logical_kinds[i].c_bool
+	       && gfc_notify_std (GFC_STD_GNU, "LOGICAL result variable '%s' at"
+				  " %L with non-C_Bool kind in BIND(C) "
+				  "procedure '%s'", sym->name,
+				  &sym->declared_at,
+				  sym->attr.function ? sym->name
+						     : sym->ns->proc_name->name)
+		  == FAILURE)
+	return;
+    }
+
   switch (sym->attr.flavor)
     {
     case FL_VARIABLE:
@@ -12729,7 +13739,10 @@ resolve_symbol (gfc_symbol *sym)
   if (sym->attr.function && sym->as)
     formal_arg_flag = 1;
 
+  saved_specification_expr = specification_expr;
+  specification_expr = true;
   gfc_resolve_array_spec (sym->as, check_constant);
+  specification_expr = saved_specification_expr;
 
   formal_arg_flag = 0;
 
@@ -12748,7 +13761,8 @@ resolve_symbol (gfc_symbol *sym)
       if (formal)
 	{
 	  sym->formal_ns = formal->sym->ns;
-	  sym->formal_ns->refs++;
+          if (sym->ns != formal->sym->ns)
+	    sym->formal_ns->refs++;
 	}
     }
 
@@ -12764,7 +13778,6 @@ resolve_symbol (gfc_symbol *sym)
      described in 14.7.5, to those variables that have not already
      been assigned one.  */
   if (sym->ts.type == BT_DERIVED
-      && sym->ns == gfc_current_ns
       && !sym->value
       && !sym->attr.allocatable
       && !sym->attr.alloc_comp)
@@ -13145,7 +14158,7 @@ resolve_data_variables (gfc_data_variable *d)
 	}
       else
 	{
-	  if (gfc_resolve_iterator (&d->iter, false) == FAILURE)
+	  if (gfc_resolve_iterator (&d->iter, false, true) == FAILURE)
 	    return FAILURE;
 
 	  if (resolve_data_variables (d->list) == FAILURE)
@@ -13723,7 +14736,7 @@ resolve_fntype (gfc_namespace *ns)
       && !gfc_check_symbol_access (sym->ts.u.derived)
       && gfc_check_symbol_access (sym))
     {
-      gfc_notify_std (GFC_STD_F2003, "Fortran 2003: PUBLIC function '%s' at "
+      gfc_notify_std (GFC_STD_F2003, "PUBLIC function '%s' at "
 		      "%L of PRIVATE type '%s'", sym->name,
 		      &sym->declared_at, sym->ts.u.derived->name);
     }
@@ -13768,7 +14781,7 @@ check_uop_procedure (gfc_symbol *sym, locus where)
       return FAILURE;
     }
 
-  formal = sym->formal;
+  formal = gfc_sym_get_dummy_args (sym);
   if (!formal || !formal->sym)
     {
       gfc_error ("User operator procedure '%s' at %L must have at least "
@@ -13980,6 +14993,7 @@ gfc_resolve (gfc_namespace *ns)
   old_cs_base = cs_base;
 
   resolve_types (ns);
+  component_assignment_level = 0;
   resolve_codes (ns);
 
   gfc_current_ns = old_ns;

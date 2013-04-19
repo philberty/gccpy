@@ -1,6 +1,5 @@
 /* Subroutines used for code generation on Renesas RX processors.
-   Copyright (C) 2008, 2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 2008-2013 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -52,6 +51,7 @@
 #include "target-def.h"
 #include "langhooks.h"
 #include "opts.h"
+#include "cgraph.h"
 
 static unsigned int rx_gp_base_regnum_val = INVALID_REGNUM;
 static unsigned int rx_pid_base_regnum_val = INVALID_REGNUM;
@@ -317,7 +317,7 @@ rx_is_restricted_memory_address (rtx mem, enum machine_mode mode)
 /* Implement TARGET_MODE_DEPENDENT_ADDRESS_P.  */
 
 static bool
-rx_mode_dependent_address_p (const_rtx addr)
+rx_mode_dependent_address_p (const_rtx addr, addr_space_t as ATTRIBUTE_UNUSED)
 {
   if (GET_CODE (addr) == CONST)
     addr = XEXP (addr, 0);
@@ -1085,7 +1085,20 @@ static unsigned int
 rx_function_arg_boundary (enum machine_mode mode ATTRIBUTE_UNUSED,
 			  const_tree type ATTRIBUTE_UNUSED)
 {
-  return 32;
+  /* Older versions of the RX backend aligned all on-stack arguements
+     to 32-bits.  The RX C ABI however says that they should be
+     aligned to their natural alignment.  (See section 5.2.2 of the ABI).  */
+  if (TARGET_GCC_ABI)
+    return STACK_BOUNDARY;
+
+  if (type)
+    {
+      if (DECL_P (type))
+	return DECL_ALIGN (type);
+      return TYPE_ALIGN (type);
+    }
+
+  return PARM_BOUNDARY;
 }
 
 /* Return an RTL describing where a function return value of type RET_TYPE
@@ -1255,6 +1268,41 @@ rx_conditional_register_usage (void)
     }
 }
 
+struct decl_chain
+{
+  tree fndecl;
+  struct decl_chain * next;
+};
+
+/* Stack of decls for which we have issued warnings.  */
+static struct decl_chain * warned_decls = NULL;
+
+static void
+add_warned_decl (tree fndecl)
+{
+  struct decl_chain * warned = (struct decl_chain *) xmalloc (sizeof * warned);
+
+  warned->fndecl = fndecl;
+  warned->next = warned_decls;
+  warned_decls = warned;
+}
+
+/* Returns TRUE if FNDECL is on our list of warned about decls.  */
+
+static bool
+already_warned (tree fndecl)
+{
+  struct decl_chain * warned;
+
+  for (warned = warned_decls;
+       warned != NULL;
+       warned = warned->next)
+    if (warned->fndecl == fndecl)
+      return true;
+
+  return false;
+}
+
 /* Perform any actions necessary before starting to compile FNDECL.
    For the RX we use this to make sure that we have the correct
    set of register masks selected.  If FNDECL is NULL then we are
@@ -1285,6 +1333,24 @@ rx_set_current_function (tree fndecl)
     {
       use_fixed_regs = current_is_fast_interrupt;
       target_reinit ();
+    }
+
+  if (current_is_fast_interrupt && rx_warn_multiple_fast_interrupts)
+    {
+      /* We do not warn about the first fast interrupt routine that
+	 we see.  Instead we just push it onto the stack.  */
+      if (warned_decls == NULL)
+	add_warned_decl (fndecl);
+
+      /* Otherwise if this fast interrupt is one for which we have
+	 not already issued a warning, generate one and then push
+	 it onto the stack as well.  */
+      else if (! already_warned (fndecl))
+	{
+	  warning (0, "multiple fast interrupt routines seen: %qE and %qE",
+		   fndecl, warned_decls->fndecl);
+	  add_warned_decl (fndecl);
+	}
     }
 
   rx_previous_fndecl = fndecl;
@@ -1381,7 +1447,7 @@ rx_get_stack_layout (unsigned int * lowest,
 	      be used in (non-interrupt aware) routines called from this one.  */
 	   || (call_used_regs[reg]
 	       && is_interrupt_func (NULL_TREE)
-	       && ! current_function_is_leaf))
+	       && ! crtl->is_leaf))
 	  && (! call_used_regs[reg]
 	      /* Even call clobbered registered must
 		 be pushed inside interrupt handlers.  */
@@ -1606,6 +1672,9 @@ rx_expand_prologue (void)
 
   rx_get_stack_layout (& low, & high, & mask, & frame_size, & stack_size);
 
+  if (flag_stack_usage_info)
+    current_function_static_stack_size = frame_size + stack_size;
+
   /* If we use any of the callee-saved registers, save them now.  */
   if (mask)
     {
@@ -1776,7 +1845,7 @@ gen_rx_rtsd_vector (unsigned int adjust, unsigned int low, unsigned int high)
 
   XVECEXP (vector, 0, 0) =
     gen_rtx_SET (VOIDmode, stack_pointer_rtx,
-		 plus_constant (stack_pointer_rtx, adjust));
+		 plus_constant (Pmode, stack_pointer_rtx, adjust));
 
   for (i = 0; i < count - 2; i++)
     XVECEXP (vector, 0, i + 1) =
@@ -1784,7 +1853,7 @@ gen_rx_rtsd_vector (unsigned int adjust, unsigned int low, unsigned int high)
 		   gen_rtx_REG (SImode, low + i),
 		   gen_rtx_MEM (SImode,
 				i == 0 ? stack_pointer_rtx
-				: plus_constant (stack_pointer_rtx,
+				: plus_constant (Pmode, stack_pointer_rtx,
 						 i * UNITS_PER_WORD)));
 
   XVECEXP (vector, 0, count - 1) = ret_rtx;
@@ -1805,7 +1874,7 @@ gen_rx_popm_vector (unsigned int low, unsigned int high)
 
   XVECEXP (vector, 0, 0) =
     gen_rtx_SET (VOIDmode, stack_pointer_rtx,
-		 plus_constant (stack_pointer_rtx,
+		 plus_constant (Pmode, stack_pointer_rtx,
 				(count - 1) * UNITS_PER_WORD));
 
   for (i = 0; i < count - 1; i++)
@@ -1814,7 +1883,7 @@ gen_rx_popm_vector (unsigned int low, unsigned int high)
 		   gen_rtx_REG (SImode, low + i),
 		   gen_rtx_MEM (SImode,
 				i == 0 ? stack_pointer_rtx
-				: plus_constant (stack_pointer_rtx,
+				: plus_constant (Pmode, stack_pointer_rtx,
 						 i * UNITS_PER_WORD)));
 
   return vector;
@@ -2557,43 +2626,43 @@ rx_option_override (void)
 {
   unsigned int i;
   cl_deferred_option *opt;
-  VEC(cl_deferred_option,heap) *vec
-    = (VEC(cl_deferred_option,heap) *) rx_deferred_options;
+  vec<cl_deferred_option> *v = (vec<cl_deferred_option> *) rx_deferred_options;
 
-  FOR_EACH_VEC_ELT (cl_deferred_option, vec, i, opt)
-    {
-      switch (opt->opt_index)
-	{
-	case OPT_mint_register_:
-	  switch (opt->value)
-	    {
-	    case 4:
-	      fixed_regs[10] = call_used_regs [10] = 1;
-	      /* Fall through.  */
-	    case 3:
-	      fixed_regs[11] = call_used_regs [11] = 1;
-	      /* Fall through.  */
-	    case 2:
-	      fixed_regs[12] = call_used_regs [12] = 1;
-	      /* Fall through.  */
-	    case 1:
-	      fixed_regs[13] = call_used_regs [13] = 1;
-	      /* Fall through.  */
-	    case 0:
-	      rx_num_interrupt_regs = opt->value;
-	      break;
-	    default:
-	      rx_num_interrupt_regs = 0;
-	      /* Error message already given because rx_handle_option
-		 returned false.  */
-	      break;
-	    }
-	  break;
+  if (v)
+    FOR_EACH_VEC_ELT (*v, i, opt)
+      {
+	switch (opt->opt_index)
+	  {
+	  case OPT_mint_register_:
+	    switch (opt->value)
+	      {
+	      case 4:
+		fixed_regs[10] = call_used_regs [10] = 1;
+		/* Fall through.  */
+	      case 3:
+		fixed_regs[11] = call_used_regs [11] = 1;
+		/* Fall through.  */
+	      case 2:
+		fixed_regs[12] = call_used_regs [12] = 1;
+		/* Fall through.  */
+	      case 1:
+		fixed_regs[13] = call_used_regs [13] = 1;
+		/* Fall through.  */
+	      case 0:
+		rx_num_interrupt_regs = opt->value;
+		break;
+	      default:
+		rx_num_interrupt_regs = 0;
+		/* Error message already given because rx_handle_option
+		  returned false.  */
+		break;
+	      }
+	    break;
 
-	default:
-	  gcc_unreachable ();
-	}
-    }
+	  default:
+	    gcc_unreachable ();
+	  }
+      }
 
   /* This target defaults to strict volatile bitfields.  */
   if (flag_strict_volatile_bitfields < 0 && abi_version_at_least(2))
@@ -2623,6 +2692,14 @@ rx_func_attr_inlinable (const_tree decl)
   return ! is_fast_interrupt_func (decl)
     &&   ! is_interrupt_func (decl)
     &&   ! is_naked_func (decl);  
+}
+
+static bool
+rx_warn_func_return (tree decl)
+{
+  /* Naked functions are implemented entirely in assembly, including the
+     return sequence, so suppress warnings about this.  */
+  return !is_naked_func (decl);
 }
 
 /* Return nonzero if it is ok to make a tail-call to DECL,
@@ -2712,7 +2789,8 @@ rx_is_legitimate_constant (enum machine_mode mode ATTRIBUTE_UNUSED, rtx x)
 }
 
 static int
-rx_address_cost (rtx addr, bool speed)
+rx_address_cost (rtx addr, enum machine_mode mode ATTRIBUTE_UNUSED,
+		 addr_space_t as ATTRIBUTE_UNUSED, bool speed)
 {
   rtx a, b;
 
@@ -3136,7 +3214,39 @@ rx_adjust_insn_length (rtx insn, int current_length)
 
   return (zero && factor == 1) ? 4 : 5;
 }
+
+static bool
+rx_narrow_volatile_bitfield (void)
+{
+  return true;
+}
+
+static bool
+rx_ok_to_inline (tree caller, tree callee)
+{
+  /* Do not inline functions with local variables
+     into a naked CALLER - naked function have no stack frame and
+     locals need a frame in order to have somewhere to live.
+
+     Unfortunately we have no way to determine the presence of
+     local variables in CALLEE, so we have to be cautious and
+     assume that there might be some there.
+
+     We do allow inlining when CALLEE has the "inline" type
+     modifier or the "always_inline" or "gnu_inline" attributes.  */
+  return lookup_attribute ("naked", DECL_ATTRIBUTES (caller)) == NULL_TREE
+    || DECL_DECLARED_INLINE_P (callee)
+    || lookup_attribute ("always_inline", DECL_ATTRIBUTES (callee)) != NULL_TREE
+    || lookup_attribute ("gnu_inline", DECL_ATTRIBUTES (callee)) != NULL_TREE;
+}
+
 
+#undef  TARGET_NARROW_VOLATILE_BITFIELD
+#define TARGET_NARROW_VOLATILE_BITFIELD		rx_narrow_volatile_bitfield
+
+#undef  TARGET_CAN_INLINE_P
+#define TARGET_CAN_INLINE_P			rx_ok_to_inline
+
 #undef  TARGET_ASM_JUMP_ALIGN_MAX_SKIP
 #define TARGET_ASM_JUMP_ALIGN_MAX_SKIP			rx_max_skip_for_label
 #undef  TARGET_ASM_LOOP_ALIGN_MAX_SKIP
@@ -3277,6 +3387,9 @@ rx_adjust_insn_length (rtx insn, int current_length)
 
 #undef  TARGET_LEGITIMIZE_ADDRESS
 #define TARGET_LEGITIMIZE_ADDRESS		rx_legitimize_address
+
+#undef  TARGET_WARN_FUNC_RETURN
+#define TARGET_WARN_FUNC_RETURN 		rx_warn_func_return
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 

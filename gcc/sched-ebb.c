@@ -1,7 +1,5 @@
 /* Instruction scheduling pass.
-   Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1992-2013 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com) Enhanced by,
    and currently maintained by, Jim Wilson (wilson@cygnus.com)
 
@@ -36,11 +34,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "insn-attr.h"
 #include "except.h"
 #include "recog.h"
-#include "cfglayout.h"
 #include "params.h"
 #include "sched-int.h"
 #include "target.h"
-#include "output.h"
 
 
 #ifdef INSN_SCHEDULING
@@ -546,7 +542,7 @@ schedule_ebb (rtx head, rtx tail, bool modulo_scheduling)
 
   /* Make ready list big enough to hold all the instructions from the ebb.  */
   sched_extend_ready_list (rgn_n_insns);
-  success = schedule_block (&target_bb);
+  success = schedule_block (&target_bb, NULL);
   gcc_assert (success || modulo_scheduling);
 
   /* Free ready list.  */

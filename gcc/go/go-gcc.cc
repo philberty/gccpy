@@ -1,5 +1,5 @@
 // go-gcc.cc -- Go frontend to gcc IR.
-// Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+// Copyright (C) 2011-2013 Free Software Foundation, Inc.
 // Contributed by Ian Lance Taylor, Google.
 
 // This file is part of GCC.
@@ -24,19 +24,11 @@
 // include it here before tree.h includes it later.
 #include <gmp.h>
 
-#ifndef ENABLE_BUILD_WITH_CXX
-extern "C"
-{
-#endif
-
 #include "tree.h"
 #include "tree-iterator.h"
 #include "gimple.h"
 #include "toplev.h"
-
-#ifndef ENABLE_BUILD_WITH_CXX
-}
-#endif
+#include "output.h"
 
 #include "go-c.h"
 
@@ -276,6 +268,7 @@ class Gcc_backend : public Backend
 		  Btype* btype,
 		  bool is_external,
 		  bool is_hidden,
+		  bool in_unique_section,
 		  Location location);
 
   void
@@ -1087,7 +1080,7 @@ Gcc_backend::switch_statement(
   if (tv == error_mark_node)
     return this->error_statement();
   tree t = build3_loc(switch_location.gcc_location(), SWITCH_EXPR,
-                      void_type_node, tv, stmt_list, NULL_TREE);
+                      NULL_TREE, tv, stmt_list, NULL_TREE);
   return this->make_statement(t);
 }
 
@@ -1286,6 +1279,7 @@ Gcc_backend::global_variable(const std::string& package_name,
 			     Btype* btype,
 			     bool is_external,
 			     bool is_hidden,
+			     bool in_unique_section,
 			     Location location)
 {
   tree type_tree = btype->get_tree();
@@ -1317,6 +1311,9 @@ Gcc_backend::global_variable(const std::string& package_name,
     }
   TREE_USED(decl) = 1;
 
+  if (in_unique_section)
+    resolve_unique_section (decl, 0, 1);
+
   go_preserve_from_gc(decl);
 
   return new Bvariable(decl);
@@ -1335,6 +1332,16 @@ Gcc_backend::global_variable_set_init(Bvariable* var, Bexpression* expr)
   if (var_decl == error_mark_node)
     return;
   DECL_INITIAL(var_decl) = expr_tree;
+
+  // If this variable goes in a unique section, it may need to go into
+  // a different one now that DECL_INITIAL is set.
+  if (DECL_HAS_IMPLICIT_SECTION_NAME_P (var_decl))
+    {
+      DECL_SECTION_NAME (var_decl) = NULL_TREE;
+      resolve_unique_section (var_decl,
+			      compute_reloc_for_constant (expr_tree),
+			      1);
+    }
 }
 
 // Make a local variable.

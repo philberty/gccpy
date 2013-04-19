@@ -1,6 +1,5 @@
 # libgcc host-specific configuration file.
-# Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-# 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+# Copyright (C) 1997-2013 Free Software Foundation, Inc.
 
 #This file is part of GCC.
 
@@ -83,6 +82,9 @@ m32c*-*-*)
         cpu_type=m32c
 	tmake_file=t-fdpbit
         ;;
+aarch64*-*-*)
+	cpu_type=aarch64
+	;;
 alpha*-*-*)
 	cpu_type=alpha
 	;;
@@ -255,7 +257,7 @@ case ${host} in
   ;;
 *-*-*vms*)
   tmake_file="vms/t-vms"
-  extra_parts="vcrt0.o pcrt0.o crtbegin.o crtbeginS.o crtend.o crtendS.o"
+  extra_parts="crt0.o crtbegin.o crtbeginS.o crtend.o crtendS.o"
   ;;
 *-*-vxworks*)
   tmake_file=t-vxworks
@@ -266,8 +268,7 @@ case ${host} in
 esac
 
 case ${host} in
-*-*-darwin* | *-*-freebsd* | *-*-netbsd* | *-*-openbsd* | *-*-solaris2* | \
-  alpha*-dec-osf5.1*)
+*-*-darwin* | *-*-freebsd* | *-*-netbsd* | *-*-openbsd* | *-*-solaris2*)
   enable_execute_stack=enable-execute-stack-mprotect.c
   ;;
 i[34567]86-*-mingw* | x86_64-*-mingw*)
@@ -279,6 +280,16 @@ i[34567]86-*-mingw* | x86_64-*-mingw*)
 esac
 
 case ${host} in
+aarch64*-*-elf)
+	extra_parts="$extra_parts crtbegin.o crtend.o crti.o crtn.o"
+	tmake_file="${tmake_file} ${cpu_type}/t-aarch64"
+	tmake_file="${tmake_file} ${cpu_type}/t-softfp t-softfp"
+	;;
+aarch64*-*-linux*)
+	md_unwind_header=aarch64/linux-unwind.h
+	tmake_file="${tmake_file} ${cpu_type}/t-aarch64"
+	tmake_file="${tmake_file} ${cpu_type}/t-softfp t-softfp"
+	;;
 alpha*-*-linux*)
 	tmake_file="${tmake_file} alpha/t-alpha alpha/t-ieee t-crtfm alpha/t-linux"
 	extra_parts="$extra_parts crtfastmath.o"
@@ -294,16 +305,6 @@ alpha*-*-netbsd*)
 alpha*-*-openbsd*)
 	tmake_file="${tmake_file} alpha/t-alpha alpha/t-ieee"
 	;;
-alpha*-dec-osf5.1*)
-	tmake_file="${tmake_file} alpha/t-alpha alpha/t-ieee t-crtfm t-slibgcc alpha/t-slibgcc-osf"
-	case ${target_thread_file} in
-	  posix)
-	    tmake_file="${tmake_file} alpha/t-osf-pthread"
-	    ;;
-	esac
-	extra_parts="${extra_parts} crtfastmath.o"
-	md_unwind_header=alpha/osf5-unwind.h
-	;;
 alpha64-dec-*vms*)
 	tmake_file="$tmake_file alpha/t-alpha alpha/t-ieee alpha/t-vms t-slibgcc-vms"
 	extra_parts="$extra_parts vms-dwarf2.o vms-dwarf2eh.o"
@@ -318,43 +319,21 @@ arm-wrs-vxworks)
 	tmake_file="$tmake_file arm/t-arm arm/t-vxworks t-fdpbit"
 	extra_parts="$extra_parts crti.o crtn.o"
 	;;
-arm*-*-freebsd*)
-	tmake_file="$tmake_file arm/t-arm arm/t-strongarm-elf t-fdpbit"
-	;;
 arm*-*-netbsdelf*)
 	tmake_file="$tmake_file arm/t-arm arm/t-netbsd t-slibgcc-gld-nover"
 	;;
 arm*-*-linux*)			# ARM GNU/Linux with ELF
 	tmake_file="${tmake_file} arm/t-arm t-fixedpoint-gnu-prefix"
-	case ${host} in
-	arm*-*-linux-*eabi*)
-	  tmake_file="${tmake_file} arm/t-elf arm/t-bpabi arm/t-linux-eabi t-slibgcc-libgcc"
-	  tm_file="$tm_file arm/bpabi-lib.h"
-	  unwind_header=config/arm/unwind-arm.h
-	  ;;
-	*)
-	  tmake_file="$tmake_file arm/t-linux"
- 	  ;;
-	esac
+	tmake_file="${tmake_file} arm/t-elf arm/t-bpabi arm/t-linux-eabi t-slibgcc-libgcc"
+	tm_file="$tm_file arm/bpabi-lib.h"
+	unwind_header=config/arm/unwind-arm.h
 	tmake_file="$tmake_file t-softfp-sfdf t-softfp-excl arm/t-softfp t-softfp"
 	;;
 arm*-*-uclinux*)		# ARM ucLinux
 	tmake_file="${tmake_file} t-fixedpoint-gnu-prefix"
-	case ${host} in
-	arm*-*-uclinux*eabi)
-	  tmake_file="${tmake_file} arm/t-bpabi"
-	  tm_file="$tm_file arm/bpabi-lib.h"
-	  unwind_header=config/arm/unwind-arm.h
-	  ;;
-	esac
-	tmake_file="$tmake_file arm/t-arm arm/t-elf t-softfp-sfdf t-softfp-excl arm/t-softfp t-softfp"
-	extra_parts="$extra_parts crti.o crtn.o"
-	;;
-arm*-*-ecos-elf)
-	tmake_file="$tmake_file arm/t-arm arm/t-elf t-softfp-sfdf t-softfp-excl arm/t-softfp t-softfp"
-	extra_parts="$extra_parts crti.o crtn.o"
-	;;
-arm*-*-rtemself*)
+	tmake_file="${tmake_file} arm/t-bpabi"
+	tm_file="$tm_file arm/bpabi-lib.h"
+	unwind_header=config/arm/unwind-arm.h
 	tmake_file="$tmake_file arm/t-arm arm/t-elf t-softfp-sfdf t-softfp-excl arm/t-softfp t-softfp"
 	extra_parts="$extra_parts crti.o crtn.o"
 	;;
@@ -375,13 +354,6 @@ arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems*)
 	tmake_file="$tmake_file t-softfp-sfdf t-softfp-excl arm/t-softfp t-softfp"
 	unwind_header=config/arm/unwind-arm.h
 	;;
-arm*-*-elf)
-	tmake_file="$tmake_file arm/t-arm arm/t-elf t-softfp-sfdf t-softfp-excl arm/t-softfp t-softfp"
-	extra_parts="$extra_parts crti.o crtn.o"
-	;;
-arm*-wince-pe*)
-	tmake_file="$tmake_file arm/t-arm arm/t-wince-pe"
-	;;
 avr-*-rtems*)
 	tmake_file="$tmake_file avr/t-avr avr/t-rtems t-fpbit"
 	tm_file="$tm_file avr/avr-lib.h"
@@ -391,7 +363,7 @@ avr-*-rtems*)
 avr-*-*)
 	# Make HImode functions for AVR
 	tmake_file="${cpu_type}/t-avr t-fpbit"
-	if test x${with_avrlibc} = xyes; then
+	if test x${with_avrlibc} != xno; then
 	    tmake_file="$tmake_file ${cpu_type}/t-avrlibc"
 	fi
 	tm_file="$tm_file avr/avr-lib.h"
@@ -510,6 +482,9 @@ hppa[12]*-*-hpux11*)
 	extra_parts="libgcc_stub.a"
 	md_unwind_header=pa/hpux-unwind.h
 	;;
+hppa*-*-openbsd*)
+	tmake_file="$tmake_file pa/t-openbsd"
+	;;
 i[34567]86-*-darwin*)
 	tmake_file="$tmake_file i386/t-crtpc i386/t-crtfm"
 	tm_file="$tm_file i386/darwin-lib.h"
@@ -540,6 +515,8 @@ x86_64-*-netbsd*)
 i[34567]86-*-openbsd2.*|i[34567]86-*openbsd3.[0123])
 	;;
 i[34567]86-*-openbsd*)
+	;;
+x86_64-*-openbsd*)
 	;;
 i[34567]86-*-linux*)
 	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
@@ -632,7 +609,7 @@ x86_64-*-mingw*)
 	if test x$enable_sjlj_exceptions = xyes; then
 		tmake_eh_file="i386/t-sjlj-eh"
 	else
-		tmake_eh_file="i386/t-dw2-eh"
+		tmake_eh_file="i386/t-seh-eh"
 	fi
 	# Shared libgcc DLL install dir depends on cross/native build.
 	if test x${build} = x${host} ; then
@@ -735,16 +712,11 @@ mcore-*-elf)
 	extra_parts="$extra_parts crti.o crtn.o"
 	;;
 microblaze*-linux*)
-        tmake_file="$tmake_file t-slibgcc-nolc-override microblaze/t-microblaze t-fdpbit"
+	tmake_file="${tmake_file} microblaze/t-microblaze t-fdpbit t-slibgcc-libgcc"
 	;;
-microblaze*-*-*)
-        tmake_file="microblaze/t-microblaze t-fdpbit"
-	extra_parts="crtbegin.o crtend.o crti.o crtn.o"
-	;;
-mips-sgi-irix6.5*)
-	tmake_file="$tmake_file mips/t-irix6 t-crtfm mips/t-tpbit t-slibgcc mips/t-slibgcc-irix"
-	extra_parts="crtbegin.o crtend.o crtfastmath.o irix-crti.o irix-crtn.o"
-	md_unwind_header=mips/irix6-unwind.h
+microblaze*-*-elf)
+	tmake_file="${tmake_file} microblaze/t-microblaze t-fdpbit"
+	extra_parts="$extra_parts crtbeginS.o crtendS.o crtbeginT.o crti.o crtn.o"
 	;;
 mips*-*-netbsd*)			# NetBSD/mips, either endian.
 	;;
@@ -755,8 +727,6 @@ mips*-*-linux*)				# Linux MIPS, either endian.
 	if test "${ac_cv_sizeof_long_double}" = 16; then
 		tmake_file="${tmake_file} mips/t-tpbit"
 	fi
-	;;
-mips*-*-openbsd*)
 	;;
 mips*-sde-elf*)
 	tmake_file="$tmake_file mips/t-crtstuff mips/t-mips16"
@@ -928,7 +898,8 @@ rs6000-ibm-aix5.1.* | powerpc-ibm-aix5.1.*)
 	;;
 rs6000-ibm-aix[56789].* | powerpc-ibm-aix[56789].*)
 	md_unwind_header=rs6000/aix-unwind.h
-	tmake_file="t-fdpbit rs6000/t-ppc64-fp rs6000/t-slibgcc-aix rs6000/t-ibm-ldouble"
+	tmake_file="t-fdpbit rs6000/t-ppc64-fp rs6000/t-slibgcc-aix rs6000/t-ibm-ldouble rs6000/t-aix-cxa"
+	extra_parts="crtcxa.o crtcxa_s.o"
 	;;
 rl78-*-elf)
 	tmake_file="$tm_file t-fdpbit rl78/t-rl78"
@@ -1149,6 +1120,12 @@ mep*-*-*)
 esac
 
 case ${host} in
+i[34567]86-*-* | x86_64-*-*)
+	tmake_file="${tmake_file} i386/t-cpuinfo"
+	;;
+esac
+
+case ${host} in
 i[34567]86-*-linux* | x86_64-*-linux* | \
   i[34567]86-*-kfreebsd*-gnu | x86_64-*-kfreebsd*-gnu | \
   i[34567]86-*-knetbsd*-gnu | \
@@ -1167,12 +1144,13 @@ i[34567]86-*-darwin* | x86_64-*-darwin* | \
   i[34567]86-*-gnu* | \
   i[34567]86-*-solaris2* | x86_64-*-solaris2.1[0-9]* | \
   i[34567]86-*-cygwin* | i[34567]86-*-mingw* | x86_64-*-mingw* | \
-  i[34567]86-*-freebsd* | x86_64-*-freebsd*)
+  i[34567]86-*-freebsd* | x86_64-*-freebsd* | \
+  i[34567]86-*-openbsd* | x86_64-*-openbsd*)
   	tmake_file="${tmake_file} t-softfp-tf"
 	if test "${host_address}" = 32; then
 		tmake_file="${tmake_file} i386/${host_address}/t-softfp"
 	fi
-	tmake_file="${tmake_file} t-softfp"
+	tmake_file="${tmake_file} i386/t-softfp t-softfp"
 	;;
 esac
 

@@ -508,6 +508,11 @@ d_dump (struct demangle_component *dc, int indent)
     case DEMANGLE_COMPONENT_NAME:
       printf ("name '%.*s'\n", dc->u.s_name.len, dc->u.s_name.s);
       return;
+    case DEMANGLE_COMPONENT_TAGGED_NAME:
+      printf ("tagged name\n");
+      d_dump (dc->u.s_binary.left, indent + 2);
+      d_dump (dc->u.s_binary.right, indent + 2);
+      return;
     case DEMANGLE_COMPONENT_TEMPLATE_PARAM:
       printf ("template parameter %ld\n", dc->u.s_number.number);
       return;
@@ -696,6 +701,12 @@ d_dump (struct demangle_component *dc, int indent)
     case DEMANGLE_COMPONENT_PACK_EXPANSION:
       printf ("pack expansion\n");
       break;
+    case DEMANGLE_COMPONENT_TLS_INIT:
+      printf ("tls init function\n");
+      break;
+    case DEMANGLE_COMPONENT_TLS_WRAPPER:
+      printf ("tls wrapper function\n");
+      break;
     }
 
   d_dump (d_left (dc), indent + 2);
@@ -803,6 +814,7 @@ d_make_comp (struct d_info *di, enum demangle_component_type type,
     case DEMANGLE_COMPONENT_QUAL_NAME:
     case DEMANGLE_COMPONENT_LOCAL_NAME:
     case DEMANGLE_COMPONENT_TYPED_NAME:
+    case DEMANGLE_COMPONENT_TAGGED_NAME:
     case DEMANGLE_COMPONENT_TEMPLATE:
     case DEMANGLE_COMPONENT_CONSTRUCTION_VTABLE:
     case DEMANGLE_COMPONENT_VENDOR_TYPE_QUAL:
@@ -832,6 +844,8 @@ d_make_comp (struct d_info *di, enum demangle_component_type type,
     case DEMANGLE_COMPONENT_COVARIANT_THUNK:
     case DEMANGLE_COMPONENT_JAVA_CLASS:
     case DEMANGLE_COMPONENT_GUARD:
+    case DEMANGLE_COMPONENT_TLS_INIT:
+    case DEMANGLE_COMPONENT_TLS_WRAPPER:
     case DEMANGLE_COMPONENT_REFTEMP:
     case DEMANGLE_COMPONENT_HIDDEN_ALIAS:
     case DEMANGLE_COMPONENT_TRANSACTION_CLONE:
@@ -1194,6 +1208,23 @@ d_encoding (struct d_info *di, int top_level)
     }
 }
 
+/* <tagged-name> ::= <name> B <source-name> */
+
+static struct demangle_component *
+d_abi_tags (struct d_info *di, struct demangle_component *dc)
+{
+  char peek;
+  while (peek = d_peek_char (di),
+	 peek == 'B')
+    {
+      struct demangle_component *tag;
+      d_advance (di, 1);
+      tag = d_source_name (di);
+      dc = d_make_comp (di, DEMANGLE_COMPONENT_TAGGED_NAME, dc, tag);
+    }
+  return dc;
+}
+
 /* <name> ::= <nested-name>
           ::= <unscoped-name>
           ::= <unscoped-template-name> <template-args>
@@ -1408,15 +1439,14 @@ d_prefix (struct d_info *di)
 static struct demangle_component *
 d_unqualified_name (struct d_info *di)
 {
+  struct demangle_component *ret;
   char peek;
 
   peek = d_peek_char (di);
   if (IS_DIGIT (peek))
-    return d_source_name (di);
+    ret = d_source_name (di);
   else if (IS_LOWER (peek))
     {
-      struct demangle_component *ret;
-
       ret = d_operator_name (di);
       if (ret != NULL && ret->type == DEMANGLE_COMPONENT_OPERATOR)
 	{
@@ -1425,14 +1455,11 @@ d_unqualified_name (struct d_info *di)
 	    ret = d_make_comp (di, DEMANGLE_COMPONENT_UNARY, ret,
 			       d_source_name (di));
 	}
-      return ret;
     }
   else if (peek == 'C' || peek == 'D')
-    return d_ctor_dtor_name (di);
+    ret = d_ctor_dtor_name (di);
   else if (peek == 'L')
     {
-      struct demangle_component * ret;
-
       d_advance (di, 1);
 
       ret = d_source_name (di);
@@ -1440,22 +1467,27 @@ d_unqualified_name (struct d_info *di)
 	return NULL;
       if (! d_discriminator (di))
 	return NULL;
-      return ret;
     }
   else if (peek == 'U')
     {
       switch (d_peek_next_char (di))
 	{
 	case 'l':
-	  return d_lambda (di);
+	  ret = d_lambda (di);
+	  break;
 	case 't':
-	  return d_unnamed_type (di);
+	  ret = d_unnamed_type (di);
+	  break;
 	default:
 	  return NULL;
 	}
     }
   else
     return NULL;
+
+  if (d_peek_char (di) == 'B')
+    ret = d_abi_tags (di, ret);
+  return ret;
 }
 
 /* <source-name> ::= <(positive length) number> <identifier>  */
@@ -1582,11 +1614,13 @@ const struct demangle_operator_info cplus_demangle_operators[] =
   { "an", NL ("&"),         2 },
   { "at", NL ("alignof "),   1 },
   { "az", NL ("alignof "),   1 },
+  { "cc", NL ("const_cast"), 2 },
   { "cl", NL ("()"),        2 },
   { "cm", NL (","),         2 },
   { "co", NL ("~"),         1 },
   { "dV", NL ("/="),        2 },
   { "da", NL ("delete[] "), 1 },
+  { "dc", NL ("dynamic_cast"), 2 },
   { "de", NL ("*"),         1 },
   { "dl", NL ("delete "),   1 },
   { "ds", NL (".*"),        2 },
@@ -1626,8 +1660,10 @@ const struct demangle_operator_info cplus_demangle_operators[] =
   { "qu", NL ("?"),         3 },
   { "rM", NL ("%="),        2 },
   { "rS", NL (">>="),       2 },
+  { "rc", NL ("reinterpret_cast"), 2 },
   { "rm", NL ("%"),         2 },
   { "rs", NL (">>"),        2 },
+  { "sc", NL ("static_cast"), 2 },
   { "st", NL ("sizeof "),   1 },
   { "sz", NL ("sizeof "),   1 },
   { "tr", NL ("throw"),     0 },
@@ -1862,6 +1898,14 @@ d_special_name (struct d_info *di)
 	case 'J':
 	  return d_make_comp (di, DEMANGLE_COMPONENT_JAVA_CLASS,
 			      cplus_demangle_type (di), NULL);
+
+	case 'H':
+	  return d_make_comp (di, DEMANGLE_COMPONENT_TLS_INIT,
+			      d_name (di), NULL);
+
+	case 'W':
+	  return d_make_comp (di, DEMANGLE_COMPONENT_TLS_WRAPPER,
+			      d_name (di), NULL);
 
 	default:
 	  return NULL;
@@ -2809,6 +2853,18 @@ d_exprlist (struct d_info *di, char terminator)
   return list;
 }
 
+/* Returns nonzero iff OP is an operator for a C++ cast: const_cast,
+   dynamic_cast, static_cast or reinterpret_cast.  */
+
+static int
+op_is_new_cast (struct demangle_component *op)
+{
+  const char *code = op->u.s_operator.op->code;
+  return (code[1] == 'c'
+	  && (code[0] == 's' || code[0] == 'd'
+	      || code[0] == 'c' || code[0] == 'r'));
+}
+
 /* <expression> ::= <(unary) operator-name> <expression>
                 ::= <(binary) operator-name> <expression> <expression>
                 ::= <(trinary) operator-name> <expression> <expression> <expression>
@@ -2971,7 +3027,10 @@ d_expression (struct d_info *di)
 	    struct demangle_component *left;
 	    struct demangle_component *right;
 
-	    left = d_expression (di);
+	    if (op_is_new_cast (op))
+	      left = cplus_demangle_type (di);
+	    else
+	      left = d_expression (di);
 	    if (!strcmp (code, "cl"))
 	      right = d_exprlist (di, 'E');
 	    else if (!strcmp (code, "dt") || !strcmp (code, "pt"))
@@ -3710,11 +3769,13 @@ d_find_pack (struct d_print_info *dpi,
       
     case DEMANGLE_COMPONENT_LAMBDA:
     case DEMANGLE_COMPONENT_NAME:
+    case DEMANGLE_COMPONENT_TAGGED_NAME:
     case DEMANGLE_COMPONENT_OPERATOR:
     case DEMANGLE_COMPONENT_BUILTIN_TYPE:
     case DEMANGLE_COMPONENT_SUB_STD:
     case DEMANGLE_COMPONENT_CHARACTER:
     case DEMANGLE_COMPONENT_FUNCTION_PARAM:
+    case DEMANGLE_COMPONENT_UNNAMED_TYPE:
       return NULL;
 
     case DEMANGLE_COMPONENT_EXTENDED_OPERATOR:
@@ -3792,6 +3853,13 @@ d_print_comp (struct d_print_info *dpi, int options,
 	d_append_buffer (dpi, dc->u.s_name.s, dc->u.s_name.len);
       else
 	d_print_java_identifier (dpi, dc->u.s_name.s, dc->u.s_name.len);
+      return;
+
+    case DEMANGLE_COMPONENT_TAGGED_NAME:
+      d_print_comp (dpi, options, d_left (dc));
+      d_append_string (dpi, "[abi:");
+      d_print_comp (dpi, options, d_right (dc));
+      d_append_char (dpi, ']');
       return;
 
     case DEMANGLE_COMPONENT_QUAL_NAME:
@@ -4049,6 +4117,16 @@ d_print_comp (struct d_print_info *dpi, int options,
 
     case DEMANGLE_COMPONENT_GUARD:
       d_append_string (dpi, "guard variable for ");
+      d_print_comp (dpi, options, d_left (dc));
+      return;
+
+    case DEMANGLE_COMPONENT_TLS_INIT:
+      d_append_string (dpi, "TLS init function for ");
+      d_print_comp (dpi, options, d_left (dc));
+      return;
+
+    case DEMANGLE_COMPONENT_TLS_WRAPPER:
+      d_append_string (dpi, "TLS wrapper function for ");
       d_print_comp (dpi, options, d_left (dc));
       return;
 
@@ -4451,6 +4529,17 @@ d_print_comp (struct d_print_info *dpi, int options,
       if (d_right (dc)->type != DEMANGLE_COMPONENT_BINARY_ARGS)
 	{
 	  d_print_error (dpi);
+	  return;
+	}
+
+      if (op_is_new_cast (d_left (dc)))
+	{
+	  d_print_expr_op (dpi, options, d_left (dc));
+	  d_append_char (dpi, '<');
+	  d_print_comp (dpi, options, d_left (d_right (dc)));
+	  d_append_string (dpi, ">(");
+	  d_print_comp (dpi, options, d_right (d_right (dc)));
+	  d_append_char (dpi, ')');
 	  return;
 	}
 

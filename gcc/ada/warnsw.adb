@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1999-2012, Free Software Foundation, Inc.         --
+--          Copyright (C) 1999-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,8 +23,9 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Opt; use Opt;
-
+with Err_Vars; use Err_Vars;
+with Opt;      use Opt;
+with Targparm; use Targparm;
 package body Warnsw is
 
    ----------------------------
@@ -52,6 +53,20 @@ package body Warnsw is
          when 'C' =>
             Warn_On_Unrepped_Components         := False;
 
+         when 'd' =>
+            if OpenVMS_On_Target then
+               return False;
+            end if;
+
+            Warning_Doc_Switch                  := True;
+
+         when 'D' =>
+            if OpenVMS_On_Target then
+               return False;
+            end if;
+
+            Warning_Doc_Switch                  := False;
+
          when 'e' =>
             Address_Clause_Overlay_Warnings     := True;
             Check_Unreferenced                  := True;
@@ -62,6 +77,11 @@ package body Warnsw is
             Implementation_Unit_Warnings        := True;
             Ineffective_Inline_Warnings         := True;
             List_Inherited_Aspects              := True;
+
+            if not OpenVMS_On_Target then
+               Warning_Doc_Switch               := True;
+            end if;
+
             Warn_On_Ada_2005_Compatibility      := True;
             Warn_On_Ada_2012_Compatibility      := True;
             Warn_On_All_Unread_Out_Parameters   := True;
@@ -87,6 +107,7 @@ package body Warnsw is
             Warn_On_Record_Holes                := True;
             Warn_On_Redundant_Constructs        := True;
             Warn_On_Reverse_Bit_Order           := True;
+            Warn_On_Standard_Redefinition       := True;
             Warn_On_Suspicious_Contract         := True;
             Warn_On_Unchecked_Conversion        := True;
             Warn_On_Unordered_Enumeration_Type  := True;
@@ -108,6 +129,12 @@ package body Warnsw is
 
          when 'I' =>
             Warn_On_Overlap                     := False;
+
+         when 'k' =>
+            Warn_On_Standard_Redefinition       := True;
+
+         when 'K' =>
+            Warn_On_Standard_Redefinition       := False;
 
          when 'l' =>
             List_Inherited_Aspects              := True;
@@ -204,6 +231,7 @@ package body Warnsw is
       Implementation_Unit_Warnings        := False;
       Ineffective_Inline_Warnings         := True;
       List_Inherited_Aspects              := False;
+      Warning_Doc_Switch                  := False;
       Warn_On_Ada_2005_Compatibility      := True;
       Warn_On_Ada_2012_Compatibility      := True;
       Warn_On_All_Unread_Out_Parameters   := False;
@@ -264,6 +292,7 @@ package body Warnsw is
             Warn_On_Non_Local_Exception         := True;
             Warn_On_Object_Renames_Function     := True;
             Warn_On_Obsolescent_Feature         := True;
+            Warn_On_Overlap                     := True;
             Warn_On_Parameter_Order             := True;
             Warn_On_Questionable_Missing_Parens := True;
             Warn_On_Redundant_Constructs        := True;
@@ -283,6 +312,7 @@ package body Warnsw is
             Implementation_Unit_Warnings        := False;
             Ineffective_Inline_Warnings         := False;
             List_Inherited_Aspects              := False;
+            Warning_Doc_Switch                  := False;
             Warn_On_Ada_2005_Compatibility      := False;
             Warn_On_Ada_2012_Compatibility      := False;
             Warn_On_All_Unread_Out_Parameters   := False;
@@ -307,6 +337,7 @@ package body Warnsw is
             Warn_On_Questionable_Missing_Parens := False;
             Warn_On_Redundant_Constructs        := False;
             Warn_On_Reverse_Bit_Order           := False;
+            Warn_On_Standard_Redefinition       := False;
             Warn_On_Suspicious_Contract         := False;
             Warn_On_Suspicious_Modulus_Value    := False;
             Warn_On_Unchecked_Conversion        := False;

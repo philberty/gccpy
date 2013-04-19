@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -257,12 +257,12 @@ package Types is
    --  possible values for each of the above types is disjoint so that this
    --  distinction is possible.
 
-   type Union_Id is new Int;
-   --  The type in the tree for a union of possible ID values
-
    --  Note: it is also helpful for debugging purposes to make these ranges
    --  distinct. If a bug leads to misidentification of a value, then it will
    --  typically result in an out of range value and a Constraint_Error.
+
+   type Union_Id is new Int;
+   --  The type in the tree for a union of possible ID values
 
    List_Low_Bound : constant := -100_000_000;
    --  The List_Id values are subscripts into an array of list headers which
@@ -646,9 +646,9 @@ package Types is
       TS      : out Time_Stamp_Type);
    --  Given the components of a time stamp, initialize the value
 
-   -----------------------------------------------
-   -- Types used for Pragma Suppress Management --
-   -----------------------------------------------
+   -------------------------------------
+   -- Types used for Check Management --
+   -------------------------------------
 
    type Check_Id is new Nat;
    --  Type used to represent a check id
@@ -702,6 +702,59 @@ package Types is
    --    3.  Add a new function to Checks to handle the new check test
    --    4.  Add a new Do_xxx_Check flag to Sinfo (if required)
    --    5.  Add appropriate checks for the new test
+
+   --  The following provides precise details on the mode used to generate
+   --  code for intermediate operations in expressions for signed integer
+   --  arithmetic (and how to generate overflow checks if enabled). Note
+   --  that this only affects handling of intermediate results. The final
+   --  result must always fit within the target range, and if overflow
+   --  checking is enabled, the check on the final result is against this
+   --  target range.
+
+   type Overflow_Mode_Type is (
+      Not_Set,
+      --  Dummy value used during initialization process to show that the
+      --  corresponding value has not yet been initialized.
+
+      Strict,
+      --  Operations are done in the base type of the subexpression. If
+      --  overflow checks are enabled, then the check is against the range
+      --  of this base type.
+
+      Minimized,
+      --  Where appropriate, intermediate arithmetic operations are performed
+      --  with an extended range, using Long_Long_Integer if necessary. If
+      --  overflow checking is enabled, then the check is against the range
+      --  of Long_Long_Integer.
+
+      Eliminated);
+      --  In this mode arbitrary precision arithmetic is used as needed to
+      --  ensure that it is impossible for intermediate arithmetic to cause an
+      --  overflow. In this mode, intermediate expressions are not affected by
+      --  the overflow checking mode, since overflows are eliminated.
+
+   subtype Minimized_Or_Eliminated is
+     Overflow_Mode_Type range Minimized .. Eliminated;
+   --  Define subtype so that clients don't need to know ordering. Note that
+   --  Overflow_Mode_Type is not marked as an ordered enumeration type.
+
+   --  The following structure captures the state of check suppression or
+   --  activation at a particular point in the program execution.
+
+   type Suppress_Record is record
+      Suppress : Suppress_Array;
+      --  Indicates suppression status of each possible check
+
+      Overflow_Mode_General : Overflow_Mode_Type;
+      --  This field indicates the mode for handling code generation and
+      --  overflow checking (if enabled) for intermediate expression values.
+      --  This applies to general expressions outside assertions.
+
+      Overflow_Mode_Assertions : Overflow_Mode_Type;
+      --  This field indicates the mode for handling code generation and
+      --  overflow checking (if enabled) for intermediate expression values.
+      --  This applies to any expression occuring inside assertions.
+   end record;
 
    -----------------------------------
    -- Global Exception Declarations --
@@ -764,7 +817,9 @@ package Types is
    --    2. Modify the corresponding definitions in types.h, including the
    --       definition of last_reason_code.
 
-   --    3. Add a new routine in Ada.Exceptions with the appropriate call and
+   --    3. Add the name of the routines in exp_ch11.Get_RT_Exception_Name
+
+   --    4. Add a new routine in Ada.Exceptions with the appropriate call and
    --       static string constant. Note that there is more than one version
    --       of a-except.adb which must be modified.
 

@@ -1,7 +1,5 @@
 /* Handle types for the GNU compiler for the Java(TM) language.
-   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005, 2007,
-   2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 1996-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -189,13 +187,6 @@ java_type_for_size (unsigned bits, int unsignedp)
     return unsignedp ? unsigned_int_type_node : int_type_node;
   if (bits <= TYPE_PRECISION (long_type_node))
     return unsignedp ? unsigned_long_type_node : long_type_node;
-  /* A 64-bit target with TImode requires 128-bit type definitions
-     for bitsizetype.  This is fixed more properly elsewhere 
-     beginning in 4.8.  */
-  if (int128_integer_type_node
-      && bits == TYPE_PRECISION (int128_integer_type_node))
-    return (unsignedp ? int128_unsigned_type_node
-	    : int128_integer_type_node);
   return 0;
 }
 

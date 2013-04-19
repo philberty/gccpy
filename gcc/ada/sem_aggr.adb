@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2012, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -47,6 +47,7 @@ with Sem_Cat;  use Sem_Cat;
 with Sem_Ch3;  use Sem_Ch3;
 with Sem_Ch8;  use Sem_Ch8;
 with Sem_Ch13; use Sem_Ch13;
+with Sem_Dim;  use Sem_Dim;
 with Sem_Eval; use Sem_Eval;
 with Sem_Res;  use Sem_Res;
 with Sem_Util; use Sem_Util;
@@ -467,13 +468,13 @@ package body Sem_Aggr is
       then
          if Is_Out_Of_Range (Exp, Base_Type (Check_Typ)) then
             Apply_Compile_Time_Constraint_Error
-              (Exp, "value not in range of}?", CE_Range_Check_Failed,
+              (Exp, "value not in range of}??", CE_Range_Check_Failed,
                Ent => Base_Type (Check_Typ),
                Typ => Base_Type (Check_Typ));
 
          elsif Is_Out_Of_Range (Exp, Check_Typ) then
             Apply_Compile_Time_Constraint_Error
-              (Exp, "value not in range of}?", CE_Range_Check_Failed,
+              (Exp, "value not in range of}??", CE_Range_Check_Failed,
                Ent => Check_Typ,
                Typ => Check_Typ);
 
@@ -582,9 +583,9 @@ package body Sem_Aggr is
 
                elsif Expr_Value (This_Low) /= Expr_Value (Aggr_Low (Dim)) then
                   Set_Raises_Constraint_Error (N);
-                  Error_Msg_N ("sub-aggregate low bound mismatch?", N);
+                  Error_Msg_N ("sub-aggregate low bound mismatch??", N);
                   Error_Msg_N
-                     ("\Constraint_Error will be raised at run time?", N);
+                     ("\Constraint_Error will be raised at run time??", N);
                end if;
             end if;
 
@@ -596,9 +597,9 @@ package body Sem_Aggr is
                  Expr_Value (This_High) /= Expr_Value (Aggr_High (Dim))
                then
                   Set_Raises_Constraint_Error (N);
-                  Error_Msg_N ("sub-aggregate high bound mismatch?", N);
+                  Error_Msg_N ("sub-aggregate high bound mismatch??", N);
                   Error_Msg_N
-                     ("\Constraint_Error will be raised at run time?", N);
+                     ("\Constraint_Error will be raised at run time??", N);
                end if;
             end if;
          end if;
@@ -1251,6 +1252,8 @@ package body Sem_Aggr is
          Set_Etype (N, Aggr_Subtyp);
          Set_Analyzed (N);
       end if;
+
+      Check_Function_Writable_Actuals (N);
    end Resolve_Aggregate;
 
    -----------------------------
@@ -1439,8 +1442,8 @@ package body Sem_Aggr is
 
          if OK_BH and then OK_AH and then Val_BH < Val_AH then
             Set_Raises_Constraint_Error (N);
-            Error_Msg_N ("upper bound out of range?", AH);
-            Error_Msg_N ("\Constraint_Error will be raised at run time?", AH);
+            Error_Msg_N ("upper bound out of range??", AH);
+            Error_Msg_N ("\Constraint_Error will be raised at run time??", AH);
 
             --  You need to set AH to BH or else in the case of enumerations
             --  indexes we will not be able to resolve the aggregate bounds.
@@ -1482,14 +1485,14 @@ package body Sem_Aggr is
 
          if OK_L and then Val_L > Val_AL then
             Set_Raises_Constraint_Error (N);
-            Error_Msg_N ("lower bound of aggregate out of range?", N);
-            Error_Msg_N ("\Constraint_Error will be raised at run time?", N);
+            Error_Msg_N ("lower bound of aggregate out of range??", N);
+            Error_Msg_N ("\Constraint_Error will be raised at run time??", N);
          end if;
 
          if OK_H and then Val_H < Val_AH then
             Set_Raises_Constraint_Error (N);
-            Error_Msg_N ("upper bound of aggregate out of range?", N);
-            Error_Msg_N ("\Constraint_Error will be raised at run time?", N);
+            Error_Msg_N ("upper bound of aggregate out of range??", N);
+            Error_Msg_N ("\Constraint_Error will be raised at run time??", N);
          end if;
       end Check_Bounds;
 
@@ -1528,8 +1531,8 @@ package body Sem_Aggr is
 
          if Range_Len < Len then
             Set_Raises_Constraint_Error (N);
-            Error_Msg_N ("too many elements?", N);
-            Error_Msg_N ("\Constraint_Error will be raised at run time?", N);
+            Error_Msg_N ("too many elements??", N);
+            Error_Msg_N ("\Constraint_Error will be raised at run time??", N);
          end if;
       end Check_Length;
 
@@ -1726,6 +1729,9 @@ package body Sem_Aggr is
       Discard : Node_Id;
       pragma Warnings (Off, Discard);
 
+      Delete_Choice : Boolean;
+      --  Used when replacing a subtype choice with predicate by a list
+
       Aggr_Low  : Node_Id := Empty;
       Aggr_High : Node_Id := Empty;
       --  The actual low and high bounds of this sub-aggregate
@@ -1766,6 +1772,8 @@ package body Sem_Aggr is
          Assoc := First (Component_Associations (N));
          while Present (Assoc) loop
             Choice := First (Choices (Assoc));
+            Delete_Choice := False;
+
             while Present (Choice) loop
                if Nkind (Choice) = N_Others_Choice then
                   Others_Present := True;
@@ -1792,10 +1800,56 @@ package body Sem_Aggr is
                      Error_Msg_N
                        ("(Ada 83) illegal context for OTHERS choice", N);
                   end if;
+
+               elsif Is_Entity_Name (Choice) then
+                  Analyze (Choice);
+
+                  declare
+                     E      : constant Entity_Id := Entity (Choice);
+                     New_Cs : List_Id;
+                     P      : Node_Id;
+                     C      : Node_Id;
+
+                  begin
+                     if Is_Type (E) and then Has_Predicates (E) then
+                        Freeze_Before (N, E);
+
+                        --  If the subtype has a static predicate, replace the
+                        --  original choice with the list of individual values
+                        --  covered by the predicate.
+
+                        if Present (Static_Predicate (E)) then
+                           Delete_Choice := True;
+
+                           New_Cs := New_List;
+                           P := First (Static_Predicate (E));
+                           while Present (P) loop
+                              C := New_Copy (P);
+                              Set_Sloc (C, Sloc (Choice));
+                              Append_To (New_Cs, C);
+                              Next (P);
+                           end loop;
+
+                           Insert_List_After (Choice, New_Cs);
+                        end if;
+                     end if;
+                  end;
                end if;
 
                Nb_Choices := Nb_Choices + 1;
-               Next (Choice);
+
+               declare
+                  C : constant Node_Id := Choice;
+
+               begin
+                  Next (Choice);
+
+                  if Delete_Choice then
+                     Remove (C);
+                     Nb_Choices := Nb_Choices - 1;
+                     Delete_Choice := False;
+                  end if;
+               end;
             end loop;
 
             Next (Assoc);
@@ -1823,31 +1877,6 @@ package body Sem_Aggr is
            ("OTHERS choice not allowed here",
             First (Choices (First (Component_Associations (N)))));
          return Failure;
-      end if;
-
-      if Others_Present
-        and then Nkind (Parent (N)) /= N_Component_Association
-        and then No (Expressions (N))
-        and then
-          Nkind (First (Choices (First (Component_Associations (N)))))
-            = N_Others_Choice
-        and then Is_Elementary_Type (Component_Typ)
-        and then False
-      then
-         declare
-            Assoc : constant Node_Id := First (Component_Associations (N));
-         begin
-            Rewrite (Assoc,
-              Make_Component_Association (Loc,
-                 Choices =>
-                   New_List (
-                     Make_Attribute_Reference (Loc,
-                       Prefix => New_Occurrence_Of (Index_Typ, Loc),
-                       Attribute_Name => Name_Range)),
-                 Expression => Relocate_Node (Expression (Assoc))));
-            return Resolve_Array_Aggregate
-              (N, Index, Index_Constr, Component_Typ, Others_Allowed);
-         end;
       end if;
 
       --  Protect against cascaded errors
@@ -1928,7 +1957,7 @@ package body Sem_Aggr is
                   elsif Nkind (Choice) = N_Subtype_Indication then
                      Resolve_Discrete_Subtype_Indication (Choice, Index_Base);
 
-                     --  Does the subtype indication evaluation raise CE ?
+                     --  Does the subtype indication evaluation raise CE?
 
                      Get_Index_Bounds (Subtype_Mark (Choice), S_Low, S_High);
                      Get_Index_Bounds (Choice, Low, High);
@@ -1998,6 +2027,7 @@ package body Sem_Aggr is
                   Nb_Discrete_Choices := Nb_Discrete_Choices + 1;
                   Table (Nb_Discrete_Choices).Choice_Lo := Low;
                   Table (Nb_Discrete_Choices).Choice_Hi := High;
+                  Table (Nb_Discrete_Choices).Choice_Node := Choice;
 
                   Next (Choice);
 
@@ -2115,7 +2145,7 @@ package body Sem_Aggr is
                   then
                      Error_Msg_N
                        ("duplicate choice values in array aggregate",
-                        Table (J).Choice_Hi);
+                        Table (J).Choice_Node);
                      return Failure;
 
                   elsif not Others_Present then
@@ -2257,7 +2287,8 @@ package body Sem_Aggr is
                            (Enumeration_Pos (AHi) - Enumeration_Pos (ALo))
                         then
                            Error_Msg_N
-                             ("missing index value(s) in array aggregate?", N);
+                             ("missing index value(s) in array aggregate??",
+                              N);
 
                            --  Output missing value(s) at start
 
@@ -2266,11 +2297,11 @@ package body Sem_Aggr is
 
                               if Chars (ALo) = Chars (Ent) then
                                  Error_Msg_Name_1 := Chars (ALo);
-                                 Error_Msg_N ("\  %?", N);
+                                 Error_Msg_N ("\  %??", N);
                               else
                                  Error_Msg_Name_1 := Chars (ALo);
                                  Error_Msg_Name_2 := Chars (Ent);
-                                 Error_Msg_N ("\  % .. %?", N);
+                                 Error_Msg_N ("\  % .. %??", N);
                               end if;
                            end if;
 
@@ -2281,11 +2312,11 @@ package body Sem_Aggr is
 
                               if Chars (AHi) = Chars (Ent) then
                                  Error_Msg_Name_1 := Chars (Ent);
-                                 Error_Msg_N ("\  %?", N);
+                                 Error_Msg_N ("\  %??", N);
                               else
                                  Error_Msg_Name_1 := Chars (Ent);
                                  Error_Msg_Name_2 := Chars (AHi);
-                                 Error_Msg_N ("\  % .. %?", N);
+                                 Error_Msg_N ("\  % .. %??", N);
                               end if;
                            end if;
 
@@ -2303,7 +2334,7 @@ package body Sem_Aggr is
                             not Is_Constrained (First_Subtype (Etype (N)))
                         then
                            Error_Msg_N
-                             ("bounds of aggregate do not match target?", N);
+                             ("bounds of aggregate do not match target??", N);
                         end if;
                      end;
                   end if;
@@ -2496,6 +2527,10 @@ package body Sem_Aggr is
          Set_High_Bound (Aggregate_Bounds (N),
              Duplicate_Subexpr (High_Bound (Aggregate_Bounds (N))));
       end if;
+
+      --  Check the dimensions of each component in the array aggregate
+
+      Analyze_Dimension_Array_Aggregate (N, Component_Typ);
 
       return Success;
    end Resolve_Array_Aggregate;
@@ -2753,7 +2788,7 @@ package body Sem_Aggr is
               and then Enclosing_CPP_Parent (Typ) /= A_Type
             then
                Error_Msg_NE
-                 ("?must use 'C'P'P constructor for type &", A,
+                 ("??must use 'C'P'P constructor for type &", A,
                   Enclosing_CPP_Parent (Typ));
 
                --  The following call is not needed if the previous warning
@@ -2783,6 +2818,8 @@ package body Sem_Aggr is
       else
          Error_Msg_N ("no unique type for this aggregate",  A);
       end if;
+
+      Check_Function_Writable_Actuals (N);
    end Resolve_Extension_Aggregate;
 
    ------------------------------
@@ -2875,6 +2912,14 @@ package body Sem_Aggr is
       --  from the others choice, then Others_Etype is set as a side effect.
       --  An error message is emitted if the components taking their value from
       --  the others choice do not have same type.
+
+      function New_Copy_Tree_And_Copy_Dimensions
+        (Source    : Node_Id;
+         Map       : Elist_Id   := No_Elist;
+         New_Sloc  : Source_Ptr := No_Location;
+         New_Scope : Entity_Id  := Empty) return Node_Id;
+      --  Same as New_Copy_Tree (defined in Sem_Util), except that this routine
+      --  also copies the dimensions of Source to the returned node.
 
       procedure Resolve_Aggr_Expr (Expr : Node_Id; Component : Node_Id);
       --  Analyzes and resolves expression Expr against the Etype of the
@@ -3077,7 +3122,7 @@ package body Sem_Aggr is
 
                         if Expander_Active then
                            return
-                             New_Copy_Tree
+                             New_Copy_Tree_And_Copy_Dimensions
                                (Expression (Parent (Compon)),
                                 New_Sloc => Sloc (Assoc));
                         else
@@ -3096,7 +3141,9 @@ package body Sem_Aggr is
                         Others_Etype := Etype (Compon);
 
                         if Expander_Active then
-                           return New_Copy_Tree (Expression (Assoc));
+                           return
+                             New_Copy_Tree_And_Copy_Dimensions
+                               (Expression (Assoc));
                         else
                            return Expression (Assoc);
                         end if;
@@ -3132,18 +3179,20 @@ package body Sem_Aggr is
                         --  order to create a proper association for the
                         --  expanded aggregate.
 
-                        Expr := New_Copy_Tree (Expression (Parent (Compon)));
-
                         --  Component may have no default, in which case the
                         --  expression is empty and the component is default-
                         --  initialized, but an association for the component
                         --  exists, and it is not covered by an others clause.
 
-                        return Expr;
+                        return
+                          New_Copy_Tree_And_Copy_Dimensions
+                            (Expression (Parent (Compon)));
 
                      else
                         if Present (Next (Selector_Name)) then
-                           Expr := New_Copy_Tree (Expression (Assoc));
+                           Expr :=
+                             New_Copy_Tree_And_Copy_Dimensions
+                               (Expression (Assoc));
                         else
                            Expr := Expression (Assoc);
                         end if;
@@ -3168,13 +3217,33 @@ package body Sem_Aggr is
          return Expr;
       end Get_Value;
 
+      ---------------------------------------
+      -- New_Copy_Tree_And_Copy_Dimensions --
+      ---------------------------------------
+
+      function New_Copy_Tree_And_Copy_Dimensions
+        (Source    : Node_Id;
+         Map       : Elist_Id   := No_Elist;
+         New_Sloc  : Source_Ptr := No_Location;
+         New_Scope : Entity_Id  := Empty) return Node_Id
+      is
+         New_Copy : constant Node_Id :=
+                      New_Copy_Tree (Source, Map, New_Sloc, New_Scope);
+      begin
+         --  Move the dimensions of Source to New_Copy
+
+         Copy_Dimensions (Source, New_Copy);
+         return New_Copy;
+      end New_Copy_Tree_And_Copy_Dimensions;
+
       -----------------------
       -- Resolve_Aggr_Expr --
       -----------------------
 
       procedure Resolve_Aggr_Expr (Expr : Node_Id; Component : Node_Id) is
-         New_C     : Entity_Id := Component;
          Expr_Type : Entity_Id := Empty;
+         New_C     : Entity_Id := Component;
+         New_Expr  : Node_Id;
 
          function Has_Expansion_Delayed (Expr : Node_Id) return Boolean;
          --  If the expression is an aggregate (possibly qualified) then its
@@ -3328,10 +3397,18 @@ package body Sem_Aggr is
          end if;
 
          if Relocate then
-            Add_Association (New_C, Relocate_Node (Expr), New_Assoc_List);
+            New_Expr := Relocate_Node (Expr);
+
+            --  Since New_Expr is not gonna be analyzed later on, we need to
+            --  propagate here the dimensions form Expr to New_Expr.
+
+            Copy_Dimensions (Expr, New_Expr);
+
          else
-            Add_Association (New_C, Expr, New_Assoc_List);
+            New_Expr := Expr;
          end if;
+
+         Add_Association (New_C, New_Expr, New_Assoc_List);
       end Resolve_Aggr_Expr;
 
    --  Start of processing for Resolve_Record_Aggregate
@@ -3487,7 +3564,7 @@ package body Sem_Aggr is
          end if;
 
          --  AI05-0115: if the ancestor part is a subtype mark, the ancestor
-         --  must npt have unknown discriminants.
+         --  must not have unknown discriminants.
 
          if Is_Derived_Type (Typ)
            and then Has_Unknown_Discriminants (Root_Type (Typ))
@@ -3813,7 +3890,24 @@ package body Sem_Aggr is
                Next_Elmt (Parent_Elmt);
             end loop;
 
+         --  Typ is not a derived tagged type
+
          else
+            --  A type derived from an untagged private type whose full view
+            --  has discriminants is constructed as a record type but there
+            --  are no legal aggregates for it.
+
+            if Is_Derived_Type (Typ)
+              and then Has_Private_Ancestor (Typ)
+              and then Nkind (N) /= N_Extension_Aggregate
+            then
+               Error_Msg_Node_2 := Base_Type (Etype (Typ));
+               Error_Msg_NE
+                 ("no aggregate available for type& derived from "
+                  & "private type&", N, Typ);
+               return;
+            end if;
+
             Record_Def := Type_Definition (Parent (Base_Type (Typ)));
 
             if Null_Present (Record_Def) then
@@ -3920,7 +4014,7 @@ package body Sem_Aggr is
                  and then Present (Expression (Parent (Component)))
                then
                   Expr :=
-                    New_Copy_Tree
+                    New_Copy_Tree_And_Copy_Dimensions
                       (Expression (Parent (Component)),
                        New_Scope => Current_Scope,
                        New_Sloc  => Sloc (N));
@@ -3983,6 +4077,7 @@ package body Sem_Aggr is
                      --  We build a partially initialized aggregate with the
                      --  values of the discriminants and box initialization
                      --  for the rest, if other components are present.
+
                      --  The type of the aggregate is the known subtype of
                      --  the component. The capture of discriminants must
                      --  be recursive because subcomponents may be constrained
@@ -4337,9 +4432,8 @@ package body Sem_Aggr is
                   Next (New_Assoc);
                end loop;
 
-               --  If no association, this is not a legal component of
-               --  of the type in question, except if its association
-               --  is provided with a box.
+               --  If no association, this is not a legal component of the type
+               --  in question, unless its association is provided with a box.
 
                if No (New_Assoc) then
                   if Box_Present (Parent (Selectr)) then
@@ -4438,6 +4532,10 @@ package body Sem_Aggr is
 
          Rewrite (N, New_Aggregate);
       end Step_8;
+
+      --  Check the dimensions of the components in the record aggregate
+
+      Analyze_Dimension_Extension_Or_Record_Aggregate (N);
    end Resolve_Record_Aggregate;
 
    -----------------------------
@@ -4475,9 +4573,9 @@ package body Sem_Aggr is
          Insert_Action
            (Compile_Time_Constraint_Error
               (Expr,
-               "(Ada 2005) null not allowed in null-excluding component?"),
-            Make_Raise_Constraint_Error (Sloc (Expr),
-              Reason => CE_Access_Check_Failed));
+               "(Ada 2005) null not allowed in null-excluding component??"),
+            Make_Raise_Constraint_Error
+              (Sloc (Expr), Reason => CE_Access_Check_Failed));
 
          --  Set proper type for bogus component (why is this needed???)
 

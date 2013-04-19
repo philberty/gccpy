@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2011, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2013, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -29,6 +29,7 @@
 --  environment, and that in particular, no disallowed table expansion is
 --  allowed to occur.
 
+with Atree;    use Atree;
 with Casing;   use Casing;
 with Debug;    use Debug;
 with Err_Vars; use Err_Vars;
@@ -441,13 +442,37 @@ package body Erroutc is
       Length : Nat;
       --  Maximum total length of lines
 
-      Txt   : constant String_Ptr := Errors.Table (E).Text;
-      Len   : constant Natural    := Txt'Length;
-      Ptr   : Natural;
-      Split : Natural;
-      Start : Natural;
+      Text     : constant String_Ptr := Errors.Table (E).Text;
+      Warn     : constant Boolean    := Errors.Table (E).Warn;
+      Warn_Chr : constant Character  := Errors.Table (E).Warn_Chr;
+      Warn_Tag : String_Ptr;
+      Ptr      : Natural;
+      Split    : Natural;
+      Start    : Natural;
 
    begin
+      --  Add warning doc tag if needed
+
+      if Warn and then Warn_Chr /= ' ' then
+         if Warn_Chr = '?' then
+            Warn_Tag := new String'(" [enabled by default]");
+
+         elsif Warn_Chr in 'a' .. 'z' then
+            Warn_Tag := new String'(" [-gnatw" & Warn_Chr & ']');
+
+         else pragma Assert (Warn_Chr in 'A' .. 'Z');
+            Warn_Tag :=
+              new String'(" [-gnatw."
+                          & Character'Val (Character'Pos (Warn_Chr) + 32)
+                          & ']');
+         end if;
+
+      else
+         Warn_Tag := new String'("");
+      end if;
+
+      --  Set error message line length
+
       if Error_Msg_Line_Length = 0 then
          Length := Nat'Last;
       else
@@ -456,87 +481,95 @@ package body Erroutc is
 
       Max := Integer (Length - Column + 1);
 
-      --  For warning message, add "warning: " unless msg starts with "info: "
+      declare
+         Txt : constant String := Text.all & Warn_Tag.all;
+         Len : constant Natural    := Txt'Length;
 
-      if Errors.Table (E).Warn then
-         if Len < 6 or else Txt (Txt'First .. Txt'First + 5) /= "info: " then
-            Write_Str ("warning: ");
-            Max := Max - 9;
+      begin
+         --  For warning, add "warning: " unless msg starts with "info: "
+
+         if Errors.Table (E).Warn then
+            if Len < 6
+              or else Txt (Txt'First .. Txt'First + 5) /= "info: "
+            then
+               Write_Str ("warning: ");
+               Max := Max - 9;
+            end if;
+
+            --  No prefix needed for style message, "(style)" is there already
+
+         elsif Errors.Table (E).Style then
+            null;
+
+            --  All other cases, add "error: "
+
+         elsif Opt.Unique_Error_Tag then
+            Write_Str ("error: ");
+            Max := Max - 7;
          end if;
 
-      --  No prefix needed for style message, since "(style)" is there already
+         --  Here we have to split the message up into multiple lines
 
-      elsif Errors.Table (E).Style then
-         null;
+         Ptr := 1;
+         loop
+            --  Make sure we do not have ludicrously small line
 
-      --  All other cases, add "error: "
+            Max := Integer'Max (Max, 20);
 
-      elsif Opt.Unique_Error_Tag then
-         Write_Str ("error: ");
-         Max := Max - 7;
-      end if;
+            --  If remaining text fits, output it respecting LF and we are done
 
-      --  Here we have to split the message up into multiple lines
+            if Len - Ptr < Max then
+               for J in Ptr .. Len loop
+                  if Txt (J) = ASCII.LF then
+                     Write_Eol;
+                     Write_Spaces (Offs);
+                  else
+                     Write_Char (Txt (J));
+                  end if;
+               end loop;
 
-      Ptr := 1;
-      loop
-         --  Make sure we do not have ludicrously small line
-
-         Max := Integer'Max (Max, 20);
-
-         --  If remaining text fits, output it respecting LF and we are done
-
-         if Len - Ptr < Max then
-            for J in Ptr .. Len loop
-               if Txt (J) = ASCII.LF then
-                  Write_Eol;
-                  Write_Spaces (Offs);
-               else
-                  Write_Char (Txt (J));
-               end if;
-            end loop;
-
-            return;
+               return;
 
             --  Line does not fit
 
-         else
-            Start := Ptr;
+            else
+               Start := Ptr;
 
-            --  First scan forward looking for a hard end of line
+               --  First scan forward looking for a hard end of line
 
-            for Scan in Ptr .. Ptr + Max - 1 loop
-               if Txt (Scan) = ASCII.LF then
-                  Split := Scan - 1;
-                  Ptr := Scan + 1;
-                  goto Continue;
-               end if;
-            end loop;
+               for Scan in Ptr .. Ptr + Max - 1 loop
+                  if Txt (Scan) = ASCII.LF then
+                     Split := Scan - 1;
+                     Ptr := Scan + 1;
+                     goto Continue;
+                  end if;
+               end loop;
 
-            --  Otherwise scan backwards looking for a space
+               --  Otherwise scan backwards looking for a space
 
-            for Scan in reverse Ptr .. Ptr + Max - 1 loop
-               if Txt (Scan) = ' ' then
-                  Split := Scan - 1;
-                  Ptr := Scan + 1;
-                  goto Continue;
-               end if;
-            end loop;
+               for Scan in reverse Ptr .. Ptr + Max - 1 loop
+                  if Txt (Scan) = ' ' then
+                     Split := Scan - 1;
+                     Ptr := Scan + 1;
+                     goto Continue;
+                  end if;
+               end loop;
 
-            --  If we fall through, no space, so split line arbitrarily
+               --  If we fall through, no space, so split line arbitrarily
 
-            Split := Ptr + Max - 1;
-            Ptr := Split + 1;
-         end if;
+               Split := Ptr + Max - 1;
+               Ptr := Split + 1;
+            end if;
 
-         <<Continue>>
-         if Start <= Split then
-            Write_Line (Txt (Start .. Split));
-            Write_Spaces (Offs);
-         end if;
+            <<Continue>>
+            if Start <= Split then
+               Write_Line (Txt (Start .. Split));
+               Write_Spaces (Offs);
+            end if;
 
-         Max := Integer (Length - Column + 1);
-      end loop;
+            Max := Integer (Length - Column + 1);
+         end loop;
+      end;
    end Output_Msg_Text;
 
    --------------------
@@ -845,9 +878,7 @@ package body Erroutc is
          --  Remove upper case letter at end, again, we should not be getting
          --  such names, and what we hope is that the remainder makes sense.
 
-         if Name_Len > 1
-           and then Name_Buffer (Name_Len) in 'A' .. 'Z'
-         then
+         if Name_Len > 1 and then Name_Buffer (Name_Len) in 'A' .. 'Z' then
             Name_Len := Name_Len - 1;
          end if;
 
@@ -1216,11 +1247,13 @@ package body Erroutc is
            and then (J = Msg'First or else Msg (J - 1) /= ''')
          then
             Is_Warning_Msg := True;
+            Warning_Msg_Char := ' ';
 
          elsif Msg (J) = '<'
            and then (J = Msg'First or else Msg (J - 1) /= ''')
          then
             Is_Warning_Msg := Error_Msg_Warn;
+            Warning_Msg_Char := ' ';
 
          elsif Msg (J) = '|'
            and then (J = Msg'First or else Msg (J - 1) /= ''')
@@ -1243,13 +1276,27 @@ package body Erroutc is
       for J in Specific_Warnings.First .. Specific_Warnings.Last loop
          declare
             SWE : Specific_Warning_Entry renames Specific_Warnings.Table (J);
+
          begin
             if not SWE.Config then
+
+               --  Warn for unmatched Warnings (Off, ...)
+
                if SWE.Open then
                   Eproc.all
                     ("?pragma Warnings Off with no matching Warnings On",
                      SWE.Start);
-               elsif not SWE.Used then
+
+               --  Warn for ineffective Warnings (Off, ..)
+
+               elsif not SWE.Used
+
+                 --  Do not issue this warning for -Wxxx messages since the
+                 --  back-end doesn't report the information.
+
+                 and then not
+                   (SWE.Msg'Length > 2 and then SWE.Msg (1 .. 2) = "-W")
+               then
                   Eproc.all
                     ("?no warning suppressed by this pragma", SWE.Start);
                end if;

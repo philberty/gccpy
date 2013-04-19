@@ -1,8 +1,7 @@
 /* Various declarations for language-independent pretty-print
    subroutines that are only for use in the compilers proper and not
    the driver or other programs.
-   Copyright (C) 2002, 2003, 2004, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2002-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -43,7 +42,6 @@ extern void print_generic_stmt (FILE *, tree, int);
 extern void print_generic_stmt_indented (FILE *, tree, int, int);
 extern void print_generic_expr (FILE *, tree, int);
 extern void print_generic_decl (FILE *, tree, int);
-extern void debug_c_tree (tree);
 extern void dump_omp_clauses (pretty_printer *, tree, int, int);
 extern void print_call_name (pretty_printer *, tree, int);
 extern void debug_generic_expr (tree);
@@ -51,9 +49,7 @@ extern void debug_generic_stmt (tree);
 extern void debug_tree_chain (tree);
 extern void percent_K_format (text_info *);
 extern void dump_function_header (FILE *, tree, int);
-
-/* In toplev.c  */
-extern bool default_tree_printer (pretty_printer *, text_info *, const char *,
-				  int, bool, bool, bool);
+/* In c-pretty-print.c  */
+extern void debug_c_tree (tree);
 
 #endif /* ! GCC_TREE_PRETTY_PRINT_H */

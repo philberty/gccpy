@@ -1,6 +1,6 @@
 ; Options for the ARM port of the compiler.
 
-; Copyright (C) 2005, 2007, 2008, 2009, 2011 Free Software Foundation, Inc.
+; Copyright (C) 2005-2013 Free Software Foundation, Inc.
 ;
 ; This file is part of GCC.
 ;
@@ -59,7 +59,7 @@ Target Report Mask(ABORT_NORETURN)
 Generate a call to abort if a noreturn function returns
 
 mapcs
-Target RejectNegative Mask(APCS_FRAME) MaskExists Undocumented
+Target RejectNegative Mask(APCS_FRAME) Undocumented
 
 mapcs-float
 Target Report Mask(APCS_FLOAT)
@@ -101,10 +101,6 @@ mcaller-super-interworking
 Target Report Mask(CALLER_INTERWORKING)
 Thumb: Assume function pointers may go to non-Thumb aware code
 
-mcirrus-fix-invalid-insns
-Target Report Mask(CIRRUS_FIX_INVALID_INSNS)
-Cirrus: Place NOPs to avoid invalid instruction combinations
-
 mcpu=
 Target RejectNegative Joined Enum(processor_type) Var(arm_cpu_option) Init(arm_none)
 Specify the name of the target CPU
@@ -126,12 +122,6 @@ Enum(float_abi_type) String(softfp) Value(ARM_FLOAT_ABI_SOFTFP)
 EnumValue
 Enum(float_abi_type) String(hard) Value(ARM_FLOAT_ABI_HARD)
 
-mfp=2
-Target RejectNegative Undocumented Alias(mfpu=, fpe2)
-
-mfp=3
-Target RejectNegative Undocumented Alias(mfpu=, fpe3)
-
 mfp16-format=
 Target RejectNegative Joined Enum(arm_fp16_format_type) Var(arm_fp16_format) Init(ARM_FP16_FORMAT_NONE)
 Specify the __fp16 floating-point format
@@ -148,16 +138,6 @@ Enum(arm_fp16_format_type) String(ieee) Value(ARM_FP16_FORMAT_IEEE)
 
 EnumValue
 Enum(arm_fp16_format_type) String(alternative) Value(ARM_FP16_FORMAT_ALTERNATIVE)
-
-;; Now ignored.
-mfpe
-Target RejectNegative Mask(FPE) Undocumented
-
-mfpe=2
-Target RejectNegative Undocumented Alias(mfpu=, fpe2)
-
-mfpe=3
-Target RejectNegative Undocumented Alias(mfpu=, fpe3)
 
 mfpu=
 Target RejectNegative Joined Enum(arm_fpu) Var(arm_fpu_index)

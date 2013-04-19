@@ -306,8 +306,8 @@ func TestExec(t *testing.T) {
 		{[]interface{}{7, 9}, ""},
 
 		// Invalid conversions:
-		{[]interface{}{"Brad", int64(0xFFFFFFFF)}, "sql: converting Exec argument #1's type: sql/driver: value 4294967295 overflows int32"},
-		{[]interface{}{"Brad", "strconv fail"}, "sql: converting Exec argument #1's type: sql/driver: value \"strconv fail\" can't be converted to int32"},
+		{[]interface{}{"Brad", int64(0xFFFFFFFF)}, "sql: converting argument #1's type: sql/driver: value 4294967295 overflows int32"},
+		{[]interface{}{"Brad", "strconv fail"}, "sql: converting argument #1's type: sql/driver: value \"strconv fail\" can't be converted to int32"},
 
 		// Wrong number of args:
 		{[]interface{}{}, "sql: expected 2 arguments, got 0"},
@@ -399,6 +399,39 @@ func TestTxQueryInvalid(t *testing.T) {
 	_, err = tx.Query("SELECT|t1|name|")
 	if err == nil {
 		t.Fatal("Error expected")
+	}
+}
+
+// Tests fix for issue 4433, that retries in Begin happen when
+// conn.Begin() returns ErrBadConn
+func TestTxErrBadConn(t *testing.T) {
+	db, err := Open("test", fakeDBName+";badConn")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := db.Exec("WIPE"); err != nil {
+		t.Fatalf("exec wipe: %v", err)
+	}
+	defer closeDB(t, db)
+	exec(t, db, "CREATE|t1|name=string,age=int32,dead=bool")
+	stmt, err := db.Prepare("INSERT|t1|name=?,age=?")
+	if err != nil {
+		t.Fatalf("Stmt, err = %v, %v", stmt, err)
+	}
+	defer stmt.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin = %v", err)
+	}
+	txs := tx.Stmt(stmt)
+	defer txs.Close()
+	_, err = txs.Exec("Bobby", 7)
+	if err != nil {
+		t.Fatalf("Exec = %v", err)
+	}
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("Commit = %v", err)
 	}
 }
 

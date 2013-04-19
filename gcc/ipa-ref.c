@@ -1,6 +1,5 @@
 /* Interprocedural reference lists.
-   Copyright (C) 2010
-   Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
    Contributed by Jan Hubicka
 
 This file is part of GCC.
@@ -34,65 +33,36 @@ static const char *ipa_ref_use_name[] = {"read","write","addr","alias"};
    of the use and STMT the statement (if it exists).  */
 
 struct ipa_ref *
-ipa_record_reference (struct cgraph_node *refering_node,
-		      struct varpool_node *refering_varpool_node,
-		      struct cgraph_node *refered_node,
-		      struct varpool_node *refered_varpool_node,
+ipa_record_reference (symtab_node referring_node,
+		      symtab_node referred_node,
 		      enum ipa_ref_use use_type, gimple stmt)
 {
   struct ipa_ref *ref;
   struct ipa_ref_list *list, *list2;
-  VEC(ipa_ref_t,gc) *old_references;
-  gcc_assert ((!refering_node) ^ (!refering_varpool_node));
-  gcc_assert ((!refered_node) ^ (!refered_varpool_node));
-  gcc_assert (!stmt || refering_node);
-  gcc_assert (use_type != IPA_REF_ALIAS || !stmt);
+  ipa_ref_t *old_references;
 
-  list = (refering_node ? &refering_node->ref_list
-	  : &refering_varpool_node->ref_list);
-  old_references = list->references;
-  VEC_safe_grow (ipa_ref_t, gc, list->references,
-		 VEC_length (ipa_ref_t, list->references) + 1);
-  ref = VEC_last (ipa_ref_t, list->references);
+  gcc_checking_assert (!stmt || is_a <cgraph_node> (referring_node));
+  gcc_checking_assert (use_type != IPA_REF_ALIAS || !stmt);
 
-  list2 = (refered_node ? &refered_node->ref_list
-	   : &refered_varpool_node->ref_list);
-  VEC_safe_push (ipa_ref_ptr, heap, list2->refering, ref);
-  ref->refered_index = VEC_length (ipa_ref_ptr, list2->refering) - 1;
-  if (refering_node)
-    {
-      ref->refering.cgraph_node = refering_node;
-      ref->refering_type = IPA_REF_CGRAPH;
-    }
-  else
-    {
-      ref->refering.varpool_node = refering_varpool_node;
-      ref->refering_type = IPA_REF_VARPOOL;
-      gcc_assert (use_type == IPA_REF_ADDR || use_type == IPA_REF_ALIAS);
-    }
-  if (refered_node)
-    {
-      ref->refered.cgraph_node = refered_node;
-      ref->refered_type = IPA_REF_CGRAPH;
-      gcc_assert (use_type == IPA_REF_ADDR || use_type == IPA_REF_ALIAS);
-    }
-  else
-    {
-      varpool_mark_needed_node (refered_varpool_node);
-      ref->refered.varpool_node = refered_varpool_node;
-      ref->refered_type = IPA_REF_VARPOOL;
-    }
+  list = &referring_node->symbol.ref_list;
+  old_references = vec_safe_address (list->references);
+  vec_safe_grow (list->references, vec_safe_length (list->references) + 1);
+  ref = &list->references->last ();
+
+  list2 = &referred_node->symbol.ref_list;
+  list2->referring.safe_push (ref);
+  ref->referred_index = list2->referring.length () - 1;
+  ref->referring = referring_node;
+  ref->referred = referred_node;
   ref->stmt = stmt;
   ref->use = use_type;
 
   /* If vector was moved in memory, update pointers.  */
-  if (old_references != list->references)
+  if (old_references != list->references->address ())
     {
       int i;
       for (i = 0; ipa_ref_list_reference_iterate (list, i, ref); i++)
-	VEC_replace (ipa_ref_ptr,
-		     ipa_ref_refered_ref_list (ref)->refering,
-		     ref->refered_index, ref);
+	ipa_ref_referred_ref_list (ref)->referring[ref->referred_index] = ref;
     }
   return ref;
 }
@@ -102,32 +72,28 @@ ipa_record_reference (struct cgraph_node *refering_node,
 void
 ipa_remove_reference (struct ipa_ref *ref)
 {
-  struct ipa_ref_list *list = ipa_ref_refered_ref_list (ref);
-  struct ipa_ref_list *list2 = ipa_ref_refering_ref_list (ref);
-  VEC(ipa_ref_t,gc) *old_references = list2->references;
+  struct ipa_ref_list *list = ipa_ref_referred_ref_list (ref);
+  struct ipa_ref_list *list2 = ipa_ref_referring_ref_list (ref);
+  vec<ipa_ref_t, va_gc> *old_references = list2->references;
   struct ipa_ref *last;
 
-  gcc_assert (VEC_index (ipa_ref_ptr, list->refering, ref->refered_index) == ref);
-  last = VEC_last (ipa_ref_ptr, list->refering);
+  gcc_assert (list->referring[ref->referred_index] == ref);
+  last = list->referring.last ();
   if (ref != last)
     {
-      VEC_replace (ipa_ref_ptr, list->refering,
-		   ref->refered_index,
-		   VEC_last (ipa_ref_ptr, list->refering));
-      VEC_index (ipa_ref_ptr, list->refering,
-		 ref->refered_index)->refered_index = ref->refered_index;
+      list->referring[ref->referred_index] = list->referring.last ();
+      list->referring[ref->referred_index]->referred_index 
+	  = ref->referred_index;
     }
-  VEC_pop (ipa_ref_ptr, list->refering);
+  list->referring.pop ();
 
-  last = VEC_last (ipa_ref_t, list2->references);
+  last = &list2->references->last ();
   if (ref != last)
     {
       *ref = *last;
-      VEC_replace (ipa_ref_ptr,
-		   ipa_ref_refered_ref_list (ref)->refering,
-		   ref->refered_index, ref);
+      ipa_ref_referred_ref_list (ref)->referring[ref->referred_index] = ref;
     }
-  VEC_pop (ipa_ref_t, list2->references);
+  list2->references->pop ();
   gcc_assert (list2->references == old_references);
 }
 
@@ -136,21 +102,19 @@ ipa_remove_reference (struct ipa_ref *ref)
 void
 ipa_remove_all_references (struct ipa_ref_list *list)
 {
-  while (VEC_length (ipa_ref_t, list->references))
-    ipa_remove_reference (VEC_last (ipa_ref_t, list->references));
-  VEC_free (ipa_ref_t, gc, list->references);
-  list->references = NULL;
+  while (vec_safe_length (list->references))
+    ipa_remove_reference (&list->references->last ());
+  vec_free (list->references);
 }
 
 /* Remove all references in ref list LIST.  */
 
 void
-ipa_remove_all_refering (struct ipa_ref_list *list)
+ipa_remove_all_referring (struct ipa_ref_list *list)
 {
-  while (VEC_length (ipa_ref_ptr, list->refering))
-    ipa_remove_reference (VEC_last (ipa_ref_ptr, list->refering));
-  VEC_free (ipa_ref_ptr, heap, list->refering);
-  list->refering = NULL;
+  while (list->referring.length ())
+    ipa_remove_reference (list->referring.last ());
+  list->referring.release ();
 }
 
 /* Dump references in LIST to FILE.  */
@@ -162,38 +126,27 @@ ipa_dump_references (FILE * file, struct ipa_ref_list *list)
   int i;
   for (i = 0; ipa_ref_list_reference_iterate (list, i, ref); i++)
     {
-      if (ref->refered_type == IPA_REF_CGRAPH)
-	{
-	  fprintf (file, " fn:%s/%i (%s)", cgraph_node_name (ipa_ref_node (ref)),
-		   ipa_ref_node (ref)->uid,
-		   ipa_ref_use_name [ref->use]);
-	}
-      else
-	fprintf (file, " var:%s (%s)",
-		 varpool_node_name (ipa_ref_varpool_node (ref)),
-		 ipa_ref_use_name [ref->use]);
+      fprintf (file, "%s/%i (%s)",
+               symtab_node_asm_name (ref->referred),
+               ref->referred->symbol.order,
+	       ipa_ref_use_name [ref->use]);
     }
   fprintf (file, "\n");
 }
 
-/* Dump refering in LIST to FILE.  */
+/* Dump referring in LIST to FILE.  */
 
 void
-ipa_dump_refering (FILE * file, struct ipa_ref_list *list)
+ipa_dump_referring (FILE * file, struct ipa_ref_list *list)
 {
   struct ipa_ref *ref;
   int i;
-  for (i = 0; ipa_ref_list_refering_iterate (list, i, ref); i++)
+  for (i = 0; ipa_ref_list_referring_iterate (list, i, ref); i++)
     {
-      if (ref->refering_type == IPA_REF_CGRAPH)
-	fprintf (file, " fn:%s/%i (%s)",
-		 cgraph_node_name (ipa_ref_refering_node (ref)),
-		 ipa_ref_refering_node (ref)->uid,
-		 ipa_ref_use_name [ref->use]);
-      else
-	fprintf (file, " var:%s (%s)",
-		 varpool_node_name (ipa_ref_refering_varpool_node (ref)),
-		 ipa_ref_use_name [ref->use]);
+      fprintf (file, "%s/%i (%s)",
+               symtab_node_asm_name (ref->referring),
+               ref->referring->symbol.order,
+	       ipa_ref_use_name [ref->use]);
     }
   fprintf (file, "\n");
 }
@@ -201,46 +154,37 @@ ipa_dump_refering (FILE * file, struct ipa_ref_list *list)
 /* Clone all references from SRC to DEST_NODE or DEST_VARPOOL_NODE.  */
 
 void
-ipa_clone_references (struct cgraph_node *dest_node,
-		      struct varpool_node *dest_varpool_node,
+ipa_clone_references (symtab_node dest_node,
 		      struct ipa_ref_list *src)
 {
   struct ipa_ref *ref;
   int i;
   for (i = 0; ipa_ref_list_reference_iterate (src, i, ref); i++)
-    ipa_record_reference (dest_node, dest_varpool_node,
-			  ref->refered_type == IPA_REF_CGRAPH
-			  ? ipa_ref_node (ref) : NULL,
-			  ref->refered_type == IPA_REF_VARPOOL
-			  ? ipa_ref_varpool_node (ref) : NULL,
+    ipa_record_reference (dest_node,
+			  ref->referred,
 			  ref->use, ref->stmt);
 }
 
-/* Clone all refering from SRC to DEST_NODE or DEST_VARPOOL_NODE.  */
+/* Clone all referring from SRC to DEST_NODE or DEST_VARPOOL_NODE.  */
 
 void
-ipa_clone_refering (struct cgraph_node *dest_node,
-		    struct varpool_node *dest_varpool_node,
+ipa_clone_referring (symtab_node dest_node,
 		    struct ipa_ref_list *src)
 {
   struct ipa_ref *ref;
   int i;
-  for (i = 0; ipa_ref_list_refering_iterate (src, i, ref); i++)
-    ipa_record_reference (
-			  ref->refering_type == IPA_REF_CGRAPH
-			  ? ipa_ref_refering_node (ref) : NULL,
-			  ref->refering_type == IPA_REF_VARPOOL
-			  ? ipa_ref_refering_varpool_node (ref) : NULL,
-			  dest_node, dest_varpool_node,
+  for (i = 0; ipa_ref_list_referring_iterate (src, i, ref); i++)
+    ipa_record_reference (ref->referring,
+			  dest_node,
 			  ref->use, ref->stmt);
 }
 
-/* Return true when execution of REF can load to return from
+/* Return true when execution of REF can lead to return from
    function. */
 bool
 ipa_ref_cannot_lead_to_return (struct ipa_ref *ref)
 {
-  return cgraph_node_cannot_return (ipa_ref_refering_node (ref));
+  return cgraph_node_cannot_return (ipa_ref_referring_node (ref));
 }
 
 /* Return true if list contains an alias.  */
@@ -249,7 +193,7 @@ ipa_ref_has_aliases_p (struct ipa_ref_list *ref_list)
 {
   struct ipa_ref *ref;
   int i;
-  for (i = 0; ipa_ref_list_refering_iterate (ref_list, i, ref); i++)
+  for (i = 0; ipa_ref_list_referring_iterate (ref_list, i, ref); i++)
     if (ref->use == IPA_REF_ALIAS)
       return true;
   return false;

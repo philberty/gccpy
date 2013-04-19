@@ -1,7 +1,5 @@
 /* Definitions of target machine for GNU compiler, for Sun SPARC.
-   Copyright (C) 1987, 1988, 1989, 1992, 1994, 1995, 1996, 1997, 1998, 1999
-   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1987-2013 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com).
    64-bit SPARC-V9 support by Michael Tiemann, Jim Wilson, and Doug Evans,
    at Cygnus Support.
@@ -195,7 +193,7 @@ extern enum cmodel sparc_cmodel;
 #endif
 #if TARGET_CPU_DEFAULT == TARGET_CPU_niagara4
 #define CPP_CPU64_DEFAULT_SPEC "-D__sparc_v9__"
-#define ASM_CPU64_DEFAULT_SPEC "-Av9" AS_NIAGARA3_FLAG
+#define ASM_CPU64_DEFAULT_SPEC AS_NIAGARA4_FLAG
 #endif
 
 #else
@@ -337,7 +335,7 @@ extern enum cmodel sparc_cmodel;
 %{mcpu=niagara:%{!mv8plus:-Av9b}} \
 %{mcpu=niagara2:%{!mv8plus:-Av9b}} \
 %{mcpu=niagara3:%{!mv8plus:-Av9" AS_NIAGARA3_FLAG "}} \
-%{mcpu=niagara4:%{!mv8plus:-Av9" AS_NIAGARA3_FLAG "}} \
+%{mcpu=niagara4:%{!mv8plus:" AS_NIAGARA4_FLAG "}} \
 %{!mcpu*:%(asm_cpu_default)} \
 "
 
@@ -475,7 +473,6 @@ extern enum cmodel sparc_cmodel;
 #endif
 
 /* Now define the sizes of the C data types.  */
-
 #define SHORT_TYPE_SIZE		16
 #define INT_TYPE_SIZE		32
 #define LONG_TYPE_SIZE		(TARGET_ARCH64 ? 64 : 32)
@@ -512,7 +509,6 @@ extern enum cmodel sparc_cmodel;
 #define SPARC_STACK_BOUNDARY_HACK (TARGET_ARCH64 && TARGET_STACK_BIAS)
 
 /* ALIGN FRAMES on double word boundaries */
-
 #define SPARC_STACK_ALIGN(LOC) \
   (TARGET_ARCH64 ? (((LOC)+15) & ~15) : (((LOC)+7) & ~7))
 
@@ -550,6 +546,10 @@ extern enum cmodel sparc_cmodel;
      ? MAX (MAX ((COMPUTED), (SPECIFIED)), BIGGEST_ALIGNMENT) \
      : MAX ((COMPUTED), (SPECIFIED)))			\
    :  MAX ((COMPUTED), (SPECIFIED)))
+
+/* An integer expression for the size in bits of the largest integer machine
+   mode that should actually be used.  We allow pairs of registers.  */
+#define MAX_FIXED_MODE_SIZE GET_MODE_BITSIZE (TARGET_ARCH64 ? TImode : DImode)
 
 /* We need 2 words, so we can save the stack pointer and the return register
    of the function containing a non-local goto target.  */
@@ -1004,7 +1004,8 @@ extern char leaf_reg_remap[];
 /* Local macro to handle the two v9 classes of FP regs.  */
 #define FP_REG_CLASS_P(CLASS) ((CLASS) == FP_REGS || (CLASS) == EXTRA_FP_REGS)
 
-/* Predicates for 10-bit, 11-bit and 13-bit signed constants.  */
+/* Predicates for 5-bit, 10-bit, 11-bit and 13-bit signed constants.  */
+#define SPARC_SIMM5_P(X)  ((unsigned HOST_WIDE_INT) (X) + 0x10 < 0x20)
 #define SPARC_SIMM10_P(X) ((unsigned HOST_WIDE_INT) (X) + 0x200 < 0x400)
 #define SPARC_SIMM11_P(X) ((unsigned HOST_WIDE_INT) (X) + 0x400 < 0x800)
 #define SPARC_SIMM13_P(X) ((unsigned HOST_WIDE_INT) (X) + 0x1000 < 0x2000)
@@ -1104,15 +1105,12 @@ extern char leaf_reg_remap[];
   {{ FRAME_POINTER_REGNUM, STACK_POINTER_REGNUM}, \
    { FRAME_POINTER_REGNUM, HARD_FRAME_POINTER_REGNUM} }
 
-#define INITIAL_ELIMINATION_OFFSET(FROM, TO, OFFSET) 			\
-  do {									\
-    if ((TO) == STACK_POINTER_REGNUM)					\
-      (OFFSET) = sparc_compute_frame_size (get_frame_size (),		\
-					   current_function_is_leaf);	\
-    else								\
-      (OFFSET) = 0;							\
-    (OFFSET) += SPARC_STACK_BIAS;					\
-  } while (0)
+#define INITIAL_ELIMINATION_OFFSET(FROM, TO, OFFSET) 		\
+  do								\
+    {								\
+      (OFFSET) = sparc_initial_elimination_offset ((TO));	\
+    }								\
+  while (0)
 
 /* Keep the stack pointer constant throughout the function.
    This is both an optimization and a necessity: longjmp
@@ -1273,11 +1271,11 @@ do {									\
    return an rtx for the address of the word in the frame
    that holds the dynamic chain--the previous frame's address.  */
 #define DYNAMIC_CHAIN_ADDRESS(frame)	\
-  plus_constant (frame, 14 * UNITS_PER_WORD + SPARC_STACK_BIAS)
+  plus_constant (Pmode, frame, 14 * UNITS_PER_WORD + SPARC_STACK_BIAS)
 
 /* Given an rtx for the frame pointer,
    return an rtx for the address of the frame.  */
-#define FRAME_ADDR_RTX(frame) plus_constant (frame, SPARC_STACK_BIAS)
+#define FRAME_ADDR_RTX(frame) plus_constant (Pmode, frame, SPARC_STACK_BIAS)
 
 /* The return address isn't on the stack, it is in a register, so we can't
    access it from the current frame pointer.  We can access it from the
@@ -1299,7 +1297,7 @@ do {									\
   ((count == -1)				\
    ? gen_rtx_REG (Pmode, RETURN_ADDR_REGNUM)			\
    : gen_rtx_MEM (Pmode,			\
-		  memory_address (Pmode, plus_constant (frame, \
+		  memory_address (Pmode, plus_constant (Pmode, frame, \
 							15 * UNITS_PER_WORD \
 							+ SPARC_STACK_BIAS))))
 
@@ -1309,7 +1307,8 @@ do {									\
    is something you can return to.  */
 #define INCOMING_RETURN_ADDR_REGNUM 15
 #define INCOMING_RETURN_ADDR_RTX \
-  plus_constant (gen_rtx_REG (word_mode, INCOMING_RETURN_ADDR_REGNUM), 8)
+  plus_constant (word_mode, \
+		 gen_rtx_REG (word_mode, INCOMING_RETURN_ADDR_REGNUM), 8)
 #define DWARF_FRAME_RETURN_COLUMN \
   DWARF_FRAME_REGNUM (INCOMING_RETURN_ADDR_REGNUM)
 
@@ -1378,7 +1377,8 @@ do {									\
    They give nonzero only if REGNO is a hard reg of the suitable class
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
-   has been allocated, which happens in local-alloc.c.  */
+   has been allocated, which happens in reginfo.c during register
+   allocation.  */
 
 #define REGNO_OK_FOR_INDEX_P(REGNO) \
 (SPARC_INT_REG_P (REGNO) || SPARC_INT_REG_P (reg_renumber[REGNO]) \
@@ -1711,12 +1711,10 @@ do {									\
     ASM_OUTPUT_ALIGNED_LOCAL (FILE, NAME, SIZE, ALIGN);		\
   } while (0)
 
-#define IDENT_ASM_OP "\t.ident\t"
-
 /* Output #ident as a .ident.  */
 
-#define ASM_OUTPUT_IDENT(FILE, NAME) \
-  fprintf (FILE, "%s\"%s\"\n", IDENT_ASM_OP, NAME);
+#undef TARGET_ASM_OUTPUT_IDENT
+#define TARGET_ASM_OUTPUT_IDENT default_asm_output_ident_directive
 
 /* Prettify the assembly.  */
 
@@ -1748,8 +1746,11 @@ extern int sparc_indent_opcode;
 #define AS_NIAGARA3_FLAG "b"
 #endif
 
-/* The number of Pmode words for the setjmp buffer.  */
-#define JMP_BUF_SIZE 12
+#ifdef HAVE_AS_SPARC4
+#define AS_NIAGARA4_FLAG "-xarch=sparc4"
+#else
+#define AS_NIAGARA4_FLAG "-Av9" AS_NIAGARA3_FLAG
+#endif
 
 /* We use gcc _mcount for profiling.  */
 #define NO_PROFILE_COUNTERS 0

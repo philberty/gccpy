@@ -452,16 +452,18 @@ func (r *Reader) ReadMIMEHeader() (MIMEHeader, error) {
 			return m, err
 		}
 
-		// Key ends at first colon; must not have spaces.
+		// Key ends at first colon; should not have spaces but
+		// they appear in the wild, violating specs, so we
+		// remove them if present.
 		i := bytes.IndexByte(kv, ':')
 		if i < 0 {
 			return m, ProtocolError("malformed MIME header line: " + string(kv))
 		}
-		key := string(kv[0:i])
-		if strings.Index(key, " ") >= 0 {
-			key = strings.TrimRight(key, " ")
+		endKey := i
+		for endKey > 0 && kv[endKey-1] == ' ' {
+			endKey--
 		}
-		key = CanonicalMIMEHeaderKey(key)
+		key := canonicalMIMEHeaderKey(kv[:endKey])
 
 		// Skip initial spaces in value.
 		i++ // skip colon
@@ -484,41 +486,107 @@ func (r *Reader) ReadMIMEHeader() (MIMEHeader, error) {
 // letter and any letter following a hyphen to upper case;
 // the rest are converted to lowercase.  For example, the
 // canonical key for "accept-encoding" is "Accept-Encoding".
+// MIME header keys are assumed to be ASCII only.
 func CanonicalMIMEHeaderKey(s string) string {
 	// Quick check for canonical encoding.
-	needUpper := true
+	upper := true
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if needUpper && 'a' <= c && c <= 'z' {
-			goto MustRewrite
+		if upper && 'a' <= c && c <= 'z' {
+			return canonicalMIMEHeaderKey([]byte(s))
 		}
-		if !needUpper && 'A' <= c && c <= 'Z' {
-			goto MustRewrite
+		if !upper && 'A' <= c && c <= 'Z' {
+			return canonicalMIMEHeaderKey([]byte(s))
 		}
-		needUpper = c == '-'
+		upper = c == '-'
 	}
 	return s
+}
 
-MustRewrite:
-	// Canonicalize: first letter upper case
-	// and upper case after each dash.
-	// (Host, User-Agent, If-Modified-Since).
-	// MIME headers are ASCII only, so no Unicode issues.
-	a := []byte(s)
+const toLower = 'a' - 'A'
+
+// canonicalMIMEHeaderKey is like CanonicalMIMEHeaderKey but is
+// allowed to mutate the provided byte slice before returning the
+// string.
+func canonicalMIMEHeaderKey(a []byte) string {
+	// Look for it in commonHeaders , so that we can avoid an
+	// allocation by sharing the strings among all users
+	// of textproto. If we don't find it, a has been canonicalized
+	// so just return string(a).
 	upper := true
-	for i, v := range a {
-		if v == ' ' {
+	lo := 0
+	hi := len(commonHeaders)
+	for i := 0; i < len(a); i++ {
+		// Canonicalize: first letter upper case
+		// and upper case after each dash.
+		// (Host, User-Agent, If-Modified-Since).
+		// MIME headers are ASCII only, so no Unicode issues.
+		if a[i] == ' ' {
 			a[i] = '-'
 			upper = true
 			continue
 		}
-		if upper && 'a' <= v && v <= 'z' {
-			a[i] = v + 'A' - 'a'
+		c := a[i]
+		if upper && 'a' <= c && c <= 'z' {
+			c -= toLower
+		} else if !upper && 'A' <= c && c <= 'Z' {
+			c += toLower
 		}
-		if !upper && 'A' <= v && v <= 'Z' {
-			a[i] = v + 'a' - 'A'
+		a[i] = c
+		upper = c == '-' // for next time
+
+		if lo < hi {
+			for lo < hi && (len(commonHeaders[lo]) <= i || commonHeaders[lo][i] < c) {
+				lo++
+			}
+			for hi > lo && commonHeaders[hi-1][i] > c {
+				hi--
+			}
 		}
-		upper = v == '-'
+	}
+	if lo < hi && len(commonHeaders[lo]) == len(a) {
+		return commonHeaders[lo]
 	}
 	return string(a)
+}
+
+var commonHeaders = []string{
+	"Accept",
+	"Accept-Charset",
+	"Accept-Encoding",
+	"Accept-Language",
+	"Accept-Ranges",
+	"Cache-Control",
+	"Cc",
+	"Connection",
+	"Content-Id",
+	"Content-Language",
+	"Content-Length",
+	"Content-Transfer-Encoding",
+	"Content-Type",
+	"Date",
+	"Dkim-Signature",
+	"Etag",
+	"Expires",
+	"From",
+	"Host",
+	"If-Modified-Since",
+	"If-None-Match",
+	"In-Reply-To",
+	"Last-Modified",
+	"Location",
+	"Message-Id",
+	"Mime-Version",
+	"Pragma",
+	"Received",
+	"Return-Path",
+	"Server",
+	"Set-Cookie",
+	"Subject",
+	"To",
+	"User-Agent",
+	"Via",
+	"X-Forwarded-For",
+	"X-Imforwards",
+	"X-Powered-By",
 }

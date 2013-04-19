@@ -4,12 +4,8 @@
 
 <info><title>codecvt</title>
   <keywordset>
-    <keyword>
-      ISO C++
-    </keyword>
-    <keyword>
-      codecvt
-    </keyword>
+    <keyword>ISO C++</keyword>
+    <keyword>codecvt</keyword>
   </keywordset>
 </info>
 
@@ -588,7 +584,7 @@ codecvt usage.
   <biblioentry>
       <title>
 	<link xmlns:xlink="http://www.w3.org/1999/xlink"
-	      xlink:href="http://www.opengroup.org/austin">
+	      xlink:href="http://www.opengroup.org/austin/">
       System Interface Definitions, Issue 7 (IEEE Std. 1003.1-2008)
 	</link>
       </title>

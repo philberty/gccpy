@@ -6,23 +6,12 @@
 
 #include "go-system.h"
 
-#include <gmp.h>
-
-#ifndef ENABLE_BUILD_WITH_CXX
-extern "C"
-{
-#endif
-
 #include "toplev.h"
 #include "intl.h"
 #include "tree.h"
 #include "gimple.h"
 #include "real.h"
 #include "convert.h"
-
-#ifndef ENABLE_BUILD_WITH_CXX
-}
-#endif
 
 #include "go-c.h"
 #include "gogo.h"
@@ -2113,6 +2102,13 @@ Type::methods_constructor(Gogo* gogo, Type* methods_type,
 	    continue;
 	  if (only_value_methods && !p->second->is_value_method())
 	    continue;
+
+	  // This is where we implement the magic //go:nointerface
+	  // comment.  If we saw that comment, we don't add this
+	  // method to the type descriptor.
+	  if (p->second->nointerface())
+	    continue;
+
 	  smethods.push_back(std::make_pair(p->first, p->second));
 	}
     }
@@ -2613,8 +2609,12 @@ Integer_type::create_abstract_integer_type()
 {
   static Integer_type* abstract_type;
   if (abstract_type == NULL)
-    abstract_type = new Integer_type(true, false, INT_TYPE_SIZE,
-				     RUNTIME_TYPE_KIND_INT);
+    {
+      Type* int_type = Type::lookup_integer_type("int");
+      abstract_type = new Integer_type(true, false,
+				       int_type->integer_type()->bits(),
+				       RUNTIME_TYPE_KIND_INT);
+    }
   return abstract_type;
 }
 
@@ -3030,7 +3030,7 @@ String_type::length_tree(Gogo*, tree string)
   tree length_field = DECL_CHAIN(TYPE_FIELDS(string_type));
   go_assert(strcmp(IDENTIFIER_POINTER(DECL_NAME(length_field)),
 		    "__length") == 0);
-  return fold_build3(COMPONENT_REF, integer_type_node, string,
+  return fold_build3(COMPONENT_REF, TREE_TYPE(length_field), string,
 		     length_field, NULL_TREE);
 }
 
@@ -4170,6 +4170,11 @@ Struct_field::is_field_name(const std::string& name) const
 
 // Class Struct_type.
 
+// A hash table used to find identical unnamed structs so that they
+// share method tables.
+
+Struct_type::Identical_structs Struct_type::identical_structs;
+
 // Traversal.
 
 int
@@ -4596,6 +4601,21 @@ Struct_type::finalize_methods(Gogo* gogo)
 {
   if (this->all_methods_ != NULL)
     return;
+
+  // It is possible to have multiple identical structs that have
+  // methods.  We want them to share method tables.  Otherwise we will
+  // emit identical methods more than once, which is bad since they
+  // will even have the same names.
+  std::pair<Identical_structs::iterator, bool> ins =
+    Struct_type::identical_structs.insert(std::make_pair(this, this));
+  if (!ins.second)
+    {
+      // An identical struct was already entered into the hash table.
+      // Note that finalize_methods is, fortunately, not recursive.
+      this->all_methods_ = ins.first->second->all_methods_;
+      return;
+    }
+
   Type::finalize_methods(gogo, this, this->location_, &this->all_methods_);
 }
 
@@ -5579,7 +5599,9 @@ Array_type::get_length_tree(Gogo* gogo)
 	  tree len = this->length_->get_tree(&context);
 	  if (len != error_mark_node)
 	    {
-	      len = convert_to_integer(integer_type_node, len);
+	      Type* int_type = Type::lookup_integer_type("int");
+	      tree int_type_tree = type_to_tree(int_type->get_backend(gogo));
+	      len = convert_to_integer(int_type_tree, len);
 	      len = save_expr(len);
 	    }
 	  this->length_tree_ = len;
@@ -5718,10 +5740,12 @@ Array_type::length_tree(Gogo* gogo, tree array)
   if (this->length_ != NULL)
     {
       if (TREE_CODE(array) == SAVE_EXPR)
-	return fold_convert(integer_type_node, this->get_length_tree(gogo));
+	return this->get_length_tree(gogo);
       else
-	return omit_one_operand(integer_type_node,
-				this->get_length_tree(gogo), array);
+	{
+	  tree len = this->get_length_tree(gogo);
+	  return omit_one_operand(TREE_TYPE(len), len, array);
+	}
     }
 
   // This is an open array.  We need to read the length field.
@@ -5745,8 +5769,10 @@ tree
 Array_type::capacity_tree(Gogo* gogo, tree array)
 {
   if (this->length_ != NULL)
-    return omit_one_operand(integer_type_node, this->get_length_tree(gogo),
-			    array);
+    {
+      tree len = this->get_length_tree(gogo);
+      return omit_one_operand(TREE_TYPE(len), len, array);
+    }
 
   // This is an open array.  We need to read the capacity field.
 
@@ -6492,6 +6518,24 @@ Type::make_channel_type(bool send, bool receive, Type* element_type)
 
 // Class Interface_type.
 
+// Return the list of methods.
+
+const Typed_identifier_list*
+Interface_type::methods() const
+{
+  go_assert(this->methods_are_finalized_ || saw_errors());
+  return this->all_methods_;
+}
+
+// Return the number of methods.
+
+size_t
+Interface_type::method_count() const
+{
+  go_assert(this->methods_are_finalized_ || saw_errors());
+  return this->all_methods_ == NULL ? 0 : this->all_methods_->size();
+}
+
 // Traversal.
 
 int
@@ -6920,6 +6964,24 @@ Interface_type::implements_interface(const Type* t, std::string* reason) const
 	      char* buf = new char[len];
 	      snprintf(buf, len,
 		       _("method %s%s%s requires a pointer receiver"),
+		       open_quote, n.c_str(), close_quote);
+	      reason->assign(buf);
+	      delete[] buf;
+	    }
+	  return false;
+	}
+
+      // If the magic //go:nointerface comment was used, the method
+      // may not be used to implement interfaces.
+      if (m->nointerface())
+	{
+	  if (reason != NULL)
+	    {
+	      std::string n = Gogo::message_name(p->name());
+	      size_t len = 100 + n.length();
+	      char* buf = new char[len];
+	      snprintf(buf, len,
+		       _("method %s%s%s is marked go:nointerface"),
 		       open_quote, n.c_str(), close_quote);
 	      reason->assign(buf);
 	      delete[] buf;
@@ -7563,6 +7625,15 @@ Named_method::do_bind_method(Expression* expr, Location location) const
       bme->set_first_argument_type(frtype);
     }
   return bme;
+}
+
+// Return whether this method should not participate in interfaces.
+
+bool
+Named_method::do_nointerface() const
+{
+  Named_object* no = this->named_object_;
+  return no->is_function() && no->func_value()->nointerface();
 }
 
 // Class Interface_method.
@@ -8869,6 +8940,9 @@ Type::build_stub_methods(Gogo* gogo, const Type* type, const Methods* methods,
 	  Type::build_one_stub_method(gogo, m, buf, stub_params,
 				      fntype->is_varargs(), location);
 	  gogo->finish_function(fntype->location());
+
+	  if (m->nointerface() && stub->is_function())
+	    stub->func_value()->set_nointerface();
 	}
 
       m->set_stub_object(stub);
@@ -9590,6 +9664,19 @@ Forward_declaration_type::do_traverse(Traverse* traverse)
       && Type::traverse(this->real_type(), traverse) == TRAVERSE_EXIT)
     return TRAVERSE_EXIT;
   return TRAVERSE_CONTINUE;
+}
+
+// Verify the type.
+
+bool
+Forward_declaration_type::do_verify()
+{
+  if (!this->is_defined() && !this->is_nil_constant_as_type())
+    {
+      this->warn();
+      return false;
+    }
+  return true;
 }
 
 // Get the backend representation for the type.

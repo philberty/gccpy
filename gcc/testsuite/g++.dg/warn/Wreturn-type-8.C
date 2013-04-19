@@ -1,6 +1,6 @@
 // PR c++/54046
 // { dg-do compile }
-// { dg-options "-O0 -Wall -Wno-unused" }
+// { dg-options "-O0 -Wall" }
 
 void foo (void) __attribute__((noreturn));
 

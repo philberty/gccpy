@@ -33,6 +33,7 @@ type Context struct {
 	GOPATH      string   // Go path
 	CgoEnabled  bool     // whether cgo can be used
 	BuildTags   []string // additional tags to recognize in +build lines
+	InstallTag  string   // package install directory suffix
 	UseAllFiles bool     // use files regardless of +build lines, file names
 	Compiler    string   // compiler to assume when computing target paths
 
@@ -213,10 +214,15 @@ var Default Context = defaultContext()
 var cgoEnabled = map[string]bool{
 	"darwin/386":    true,
 	"darwin/amd64":  true,
-	"linux/386":     true,
-	"linux/amd64":   true,
 	"freebsd/386":   true,
 	"freebsd/amd64": true,
+	"linux/386":     true,
+	"linux/amd64":   true,
+	"linux/arm":     true,
+	"netbsd/386":    true,
+	"netbsd/amd64":  true,
+	"openbsd/386":   true,
+	"openbsd/amd64": true,
 	"windows/386":   true,
 	"windows/amd64": true,
 }
@@ -278,12 +284,14 @@ type Package struct {
 	PkgObj     string // installed .a file
 
 	// Source files
-	GoFiles   []string // .go source files (excluding CgoFiles, TestGoFiles, XTestGoFiles)
-	CgoFiles  []string // .go source files that import "C"
-	CFiles    []string // .c source files
-	HFiles    []string // .h source files
-	SFiles    []string // .s source files
-	SysoFiles []string // .syso system object files to add to archive
+	GoFiles      []string // .go source files (excluding CgoFiles, TestGoFiles, XTestGoFiles)
+	CgoFiles     []string // .go source files that import "C"
+	CFiles       []string // .c source files
+	HFiles       []string // .h source files
+	SFiles       []string // .s source files
+	SysoFiles    []string // .syso system object files to add to archive
+	SwigFiles    []string // .swig files
+	SwigCXXFiles []string // .swigcxx files
 
 	// Cgo directives
 	CgoPkgConfig []string // Cgo pkg-config directives
@@ -346,6 +354,9 @@ func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) (*Packa
 	p := &Package{
 		ImportPath: path,
 	}
+	if path == "" {
+		return p, fmt.Errorf("import %q: invalid import path", path)
+	}
 
 	var pkga string
 	var pkgerr error
@@ -354,7 +365,11 @@ func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) (*Packa
 		dir, elem := pathpkg.Split(p.ImportPath)
 		pkga = "pkg/gccgo/" + dir + "lib" + elem + ".a"
 	case "gc":
-		pkga = "pkg/" + ctxt.GOOS + "_" + ctxt.GOARCH + "/" + p.ImportPath + ".a"
+		tag := ""
+		if ctxt.InstallTag != "" {
+			tag = "_" + ctxt.InstallTag
+		}
+		pkga = "pkg/" + ctxt.GOOS + "_" + ctxt.GOARCH + tag + "/" + p.ImportPath + ".a"
 	default:
 		// Save error for end of function.
 		pkgerr = fmt.Errorf("import %q: unknown compiler %q", path, ctxt.Compiler)
@@ -410,6 +425,13 @@ func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) (*Packa
 		if strings.HasPrefix(path, "/") {
 			return p, fmt.Errorf("import %q: cannot import absolute path", path)
 		}
+
+		// tried records the location of unsucsessful package lookups
+		var tried struct {
+			goroot string
+			gopath []string
+		}
+
 		// Determine directory from import path.
 		if ctxt.GOROOT != "" {
 			dir := ctxt.joinPath(ctxt.GOROOT, "src", "pkg", path)
@@ -421,6 +443,7 @@ func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) (*Packa
 				p.Root = ctxt.GOROOT
 				goto Found
 			}
+			tried.goroot = dir
 		}
 		for _, root := range ctxt.gopath() {
 			dir := ctxt.joinPath(root, "src", path)
@@ -431,8 +454,28 @@ func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) (*Packa
 				p.Root = root
 				goto Found
 			}
+			tried.gopath = append(tried.gopath, dir)
 		}
-		return p, fmt.Errorf("import %q: cannot find package", path)
+
+		// package was not found
+		var paths []string
+		if tried.goroot != "" {
+			paths = append(paths, fmt.Sprintf("\t%s (from $GOROOT)", tried.goroot))
+		} else {
+			paths = append(paths, "\t($GOROOT not set)")
+		}
+		var i int
+		var format = "\t%s (from $GOPATH)"
+		for ; i < len(tried.gopath); i++ {
+			if i > 0 {
+				format = "\t%s"
+			}
+			paths = append(paths, fmt.Sprintf(format, tried.gopath[i]))
+		}
+		if i == 0 {
+			paths = append(paths, "\t($GOPATH not set)")
+		}
+		return p, fmt.Errorf("cannot find package %q in any of:\n%s", path, strings.Join(paths, "\n"))
 	}
 
 Found:
@@ -486,7 +529,7 @@ Found:
 		}
 		ext := name[i:]
 		switch ext {
-		case ".go", ".c", ".s", ".h", ".S":
+		case ".go", ".c", ".s", ".h", ".S", ".swig", ".swigcxx":
 			// tentatively okay - read to make sure
 		case ".syso":
 			// binary objects to add to package archive
@@ -504,7 +547,13 @@ Found:
 		if err != nil {
 			return p, err
 		}
-		data, err := ioutil.ReadAll(f)
+
+		var data []byte
+		if strings.HasSuffix(filename, ".go") {
+			data, err = readImports(f, false)
+		} else {
+			data, err = readComments(f)
+		}
 		f.Close()
 		if err != nil {
 			return p, fmt.Errorf("read %s: %v", filename, err)
@@ -528,6 +577,12 @@ Found:
 			continue
 		case ".S":
 			Sfiles = append(Sfiles, name)
+			continue
+		case ".swig":
+			p.SwigFiles = append(p.SwigFiles, name)
+			continue
+		case ".swigcxx":
+			p.SwigCXXFiles = append(p.SwigCXXFiles, name)
 			continue
 		}
 
@@ -872,6 +927,8 @@ func splitQuoted(s string) (r []string, err error) {
 //	$GOARCH
 //	cgo (if cgo is enabled)
 //	!cgo (if cgo is disabled)
+//	ctxt.Compiler
+//	!ctxt.Compiler
 //	tag (if tag is listed in ctxt.BuildTags)
 //	!tag (if tag is not listed in ctxt.BuildTags)
 //	a comma-separated list of any of these
@@ -903,7 +960,7 @@ func (ctxt *Context) match(name string) bool {
 	if ctxt.CgoEnabled && name == "cgo" {
 		return true
 	}
-	if name == ctxt.GOOS || name == ctxt.GOARCH {
+	if name == ctxt.GOOS || name == ctxt.GOARCH || name == ctxt.Compiler {
 		return true
 	}
 

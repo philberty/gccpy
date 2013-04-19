@@ -1,5 +1,5 @@
 /* Command line option handling.
-   Copyright (C) 2006, 2007, 2008, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2006-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1142,17 +1142,15 @@ set_option (struct gcc_options *opts, struct gcc_options *opts_set,
 
     case CLVC_DEFER:
 	{
-	  VEC(cl_deferred_option,heap) *vec
-	    = (VEC(cl_deferred_option,heap) *) *(void **) flag_var;
-	  cl_deferred_option *p;
-
-	  p = VEC_safe_push (cl_deferred_option, heap, vec, NULL);
-	  p->opt_index = opt_index;
-	  p->arg = arg;
-	  p->value = value;
-	  *(void **) flag_var = vec;
+	  vec<cl_deferred_option> *v
+	    = (vec<cl_deferred_option> *) *(void **) flag_var;
+	  cl_deferred_option p = {opt_index, arg, value};
+	  if (!v)
+	    v = XCNEW (vec<cl_deferred_option>);
+	  v->safe_push (p);
+	  *(void **) flag_var = v;
 	  if (set_flag_var)
-	    *(void **) set_flag_var = vec;
+	    *(void **) set_flag_var = v;
 	}
 	break;
     }

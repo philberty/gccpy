@@ -1,6 +1,5 @@
 /* Post-reload compare elimination.
-   Copyright (C) 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 2010-2013 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -120,10 +119,8 @@ struct comparison
 };
   
 typedef struct comparison *comparison_struct_p;
-DEF_VEC_P(comparison_struct_p);
-DEF_VEC_ALLOC_P(comparison_struct_p, heap);
 
-static VEC(comparison_struct_p, heap) *all_compares;
+static vec<comparison_struct_p> all_compares;
 
 /* Look for a "conforming" comparison, as defined above.  If valid, return
    the rtx for the COMPARE itself.  */
@@ -301,21 +298,43 @@ find_comparisons_in_bb (struct dom_walk_data *data ATTRIBUTE_UNUSED,
 
 	  /* Eliminate a compare that's redundant with the previous.  */
 	  if (last_cmp_valid
-	      && src_mode == last_cmp->orig_mode
 	      && rtx_equal_p (last_cmp->in_a, XEXP (src, 0))
 	      && rtx_equal_p (last_cmp->in_b, XEXP (src, 1)))
 	    {
+	      rtx flags, x;
+	      enum machine_mode new_mode
+		= targetm.cc_modes_compatible (last_cmp->orig_mode, src_mode);
+
+	      /* New mode is incompatible with the previous compare mode.  */
+	      if (new_mode == VOIDmode)
+		continue;
+
+	      if (new_mode != last_cmp->orig_mode)
+		{
+		  flags = gen_rtx_REG (src_mode, targetm.flags_regnum);
+
+		  /* Generate new comparison for substitution.  */
+		  x = gen_rtx_COMPARE (new_mode, XEXP (src, 0), XEXP (src, 1));
+		  x = gen_rtx_SET (VOIDmode, flags, x);
+
+		  if (!validate_change (last_cmp->insn,
+					&PATTERN (last_cmp->insn), x, false))
+		    continue;
+
+		  last_cmp->orig_mode = new_mode;
+		}
+
 	      delete_insn (insn);
 	      continue;
 	    }
 
-          last_cmp = XCNEW (struct comparison);
+	  last_cmp = XCNEW (struct comparison);
 	  last_cmp->insn = insn;
 	  last_cmp->prev_clobber = last_clobber;
 	  last_cmp->in_a = XEXP (src, 0);
 	  last_cmp->in_b = XEXP (src, 1);
 	  last_cmp->orig_mode = src_mode;
-	  VEC_safe_push (comparison_struct_p, heap, all_compares, last_cmp);
+	  all_compares.safe_push (last_cmp);
 
 	  /* It's unusual, but be prepared for comparison patterns that
 	     also clobber an input, or perhaps a scratch.  */
@@ -472,7 +491,7 @@ try_eliminate_compare (struct comparison *cmp)
 {
   rtx x, insn, bb_head, flags, in_a, cmp_src;
 
-  /* We must have found an interesting "clobber" preceeding the compare.  */
+  /* We must have found an interesting "clobber" preceding the compare.  */
   if (cmp->prev_clobber == NULL)
     return false;
 
@@ -541,10 +560,26 @@ try_eliminate_compare (struct comparison *cmp)
      Validate that PREV_CLOBBER itself does in fact refer to IN_A.  Do
      recall that we've already validated the shape of PREV_CLOBBER.  */
   x = XVECEXP (PATTERN (insn), 0, 0);
-  if (!rtx_equal_p (SET_DEST (x), in_a))
+  if (rtx_equal_p (SET_DEST (x), in_a))
+    cmp_src = SET_SRC (x);
+
+  /* Also check operations with implicit extensions, e.g.:
+     [(set (reg:DI)
+	   (zero_extend:DI (plus:SI (reg:SI)(reg:SI))))
+      (set (reg:CCZ flags)
+	   (compare:CCZ
+	     (plus:SI (reg:SI)(reg:SI))
+	     (const_int 0)))]				*/
+  else if (REG_P (SET_DEST (x))
+	   && REG_P (in_a)
+	   && REGNO (SET_DEST (x)) == REGNO (in_a)
+	   && (GET_CODE (SET_SRC (x)) == ZERO_EXTEND
+	       || GET_CODE (SET_SRC (x)) == SIGN_EXTEND)
+	   && GET_MODE (XEXP (SET_SRC (x), 0)) == GET_MODE (in_a))
+    cmp_src = XEXP (SET_SRC (x), 0);
+  else
     return false;
-  cmp_src = SET_SRC (x);
-  
+
   /* Determine if we ought to use a different CC_MODE here.  */
   flags = maybe_select_cc_mode (cmp, cmp_src, cmp->in_b);
   if (flags == NULL)
@@ -585,24 +620,23 @@ execute_compare_elim_after_reload (void)
 {
   df_analyze ();
 
-  gcc_checking_assert (all_compares == NULL);
+  gcc_checking_assert (!all_compares.exists ());
 
   /* Locate all comparisons and their uses, and eliminate duplicates.  */
   find_comparisons ();
-  if (all_compares)
+  if (all_compares.exists ())
     {
       struct comparison *cmp;
       size_t i;
 
       /* Eliminate comparisons that are redundant with flags computation.  */
-      FOR_EACH_VEC_ELT (comparison_struct_p, all_compares, i, cmp)
+      FOR_EACH_VEC_ELT (all_compares, i, cmp)
 	{
 	  try_eliminate_compare (cmp);
 	  XDELETE (cmp);
 	}
 
-      VEC_free (comparison_struct_p, heap, all_compares);
-      all_compares = NULL;
+      all_compares.release ();
     }
 
   return 0;
@@ -622,6 +656,7 @@ struct rtl_opt_pass pass_compare_elim_after_reload =
  {
   RTL_PASS,
   "cmpelim",				/* name */
+  OPTGROUP_NONE,                        /* optinfo_flags */
   gate_compare_elim_after_reload,	/* gate */
   execute_compare_elim_after_reload,	/* execute */
   NULL,					/* sub */

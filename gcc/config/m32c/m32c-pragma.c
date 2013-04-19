@@ -1,5 +1,5 @@
 /* M32C Pragma support
-   Copyright (C) 2004, 2007, 2010 Free Software Foundation, Inc.
+   Copyright (C) 2004-2013 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GCC.
@@ -27,13 +27,7 @@
 #include "c-family/c-common.h"
 #include "diagnostic-core.h"
 #include "cpplib.h"
-#include "hard-reg-set.h"
-#include "output.h"
 #include "m32c-protos.h"
-#include "function.h"
-#define MAX_RECOG_OPERANDS 10
-#include "reload.h"
-#include "target.h"
 
 /* Implements the "GCC memregs" pragma.  This pragma takes only an
    integer, and is semantically identical to the -memregs= command

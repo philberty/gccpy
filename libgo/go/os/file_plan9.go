@@ -5,13 +5,10 @@
 package os
 
 import (
-	"errors"
 	"runtime"
 	"syscall"
 	"time"
 )
-
-var ErrPlan9 = errors.New("unimplemented on Plan 9")
 
 // File represents an open file descriptor.
 type File struct {
@@ -137,8 +134,8 @@ func OpenFile(name string, flag int, perm FileMode) (file *File, err error) {
 
 // Close closes the File, rendering it unusable for I/O.
 // It returns an error, if any.
-func (file *File) Close() error {
-	return file.file.close()
+func (f *File) Close() error {
+	return f.file.close()
 }
 
 func (file *file) close() error {
@@ -159,8 +156,8 @@ func (file *file) close() error {
 }
 
 // Stat returns the FileInfo structure describing file.
-// It returns the FileInfo and an error, if any.
-func (f *File) Stat() (FileInfo, error) {
+// If there is an error, it will be of type *PathError.
+func (f *File) Stat() (fi FileInfo, err error) {
 	d, err := dirstat(f)
 	if err != nil {
 		return nil, err
@@ -170,14 +167,20 @@ func (f *File) Stat() (FileInfo, error) {
 
 // Truncate changes the size of the file.
 // It does not change the I/O offset.
+// If there is an error, it will be of type *PathError.
 func (f *File) Truncate(size int64) error {
-	var d Dir
+	var d syscall.Dir
+
 	d.Null()
+	d.Length = size
 
-	d.Length = uint64(size)
-
-	if e := syscall.Fwstat(f.fd, pdir(nil, &d)); e != nil {
-		return &PathError{"truncate", f.name, e}
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return &PathError{"truncate", f.name, err}
+	}
+	if err = syscall.Fwstat(f.fd, buf[:n]); err != nil {
+		return &PathError{"truncate", f.name, err}
 	}
 	return nil
 }
@@ -187,7 +190,7 @@ const chmodMask = uint32(syscall.DMAPPEND | syscall.DMEXCL | syscall.DMTMP | Mod
 // Chmod changes the mode of the file to mode.
 // If there is an error, it will be of type *PathError.
 func (f *File) Chmod(mode FileMode) error {
-	var d Dir
+	var d syscall.Dir
 
 	odir, e := dirstat(f)
 	if e != nil {
@@ -195,8 +198,14 @@ func (f *File) Chmod(mode FileMode) error {
 	}
 	d.Null()
 	d.Mode = odir.Mode&^chmodMask | syscallMode(mode)&chmodMask
-	if e := syscall.Fwstat(f.fd, pdir(nil, &d)); e != nil {
-		return &PathError{"chmod", f.name, e}
+
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return &PathError{"chmod", f.name, err}
+	}
+	if err = syscall.Fwstat(f.fd, buf[:n]); err != nil {
+		return &PathError{"chmod", f.name, err}
 	}
 	return nil
 }
@@ -208,12 +217,16 @@ func (f *File) Sync() (err error) {
 	if f == nil {
 		return ErrInvalid
 	}
-
-	var d Dir
+	var d syscall.Dir
 	d.Null()
 
-	if e := syscall.Fwstat(f.fd, pdir(nil, &d)); e != nil {
-		return NewSyscallError("fsync", e)
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return NewSyscallError("fsync", err)
+	}
+	if err = syscall.Fwstat(f.fd, buf[:n]); err != nil {
+		return NewSyscallError("fsync", err)
 	}
 	return nil
 }
@@ -255,13 +268,18 @@ func (f *File) seek(offset int64, whence int) (ret int64, err error) {
 // If the file is a symbolic link, it changes the size of the link's target.
 // If there is an error, it will be of type *PathError.
 func Truncate(name string, size int64) error {
-	var d Dir
+	var d syscall.Dir
+
 	d.Null()
+	d.Length = size
 
-	d.Length = uint64(size)
-
-	if e := syscall.Wstat(name, pdir(nil, &d)); e != nil {
-		return &PathError{"truncate", name, e}
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return &PathError{"truncate", name, err}
+	}
+	if err = syscall.Wstat(name, buf[:n]); err != nil {
+		return &PathError{"truncate", name, err}
 	}
 	return nil
 }
@@ -277,21 +295,27 @@ func Remove(name string) error {
 
 // Rename renames a file.
 func Rename(oldname, newname string) error {
-	var d Dir
-	d.Null()
+	var d syscall.Dir
 
+	d.Null()
 	d.Name = newname
 
-	if e := syscall.Wstat(oldname, pdir(nil, &d)); e != nil {
-		return &PathError{"rename", oldname, e}
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return &PathError{"rename", oldname, err}
+	}
+	if err = syscall.Wstat(oldname, buf[:n]); err != nil {
+		return &PathError{"rename", oldname, err}
 	}
 	return nil
 }
 
 // Chmod changes the mode of the named file to mode.
+// If the file is a symbolic link, it changes the mode of the link's target.
 // If there is an error, it will be of type *PathError.
 func Chmod(name string, mode FileMode) error {
-	var d Dir
+	var d syscall.Dir
 
 	odir, e := dirstat(name)
 	if e != nil {
@@ -299,8 +323,14 @@ func Chmod(name string, mode FileMode) error {
 	}
 	d.Null()
 	d.Mode = odir.Mode&^chmodMask | syscallMode(mode)&chmodMask
-	if e := syscall.Wstat(name, pdir(nil, &d)); e != nil {
-		return &PathError{"chmod", name, e}
+
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return &PathError{"chmod", name, err}
+	}
+	if err = syscall.Wstat(name, buf[:n]); err != nil {
+		return &PathError{"chmod", name, err}
 	}
 	return nil
 }
@@ -310,19 +340,27 @@ func Chmod(name string, mode FileMode) error {
 //
 // The underlying filesystem may truncate or round the values to a
 // less precise time unit.
+// If there is an error, it will be of type *PathError.
 func Chtimes(name string, atime time.Time, mtime time.Time) error {
-	var d Dir
-	d.Null()
+	var d syscall.Dir
 
+	d.Null()
 	d.Atime = uint32(atime.Unix())
 	d.Mtime = uint32(mtime.Unix())
 
-	if e := syscall.Wstat(name, pdir(nil, &d)); e != nil {
-		return &PathError{"chtimes", name, e}
+	var buf [syscall.STATFIXLEN]byte
+	n, err := d.Marshal(buf[:])
+	if err != nil {
+		return &PathError{"chtimes", name, err}
+	}
+	if err = syscall.Wstat(name, buf[:n]); err != nil {
+		return &PathError{"chtimes", name, err}
 	}
 	return nil
 }
 
+// Pipe returns a connected pair of Files; reads from r return bytes
+// written to w. It returns the files and an error, if any.
 func Pipe() (r *File, w *File, err error) {
 	var p [2]int
 
@@ -338,32 +376,42 @@ func Pipe() (r *File, w *File, err error) {
 
 // not supported on Plan 9
 
-// Link creates a hard link.
+// Link creates newname as a hard link to the oldname file.
 // If there is an error, it will be of type *LinkError.
 func Link(oldname, newname string) error {
-	return &LinkError{"link", oldname, newname, ErrPlan9}
+	return &LinkError{"link", oldname, newname, syscall.EPLAN9}
 }
 
 // Symlink creates newname as a symbolic link to oldname.
 // If there is an error, it will be of type *LinkError.
 func Symlink(oldname, newname string) error {
-	return &LinkError{"symlink", oldname, newname, ErrPlan9}
+	return &LinkError{"symlink", oldname, newname, syscall.EPLAN9}
 }
 
+// Readlink returns the destination of the named symbolic link.
+// If there is an error, it will be of type *PathError.
 func Readlink(name string) (string, error) {
-	return "", ErrPlan9
+	return "", &PathError{"readlink", name, syscall.EPLAN9}
 }
 
+// Chown changes the numeric uid and gid of the named file.
+// If the file is a symbolic link, it changes the uid and gid of the link's target.
+// If there is an error, it will be of type *PathError.
 func Chown(name string, uid, gid int) error {
-	return ErrPlan9
+	return &PathError{"chown", name, syscall.EPLAN9}
 }
 
+// Lchown changes the numeric uid and gid of the named file.
+// If the file is a symbolic link, it changes the uid and gid of the link itself.
+// If there is an error, it will be of type *PathError.
 func Lchown(name string, uid, gid int) error {
-	return ErrPlan9
+	return &PathError{"lchown", name, syscall.EPLAN9}
 }
 
+// Chown changes the numeric uid and gid of the named file.
+// If there is an error, it will be of type *PathError.
 func (f *File) Chown(uid, gid int) error {
-	return ErrPlan9
+	return &PathError{"chown", f.name, syscall.EPLAN9}
 }
 
 // TempDir returns the default directory to use for temporary files.

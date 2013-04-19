@@ -1,5 +1,5 @@
 /* Definitions for MicroBlaze running Linux.
-   Copyright 2009, 2010 Free Software Foundation, Inc.
+   Copyright (C) 2009-2013 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -31,5 +31,10 @@
     %{!static: \
       %{rdynamic:-export-dynamic} \
       -dynamic-linker %(dynamic_linker)} \
-    %{static:-static}}"
+    %{static:-static}} \
+  %{mbig-endian:-EB} \
+  %{mlittle-endian:-EL}"
 
+/* For the microblaze-*-linux* subtarget.  */
+#undef TARGET_OS_CPP_BUILTINS
+#define TARGET_OS_CPP_BUILTINS() GNU_USER_TARGET_OS_CPP_BUILTINS()
