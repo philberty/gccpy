@@ -54,8 +54,14 @@ __STACK
 static int __GPY_GLOBAL_STACK_LEN = 0;
 static gpy_hash_tab_t stack_table;
 
+bool __GPY_GLOBAL_RETURN;
 gpy_object_t ** __GPY_MODULE_RR_STACK;
 gpy_object_t ** __GPY_RR_STACK_PTR;
+
+#define GPY_MODULE_STACK_RET_ADDR		\
+  (__GPY_MODULE_RR_STACK + 1)
+#define GPY_MODULE_STACK_RET_VAL		\
+  *(__GPY_MODULE_RR_STACK + 1)
 
 static
 void gpy_rr_init_primitives (void)
@@ -70,6 +76,7 @@ void gpy_rr_init_primitives (void)
 static
 void gpy_rr_init_runtime_stack (void)
 {
+  __GPY_GLOBAL_RETURN = false;
   gpy_dd_hash_init_table (&stack_table);
 
   __GPY_GLOBL_PRIMITIVES = gpy_malloc (sizeof (gpy_vector_t));
@@ -78,6 +85,7 @@ void gpy_rr_init_runtime_stack (void)
 
   __GPY_MODULE_RR_STACK = (gpy_object_t **) gpy_calloc
     (__GPY_INIT_LEN, sizeof (gpy_object_t *));
+
   *__GPY_MODULE_RR_STACK = gpy_rr_fold_integer (__GPY_INIT_LEN);
   __GPY_RR_STACK_PTR = (__GPY_MODULE_RR_STACK + __GPY_INIT_LEN);
 
@@ -372,6 +380,12 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
     fatal ("name is not callable!\n");
   gpy_free (args);
 
+  if (__GPY_GLOBAL_RETURN)
+    {
+      retval = GPY_MODULE_STACK_RET_VAL;
+      __GPY_GLOBAL_RETURN = false;
+    }
+
   return retval;
 }
 
@@ -430,6 +444,14 @@ void * gpy_rr_get_object_state (gpy_object_t * o)
 {
   gpy_assert (o);
   return o->o.object_state->state;
+}
+
+void gpy_rr_eval_return (gpy_object_t * o)
+{
+  gpy_assert (o);
+  gpy_object_t ** addr = GPY_MODULE_STACK_RET_ADDR;
+  *addr = o;
+  __GPY_GLOBAL_RETURN = true;
 }
 
 /**
@@ -529,15 +551,27 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
       o = binops_l.n_sub;
       break;
 
+    case 3:
+      o = binops_l.n_div;
+      break;
+
     case 4:
-      o = binops_l.n_let;
+      o = binops_l.n_mul;
       break;
 
     case 5:
-      o = binops_l.n_get;
+      o = binops_l.n_pow;
       break;
 
     case 6:
+      o = binops_l.n_let;
+      break;
+
+    case 8:
+      o = binops_l.n_get;
+      break;
+
+    case 10:
       o = binops_l.n_eee;
       break;
 

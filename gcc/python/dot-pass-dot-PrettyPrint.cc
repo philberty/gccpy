@@ -177,6 +177,10 @@ void dot_pass_dump_expr (FILE * fd, gpy_dot_tree_t * node)
 	    fprintf (fd, " + ");
 	    break;
 
+	  case D_MULT_EXPR:
+	    fprintf (fd, " * ");
+	    break;
+
 	  default:
 	    fatal_error ("unhandled dump!\n");
 	    break;
@@ -195,13 +199,23 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
      {
        int i;
        for (i = 0; i < indents; ++i)
-	 fprintf (fd, "  ");
+	 fprintf (fd, "    ");
        dot_pass_dump_expr (fd, node);
      }
   else
     {
       switch (DOT_TYPE (node))
 	{
+	case D_KEY_RETURN:
+	  {
+	    int i;
+	    for (i = 0; i < indents; ++i)
+	      fprintf (fd, "  ");
+	    fprintf (fd, "return ");
+	    dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+	  }
+	  break;
+
 	case D_PRINT_STMT:
 	  {
 	    int i;

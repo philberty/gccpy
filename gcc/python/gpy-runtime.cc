@@ -252,6 +252,25 @@ tree GPY_RR_eval_print (vec<tree,va_gc> * arguments)
   return build_call_expr_loc_vec (BUILTINS_LOCATION, fndecl, arguments);
 }
 
+tree GPY_RR_eval_return (tree val)
+{
+  tree fntype = build_function_type_list (void_type_node,
+	                 gpy_object_type_ptr,
+			 NULL_TREE);
+  tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
+			    get_identifier ("gpy_rr_eval_return"),
+			    fntype);
+  tree restype = TREE_TYPE (fndecl);
+  tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
+			     restype);
+  DECL_CONTEXT (resdecl) = fndecl;
+  DECL_RESULT (fndecl) = resdecl;
+  DECL_EXTERNAL (fndecl) = 1;
+  TREE_PUBLIC (fndecl) = 1;
+
+  return build_call_expr (fndecl, 1, val);
+}
+
 tree GPY_RR_eval_expression (tree x, tree y, tree op)
 {
   tree fntype = build_function_type_list (gpy_object_type_ptr,

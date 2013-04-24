@@ -43,6 +43,7 @@ static void dot_pass_genCBlock (gpy_dot_tree_t *, tree *, dot_contextTable_t, tr
 
 static tree dot_pass_lowerExpr (gpy_dot_tree_t *, dot_contextTable_t, tree *);
 static void dot_pass_genPrintStmt (gpy_dot_tree_t * , tree *, dot_contextTable_t);
+static void dot_pass_genReturnStmt (gpy_dot_tree_t * , tree *, dot_contextTable_t);
 static tree dot_pass_genModifyExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static tree dot_pass_genBinExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genConditional (gpy_dot_tree_t *, tree *, dot_contextTable_t);
@@ -455,6 +456,14 @@ void dot_pass_genSuite (gpy_dot_tree_t * decl,
 	  dot_pass_genPrintStmt (node, block, context);
 	  break;
 
+	case D_KEY_RETURN:
+	  dot_pass_genReturnStmt (node, block, context);
+	  break;
+
+	case D_STRUCT_CONDITIONAL:
+	  dot_pass_genConditional (node, block, context);
+	  break;
+
 	default:
 	  error ("unhandled syntax within suite");
 	  break;
@@ -725,22 +734,25 @@ tree dot_pass_genBinExpr (gpy_dot_tree_t * decl, tree * block,
 				   build_int_cst (integer_type_node, 2));
       break;
 
-    case D_LESS_EXPR:
+    case D_MULT_EXPR:
       op = GPY_RR_eval_expression (lhs_eval, rhs_eval,
 				   build_int_cst (integer_type_node, 4));
       break;
 
-    case D_GREATER_EXPR:
-      op = GPY_RR_eval_expression (lhs_eval, rhs_eval,
-				   build_int_cst (integer_type_node, 5));
-      break;
-
-    case D_EQ_EQ_EXPR:
+    case D_LESS_EXPR:
       op = GPY_RR_eval_expression (lhs_eval, rhs_eval,
 				   build_int_cst (integer_type_node, 6));
       break;
 
-      // .... THE REST OF THE BIN OPERATORS
+    case D_GREATER_EXPR:
+      op = GPY_RR_eval_expression (lhs_eval, rhs_eval,
+				   build_int_cst (integer_type_node, 8));
+      break;
+
+    case D_EQ_EQ_EXPR:
+      op = GPY_RR_eval_expression (lhs_eval, rhs_eval,
+				   build_int_cst (integer_type_node, 10));
+      break;
 
     default:
       error ("unhandled binary operation type!\n");
@@ -756,6 +768,28 @@ tree dot_pass_genBinExpr (gpy_dot_tree_t * decl, tree * block,
 			    block);
   retval = retaddr;
   return retval;
+}
+
+static
+void dot_pass_genReturnStmt (gpy_dot_tree_t * decl, tree * block,
+			     dot_contextTable_t context)
+{
+  tree lexpr = dot_pass_lowerExpr (DOT_lhs_TT (decl), context, block);
+  tree tmp = lexpr;
+  if (TREE_TYPE (tmp) == gpy_object_type_ptr_ptr)
+    {
+      tmp = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			create_tmp_var_name ("ATAR"),
+			gpy_object_type_ptr);
+      append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+					tmp,
+					build_fold_indirect_ref (lexpr)),
+				block);
+    }
+  append_to_statement_list (GPY_RR_eval_return (tmp), block);
+  append_to_statement_list (fold_build1_loc (UNKNOWN_LOCATION, RETURN_EXPR,
+					     void_type_node, NULL_TREE),
+			    block);
 }
 
 static
@@ -962,6 +996,8 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 
 	  case D_ADD_EXPR:
 	  case D_MINUS_EXPR:
+	  case D_MULT_EXPR:
+	  case D_DIVD_EXPR:
 	  case D_LESS_EXPR:
 	  case D_GREATER_EXPR:
 	  case D_EQ_EQ_EXPR:
@@ -1029,6 +1065,10 @@ vec<tree,va_gc> * dot_pass_genClass (gpy_dot_tree_t * dot,
 	{
 	case D_PRINT_STMT:
 	  dot_pass_genPrintStmt (node, &block, context);
+	  break;
+
+	case D_KEY_RETURN:
+	  dot_pass_genReturnStmt (node, &block, context);
 	  break;
 
 	case D_STRUCT_METHOD:
@@ -1125,6 +1165,10 @@ tree dot_pass_genFunction (gpy_dot_tree_t * dot,
 	  dot_pass_genPrintStmt (node, &block, context);
 	  break;
 
+	case D_KEY_RETURN:
+	  dot_pass_genReturnStmt (node, &block, context);
+	  break;
+
 	case D_STRUCT_CONDITIONAL:
 	  dot_pass_genConditional (node, &block, context);
 	  break;
@@ -1197,6 +1241,10 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 
 	case D_STRUCT_CONDITIONAL:
 	  dot_pass_genConditional (dot, &block, context);
+	  break;
+
+	case D_KEY_RETURN:
+	  error ("Return in toplevel context is invalid!\n");
 	  break;
 
         case D_STRUCT_METHOD:

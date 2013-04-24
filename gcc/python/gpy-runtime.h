@@ -65,6 +65,9 @@ extern tree GPY_RR_decr_ref_count (tree);
 /* first index is the fd (1/0) 2nd idx is number of elements and finaly va_list of args */
 extern tree GPY_RR_eval_print (vec<tree,va_gc> *);
 
+/* gen return stmt */
+extern tree GPY_RR_eval_return (tree);
+
 /* Evaluate the operation op of the 2 objects x and y and return result */
 extern tree GPY_RR_eval_expression (tree, tree, tree);
 

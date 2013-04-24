@@ -152,6 +152,18 @@ py-runtime = { code = GPY_RR_eval_print;
 	       build_call = build_call_expr_loc_vec;
 	       build_call_args = "BUILTINS_LOCATION, fndecl, arguments";
              };
+
+py-runtime = { code = GPY_RR_eval_return;
+	       arguments = "tree val";
+	       proto = "tree";
+	       comment = "/* gen return stmt */";
+	       function_identifier = "gpy_rr_eval_return";
+               fntype = "void_type_node,
+	                 gpy_object_type_ptr,
+			 NULL_TREE";
+	       build_call = build_call_expr;
+	       build_call_args = "fndecl, 1, val";
+             };
 py-runtime = { code = GPY_RR_eval_expression;
 	       arguments = "tree x, tree y, tree op";
 	       proto = "tree, tree, tree";

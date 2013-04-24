@@ -150,6 +150,7 @@ extern void yyerror (const char *);
 %type<symbol> elseblock
 %type<symbol> list_display
 %type<symbol> enclosure
+%type<symbol> return_stmt
 
 %type<symbol> funcname
 %type<symbol> classname
@@ -290,6 +291,13 @@ stmt_list: simple_stmt
 
 simple_stmt: expression
            | print_stmt
+           | return_stmt
+           ;
+
+return_stmt: RETURN expression
+           {
+             $$ = dot_build_decl1 (D_KEY_RETURN, $2);
+	   }
            ;
 
 argument_list_stmt:
@@ -347,6 +355,8 @@ expression_stmt: target_list '=' expression_stmt
           { $$ = dot_build_decl2 (D_ADD_EXPR, $1, $3); }
           | expression_stmt '-' expression_stmt
           { $$ = dot_build_decl2 (D_MINUS_EXPR, $1, $3); }
+          | expression_stmt '*' expression_stmt
+          { $$ = dot_build_decl2 (D_MULT_EXPR, $1, $3); }
           | expression_stmt LESS expression_stmt
           { $$ = dot_build_decl2 (D_LESS_EXPR, $1, $3); }
           | expression_stmt GREATER expression_stmt
