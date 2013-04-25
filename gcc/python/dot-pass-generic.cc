@@ -47,6 +47,7 @@ static void dot_pass_genReturnStmt (gpy_dot_tree_t * , tree *, dot_contextTable_
 static tree dot_pass_genModifyExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static tree dot_pass_genBinExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genConditional (gpy_dot_tree_t *, tree *, dot_contextTable_t);
+static void dot_pass_genWhile (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genSuite (gpy_dot_tree_t * , tree *, dot_contextTable_t);
 /* ... ... ... */
 
@@ -464,6 +465,10 @@ void dot_pass_genSuite (gpy_dot_tree_t * decl,
 	  dot_pass_genConditional (node, block, context);
 	  break;
 
+	case D_STRUCT_WHILE:
+	  dot_pass_genWhile (node, block, context);
+	  break;
+
 	default:
 	  error ("unhandled syntax within suite");
 	  break;
@@ -553,6 +558,67 @@ void dot_pass_genCBlock (gpy_dot_tree_t * decl,
 				    cval, boolean_true_node),
 			    block);
   append_to_statement_list (build1 (GOTO_EXPR, void_type_node, endif),
+			    block);
+  append_to_statement_list (label_exit_expr, block);
+}
+
+
+static
+void dot_pass_genWhile (gpy_dot_tree_t * decl,
+			tree * block,
+			dot_contextTable_t context)
+{
+  tree label_decl = build_decl (UNKNOWN_LOCATION, LABEL_DECL,
+				create_tmp_var_name ("WHLIF"),
+				void_type_node);
+  tree label_expr = fold_build1_loc (UNKNOWN_LOCATION, LABEL_EXPR,
+				     void_type_node, label_decl);
+
+  tree label_exit_decl =  build_decl (UNKNOWN_LOCATION, LABEL_DECL,
+				      create_tmp_var_name ("WHLFI"),
+				      void_type_node);
+  tree label_exit_expr = fold_build1_loc (UNKNOWN_LOCATION, LABEL_EXPR,
+					  void_type_node, label_exit_decl);
+  
+  DECL_CONTEXT (label_decl) = current_function_decl;
+  DECL_CONTEXT (label_exit_decl) = current_function_decl;
+
+  append_to_statement_list (label_expr, block);
+
+  gpy_dot_tree_t * expr = DOT_lhs_TT (decl);
+  tree val = dot_pass_lowerExpr (expr, context, block);
+  tree lval = val;
+  if (TREE_TYPE (lval) == gpy_object_type_ptr_ptr)
+    {
+      lval = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			 create_tmp_var_name ("CDRD"),
+			 gpy_object_type_ptr);
+      append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+					lval, build_fold_indirect_ref (val)),
+				block);
+    }
+  tree fold = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			  create_tmp_var_name ("COND"),
+			  boolean_type_node);
+
+
+  append_to_statement_list (build2 (MODIFY_EXPR, boolean_type_node,
+				    fold, GPY_RR_eval_boolean (lval)),
+			    block);
+
+  gpy_dot_tree_t * suite = DOT_rhs_TT (decl);
+
+  tree conditional = fold_build2_loc (UNKNOWN_LOCATION, EQ_EXPR,
+				      boolean_type_node,
+				      fold, boolean_true_node);
+  tree cond = build3_loc (UNKNOWN_LOCATION, COND_EXPR, void_type_node,
+			  conditional,
+			  NULL_TREE,
+			  build1 (GOTO_EXPR, void_type_node, label_exit_decl));
+
+  append_to_statement_list (cond, block);
+  dot_pass_genSuite (suite, block, context);
+  append_to_statement_list (build1 (GOTO_EXPR, void_type_node, label_decl),
 			    block);
   append_to_statement_list (label_exit_expr, block);
 }
@@ -1071,6 +1137,10 @@ vec<tree,va_gc> * dot_pass_genClass (gpy_dot_tree_t * dot,
 	  dot_pass_genReturnStmt (node, &block, context);
 	  break;
 
+	case D_STRUCT_WHILE:
+	  dot_pass_genWhile (node, &block, context);
+	  break;
+
 	case D_STRUCT_METHOD:
 	  {
 	    const char * modID = DOT_IDENTIFIER_POINTER (DOT_FIELD (dot));
@@ -1173,6 +1243,10 @@ tree dot_pass_genFunction (gpy_dot_tree_t * dot,
 	  dot_pass_genConditional (node, &block, context);
 	  break;
 
+	case D_STRUCT_WHILE:
+	  dot_pass_genWhile (node, &block, context);
+	  break;
+
 	default:
 	  error ("unhandled syntax within toplevel function!\n");
 	  break;
@@ -1241,6 +1315,10 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 
 	case D_STRUCT_CONDITIONAL:
 	  dot_pass_genConditional (dot, &block, context);
+	  break;
+
+	case D_STRUCT_WHILE:
+	  dot_pass_genWhile (dot, &block, context);
 	  break;
 
 	case D_KEY_RETURN:

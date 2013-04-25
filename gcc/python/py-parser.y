@@ -169,7 +169,8 @@ extern void yyerror (const char *);
 declarations: /* epsilon */
             | declarations decl
             {
-	      dot_pass_manager_ProcessDecl ($2);
+	      if ($2 != NULL)
+		dot_pass_manager_ProcessDecl ($2);
 	    }
             ;
 
