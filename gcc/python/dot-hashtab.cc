@@ -18,6 +18,48 @@ along with GCC; see the file COPYING3.  If not see
 
 #define threshold_alloc(x) (((x)+16)*3/2)
 
+void gpy_vec_push (gpy_vector_t * const v,  void * s)
+{
+  if (s)
+    {
+      if (v->length >= v->size-1)
+        {
+          signed long size = threshold_alloc (v->size);
+          v->vector = (void**) xrealloc (v->vector, size * sizeof (void*));
+          v->size = size;
+        }
+      v->vector [v->length] = s;
+      v->length++;
+    }
+}
+
+void * gpy_vec_pop (gpy_vector_t * const v)
+{
+  void * retval = NULL;
+  int idx = v->length-1;
+  if (idx >= 0)
+    {
+      retval = v->vector [v->length - 1];
+      v->length--;
+    }
+  return retval;
+}
+
+void * gpy_vec_index_diag (gpy_vector_t * const v, int i,
+			   const char * file, unsigned int line)
+{
+  void * retval = NULL;
+  if ((i >= 0) || (i < v->length))
+    return (v->vector [i]);
+  else
+    {
+      fprintf (stderr, "fatal: <%s:%i> -> index <%i> out of bounds on vector <%p>!\n",
+	       file, line, i, (void*)v);
+      exit (EXIT_FAILURE);
+    }
+  return retval;
+}
+
 gpy_hashval_t gpy_dd_hash_string (const char * s)
 {
   const unsigned char *str = (const unsigned char *) s;
@@ -77,32 +119,34 @@ void ** gpy_dd_hash_insert (gpy_hashval_t h, void * obj,
 
 void gpy_dd_hash_grow_table (gpy_hash_tab_t * tbl)
 {
-  unsigned int prev_size= tbl->size, size= 0, i= 0;
-  gpy_hash_entry_t *prev_array= tbl->array, *array;
+  unsigned int prev_size = tbl->size, size = 0, i;
+  gpy_hash_entry_t *prev_array = tbl->array, *array;
 
-  size = threshold_alloc( prev_size );
+  size = threshold_alloc (prev_size);
   array = (gpy_hash_entry_t*)
-    xcalloc( size, sizeof(gpy_hash_entry_t) );
+    xcalloc (size, sizeof (gpy_hash_entry_t));
 
-  tbl->length = 0; tbl->size= size;
+  tbl->length = 0;
+  tbl->size= size;
   tbl->array= array;
 
-  for ( ; i<prev_size; ++i )
+  for (i = 0; i < prev_size; ++i)
     {
-      gpy_hashval_t h= prev_array[i].hash;
-      void *s= prev_array[i].data;
+      gpy_hashval_t h = prev_array [i].hash;
+      void *s = prev_array [i].data;
 
-      if( s )
-        gpy_dd_hash_insert( h, s, tbl );
+      if (s)
+        gpy_dd_hash_insert (h, s, tbl);
     }
-  if( prev_array )
-    free( prev_array );
+  if (prev_array)
+    free (prev_array);
 }
 
 void gpy_dd_hash_init_table (gpy_hash_tab_t * tbl)
 {
-  gpy_hash_tab_t *tb= tbl;
-  tb->size= 0; tb->length= 0;
-  tb->array= NULL;
+  gpy_hash_tab_t *tb = tbl;
+  tb->size = 0;
+  tb->length = 0;
+  tb->array = NULL;
 }
 

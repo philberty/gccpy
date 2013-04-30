@@ -186,7 +186,7 @@ ifblock: IF expression ':' suite
        { $$ = dot_build_decl2 (D_STRUCT_IF, $2, $4); }
 
 elifstmt: ELIF expression ':' suite
-        { $$ = dot_build_decl2 (D_STRUCT_IF, $2, $4); }
+        { $$ = dot_build_decl2 (D_STRUCT_ELIF, $2, $4); }
 
 elsestmt: ELSE ':' suite
         { $$ = dot_build_decl1 (D_STRUCT_ELSE, $3); }

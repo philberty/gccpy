@@ -18,6 +18,8 @@ along with GCC; see the file COPYING3.  If not see
 
 static void dot_pass_dump_IL (vec<gpydot,va_gc> *, const char *);
 static void dot_pass_dump_node (FILE *, gpy_dot_tree_t *, int);
+static void dot_pass_dumpCBlock (FILE *, gpy_dot_tree_t *, int, opcode_t);
+static void dot_pass_dump_conditional (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_method (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_class (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_expr (FILE *, gpy_dot_tree_t *);
@@ -76,6 +78,74 @@ void dot_pass_dump_method (FILE * fd, gpy_dot_tree_t * node,
   for (i = 0; i < indents; ++i)
     fprintf (fd, "  ");
   fprintf (fd, "}\n");
+}
+
+static
+void dot_pass_dumpCBlock (FILE * fd, gpy_dot_tree_t * node,
+			  int indents, opcode_t op)
+{
+  gpy_dot_tree_t * suite = NULL_DOT;
+  int i;
+  for (i = 0; i < indents; ++i)
+    fprintf (fd, "  ");
+  switch (op)
+    {
+    case D_STRUCT_IF:
+      {
+	fprintf (fd, "if ");
+	dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+	fprintf (fd, " {\n");
+	suite = DOT_rhs_TT (node);
+      }
+      break;
+
+    case D_STRUCT_ELIF:
+      {
+	fprintf (fd, "elif ");
+	dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+	fprintf (fd, " {\n");
+	suite = DOT_rhs_TT (node);
+      }
+      break;
+
+    case D_STRUCT_ELSE:
+      {
+	fprintf (fd, "else {\n");
+	suite = DOT_lhs_TT (node);
+      }
+      break;
+
+    default:
+      break;
+    }
+
+  do {
+    dot_pass_dump_node (fd, suite, indents + 1);
+    fprintf (fd, "\n");
+  }
+  while ((suite = DOT_CHAIN (suite)));
+
+  for (i = 0; i < indents; ++i)
+    fprintf (fd, "  ");
+  fprintf (fd, "}\n");
+}
+
+static
+void dot_pass_dump_conditional (FILE * fd, gpy_dot_tree_t * node,
+				int indents)
+{
+  gpy_dot_tree_t * ifblock = DOT_FIELD (node);
+  gpy_dot_tree_t * elifchain = DOT_lhs_TT (node);
+  gpy_dot_tree_t * elseblock = DOT_rhs_TT (node);
+
+  dot_pass_dumpCBlock (fd, ifblock, indents, D_STRUCT_IF);
+  gpy_dot_tree_t * elifnode;
+  for (elifnode = elifchain; elifnode != NULL_DOT;
+       elifnode = DOT_CHAIN (elifnode))
+    dot_pass_dumpCBlock (fd, elifnode, indents, D_STRUCT_ELIF);
+
+  if (elseblock)
+    dot_pass_dumpCBlock (fd, elseblock, indents, D_STRUCT_ELSE);
 }
 
 static
@@ -177,8 +247,24 @@ void dot_pass_dump_expr (FILE * fd, gpy_dot_tree_t * node)
 	    fprintf (fd, " + ");
 	    break;
 
+	  case D_MINUS_EXPR:
+	    fprintf (fd, " - ");
+	    break;
+
 	  case D_MULT_EXPR:
 	    fprintf (fd, " * ");
+	    break;
+
+	  case D_LESS_EXPR:
+	    fprintf (fd, " < ");
+	    break;
+
+	  case D_GREATER_EXPR:
+	    fprintf (fd, " > ");
+	    break;
+
+	  case D_EQ_EQ_EXPR:
+	    fprintf (fd, " == ");
 	    break;
 
 	  default:
@@ -233,6 +319,10 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	      }
 	    fprintf (fd, ")");
 	  }
+	  break;
+
+	case D_STRUCT_CONDITIONAL:
+	  dot_pass_dump_conditional (fd, node, indents);
 	  break;
 
 	case D_STRUCT_METHOD:
