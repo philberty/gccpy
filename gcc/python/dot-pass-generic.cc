@@ -488,7 +488,8 @@ void dot_pass_genCBlock (gpy_dot_tree_t * decl,
 {
   gpy_dot_tree_t * suite = NULL_DOT;
   tree ifcval = error_mark_node;
-  if (DOT_TYPE (decl) == D_STRUCT_IF)
+  if (DOT_TYPE (decl) == D_STRUCT_IF
+      || DOT_TYPE (decl) == D_STRUCT_ELIF)
     {
       gpy_dot_tree_t * expr = DOT_lhs_TT (decl);
       tree val = dot_pass_lowerExpr (expr, context, block);
