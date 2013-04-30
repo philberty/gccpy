@@ -20,6 +20,7 @@ static void dot_pass_dump_IL (vec<gpydot,va_gc> *, const char *);
 static void dot_pass_dump_node (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dumpCBlock (FILE *, gpy_dot_tree_t *, int, opcode_t);
 static void dot_pass_dump_conditional (FILE *, gpy_dot_tree_t *, int);
+static void dot_pass_dump_while (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_method (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_class (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_expr (FILE *, gpy_dot_tree_t *);
@@ -87,7 +88,7 @@ void dot_pass_dumpCBlock (FILE * fd, gpy_dot_tree_t * node,
   gpy_dot_tree_t * suite = NULL_DOT;
   int i;
   for (i = 0; i < indents; ++i)
-    fprintf (fd, "  ");
+    fprintf (fd, "    ");
   switch (op)
     {
     case D_STRUCT_IF:
@@ -126,7 +127,33 @@ void dot_pass_dumpCBlock (FILE * fd, gpy_dot_tree_t * node,
   while ((suite = DOT_CHAIN (suite)));
 
   for (i = 0; i < indents; ++i)
-    fprintf (fd, "  ");
+    fprintf (fd, "    ");
+  fprintf (fd, "}\n");
+}
+
+
+static
+void dot_pass_dump_while (FILE * fd, gpy_dot_tree_t * node,
+			  int indents)
+{
+  gpy_dot_tree_t * suite = NULL_DOT;
+  int i;
+  for (i = 0; i < indents; ++i)
+    fprintf (fd, "    ");
+
+  fprintf (fd, "while ");
+  dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+  fprintf (fd, " {\n");
+
+  suite = DOT_rhs_TT (node);
+   do {
+    dot_pass_dump_node (fd, suite, indents + 1);
+    fprintf (fd, "\n");
+  }
+  while ((suite = DOT_CHAIN (suite)));
+
+  for (i = 0; i < indents; ++i)
+    fprintf (fd, "    ");
   fprintf (fd, "}\n");
 }
 
@@ -296,7 +323,7 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	  {
 	    int i;
 	    for (i = 0; i < indents; ++i)
-	      fprintf (fd, "  ");
+	      fprintf (fd, "    ");
 	    fprintf (fd, "return ");
 	    dot_pass_dump_expr (fd, DOT_lhs_TT (node));
 	  }
@@ -306,7 +333,7 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	  {
 	    int i;
 	    for (i = 0; i < indents; ++i)
-	      fprintf (fd, "  ");
+	      fprintf (fd, "    ");
 	    gpy_dot_tree_t * args = NULL;
 	    fprintf (fd, "print ");
 	    fprintf (fd, "(");
@@ -323,6 +350,10 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 
 	case D_STRUCT_CONDITIONAL:
 	  dot_pass_dump_conditional (fd, node, indents);
+	  break;
+
+	case D_STRUCT_WHILE:
+	  dot_pass_dump_while (fd, node, indents);
 	  break;
 
 	case D_STRUCT_METHOD:

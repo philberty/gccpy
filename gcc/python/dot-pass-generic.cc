@@ -699,7 +699,7 @@ tree dot_pass_genModifyExpr (gpy_dot_tree_t * decl,
 	    addr = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 			       get_identifier (DOT_IDENTIFIER_POINTER (lhs)),
 			       gpy_object_type_ptr);
-	    gcc_assert (!dot_pass_pushDecl (addr, DOT_IDENTIFIER_POINTER (lhs), current_context));
+	    gcc_assert (dot_pass_pushDecl (addr, DOT_IDENTIFIER_POINTER (lhs), current_context));
 	  }
 	tree addr_rhs_tree = dot_pass_lowerExpr (rhs, context, block);
 
