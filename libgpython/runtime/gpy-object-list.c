@@ -103,6 +103,89 @@ void gpy_obj_list_print (gpy_object_t * self,
     fprintf (fd , "\n");
 }
 
+static gpy_object_t *
+gpy_obj_list_add (gpy_object_t * o1, gpy_object_t * o2)
+{
+  gpy_assert (o1->T == TYPE_OBJECT_STATE);
+  gpy_assert (o2->T == TYPE_OBJECT_STATE);
+
+  gpy_object_state_t * x = o1->o.object_state;
+  gpy_object_state_t * y = o2->o.object_state;
+
+  if (strcmp (x->identifier, "List") != 0 ||
+      strcmp (y->identifier, "List") != 0)
+    {
+      fatal ("invalid object types for '+': <%s> and <%s>\n",
+             x->identifier, y->identifier);
+    }
+
+  struct gpy_object_list * l1 = (struct gpy_object_list *) x->state;
+  struct gpy_object_list * l2 = (struct gpy_object_list *) y->state;
+
+  int n = l1->length + l2->length;
+
+  gpy_object_t ** elems = (gpy_object_t **)
+    gpy_calloc (n+1, sizeof (gpy_object_t *));
+
+  int i;
+  for (i = 0; i < n; ++i)
+    {
+      gpy_object_state_t * x = o1->o.object_state;
+      if (i < l1->length)
+        elems[i] = GPY_VEC_index (gpy_object_t *, l1->enclosure, i);
+      else
+        elems[i] = GPY_VEC_index (gpy_object_t *, l2->enclosure,
+                                  i - l1->length);
+    }
+  elems [n] = NULL;
+
+  gpy_literal_t num;
+  num.type = TYPE_INTEGER;
+  num.literal.integer = n;
+
+  gpy_literal_t elements;
+  elements.type = TYPE_VEC;
+  elements.literal.vec = elems;
+
+  gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &num };
+  gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &elements };
+  gpy_object_t a3 = { .T = TYPE_NULL, .o.literal = NULL };
+
+  gpy_object_t ** args = (gpy_object_t **)
+    gpy_calloc (3, sizeof (gpy_object_t *));
+  args [0] = &a1;
+  args [1] = &a2;
+  args [2] = &a3;
+
+  gpy_typedef_t * def = o1->o.object_state->definition;
+  gpy_object_t * retval = def->tp_new (def, args);
+
+  gpy_free (args);
+  gpy_free (elems);
+
+  gpy_assert (retval->T == TYPE_OBJECT_STATE);
+  return retval;
+}
+
+static bool
+gpy_obj_list_eval_bool (gpy_object_t * x)
+{
+  gpy_assert(x->T == TYPE_OBJECT_STATE);
+
+  bool retval = false;
+  gpy_object_state_t * t = x->o.object_state;
+  struct gpy_object_list * state = (struct gpy_object_list *) t->state;
+
+  if (state->length != 0)
+    retval = true;
+
+  return retval;
+}
+
+static struct gpy_number_prot_t list_binary_ops = {
+	.n_add = &gpy_obj_list_add,
+};
+
 static struct gpy_typedef_t list_obj = {
   "List",
   sizeof (struct gpy_object_list),
@@ -111,8 +194,8 @@ static struct gpy_typedef_t list_obj = {
   &gpy_obj_list_print,
   NULL,
   NULL,
-  NULL,
-  NULL,
+  &gpy_obj_list_eval_bool,
+  &list_binary_ops,
   NULL
 };
 
