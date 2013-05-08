@@ -73,26 +73,40 @@ typedef void (*classmethod_fndecl) (gpy_object_t *, gpy_object_t **);
 typedef gpy_object_t * (*binary_op)(gpy_object_t *, gpy_object_t *);
 typedef struct gpy_number_prot_t
 {
-  binary_op n_add;
-  binary_op n_sub;
-  binary_op n_div;
-  binary_op n_mul;
-  binary_op n_pow;
-  binary_op n_let;
-  binary_op n_lee;
-  binary_op n_get;
-  binary_op n_gee;
-  binary_op n_eee;
-  binary_op n_nee;
-  binary_op n_orr;
-  binary_op n_and;
+  binary_op n_add; // x + y
+  binary_op n_sub; // x - y
+  binary_op n_div; // x / y
+  binary_op n_mul; // x * y
+  binary_op n_pow; // x ^ y
+  binary_op n_let; // x < y
+  binary_op n_lee; // x <= y
+  binary_op n_get; // x > y
+  binary_op n_gee; // x >= y
+  binary_op n_eee; // x == y
+  binary_op n_nee; // x != y
+  binary_op n_orr; // x || y
+  binary_op n_and; // x && y
 } gpy_num_prot_t ;
+
+enum GPY_ATTRT {
+  GPY_GCCPY,
+  GPY_CATTR,
+  GPY_EMPTY,
+};
 
 typedef struct gpy_object_attrib_t {
   const char * identifier;
+  enum GPY_ATTRT T;
   unsigned int offset;
   gpy_object_t * addr;
 } gpy_object_attrib_t;
+
+typedef gpy_object_t * (*GPY_CFUNC)(gpy_object_t *, gpy_object_t **);
+typedef struct gpy_builtinAttribs_t {
+  const char * identifier;
+  int nargs;
+  GPY_CFUNC addr;
+} gpy_builtinAttribs_t ;
 
 typedef struct gpy_typedef_t {
   const char * identifier;
@@ -105,6 +119,7 @@ typedef struct gpy_typedef_t {
   bool (*tp_eval_boolean) (gpy_object_t *);
   struct gpy_number_prot_t * binary_protocol;
   struct gpy_object_attrib_t ** members_defintion;
+  struct gpy_builtinAttribs_t * builtins;
 } gpy_typedef_t ;
 
 #define NULL_OBJ_STATE (gpy_object_state_t *) NULL
@@ -126,8 +141,11 @@ extern gpy_object_t * gpy_create_object_decl (gpy_typedef_t *, void *);
 extern unsigned char * gpy_object_staticmethod_getaddr (gpy_object_t *);
 extern unsigned char * gpy_object_classmethod_getaddr (gpy_object_t *);
 
+extern void gpy_wrap_builtins (gpy_typedef_t * const, size_t);
+
 extern void gpy_obj_integer_mod_init (gpy_vector_t * const);
 extern void gpy_obj_staticmethod_mod_init (gpy_vector_t * const);
+extern void gpy_obj_func_mod_init (gpy_vector_t * const);
 extern void gpy_obj_list_mod_init (gpy_vector_t * const);
 
 #endif //__GCC_OBJECTS_H__

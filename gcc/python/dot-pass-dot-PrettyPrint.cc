@@ -325,7 +325,9 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	    for (i = 0; i < indents; ++i)
 	      fprintf (fd, "    ");
 	    fprintf (fd, "return ");
-	    dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+
+	    if (DOT_lhs_TT (node))
+	      dot_pass_dump_expr (fd, DOT_lhs_TT (node));
 	  }
 	  break;
 

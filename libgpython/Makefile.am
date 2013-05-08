@@ -25,6 +25,7 @@ libgpython_la_SOURCES = \
 	runtime/gpy-object-integer.c \
 	runtime/gpy-object-list.c \
 	runtime/gpy-object-staticmethod.c \
+	runtime/gpy-object-func.c \
 	runtime/gpy-osdep-routines.c \
 	runtime/gpy-vector-helper.c \
 	runtime/gpy-type-utils.c \

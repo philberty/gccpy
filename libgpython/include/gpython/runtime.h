@@ -17,17 +17,23 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef __GCC_RUNTIME_H__
 #define __GCC_RUNTIME_H__
 
+/* Number of items in array. */
+#define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
+extern gpy_vector_t * __GPY_GLOBL_PRIMITIVES;
+
 /* to the internal types... */
-#define __gpy_integer_type_node				\
+#define __gpy_func_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[0]
-#define __gpy_staticmethod_type_node			\
+#define __gpy_integer_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[1]
-#define __gpy_class_type_node				\
+#define __gpy_staticmethod_type_node			\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[2]
-#define __gpy_classmethod_type_node			\
+#define __gpy_class_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[3]
-#define __gpy_list_type_node				\
+#define __gpy_classmethod_type_node			\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[4]
+#define __gpy_list_type_node				\
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[5]
 
 extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
 extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);

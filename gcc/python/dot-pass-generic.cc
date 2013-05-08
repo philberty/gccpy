@@ -845,19 +845,23 @@ static
 void dot_pass_genReturnStmt (gpy_dot_tree_t * decl, tree * block,
 			     dot_contextTable_t context)
 {
-  tree lexpr = dot_pass_lowerExpr (DOT_lhs_TT (decl), context, block);
-  tree tmp = lexpr;
-  if (TREE_TYPE (tmp) == gpy_object_type_ptr_ptr)
+  /* Remember we have have return x or we can simply just have a return */
+  if (DOT_lhs_TT (decl))
     {
-      tmp = build_decl (UNKNOWN_LOCATION, VAR_DECL,
-			create_tmp_var_name ("ATAR"),
-			gpy_object_type_ptr);
-      append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
-					tmp,
-					build_fold_indirect_ref (lexpr)),
-				block);
+      tree lexpr = dot_pass_lowerExpr (DOT_lhs_TT (decl), context, block);
+      tree tmp = lexpr;
+      if (TREE_TYPE (tmp) == gpy_object_type_ptr_ptr)
+	{
+	  tmp = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			    create_tmp_var_name ("ATAR"),
+			    gpy_object_type_ptr);
+	  append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+					    tmp,
+					    build_fold_indirect_ref (lexpr)),
+				    block);
+	}
+      append_to_statement_list (GPY_RR_eval_return (tmp), block);
     }
-  append_to_statement_list (GPY_RR_eval_return (tmp), block);
   append_to_statement_list (fold_build1_loc (UNKNOWN_LOCATION, RETURN_EXPR,
 					     void_type_node, NULL_TREE),
 			    block);

@@ -23,12 +23,10 @@ along with GCC; see the file COPYING3.  If not see
 #include <string.h>
 #include <stdbool.h>
 
-#include <gmp.h>
-#include <mpfr.h>
-
 #include <gpython/gpython.h>
 #include <gpython/vectors.h>
 #include <gpython/objects.h>
+#include <gpython/runtime.h>
 
 struct gpy_object_list {
   int length;
@@ -84,7 +82,6 @@ void gpy_obj_list_print (gpy_object_t * self,
     x->state;
 
   gpy_vector_t * vec = state->enclosure;
-  void ** array = vec->vector;
 
   fprintf (fd, "[");
   int i;
@@ -167,6 +164,24 @@ gpy_obj_list_add (gpy_object_t * o1, gpy_object_t * o2)
   return retval;
 }
 
+static
+gpy_object_t * gpy_obj_list_append (gpy_object_t * self,
+				    gpy_object_t ** args)
+{
+  gpy_assert (self->T == TYPE_OBJECT_STATE);
+  gpy_object_state_t * x = self->o.object_state;
+  struct gpy_object_list * state = (struct gpy_object_list *)
+    x->state;
+
+  gpy_vector_t * vec = state->enclosure;
+
+  gpy_object_t * append = *args;
+  gpy_assert (append);
+  gpy_vec_push (vec, append);
+
+  return NULL;
+}
+
 static bool
 gpy_obj_list_eval_bool (gpy_object_t * x)
 {
@@ -182,8 +197,15 @@ gpy_obj_list_eval_bool (gpy_object_t * x)
   return retval;
 }
 
+static struct gpy_builtinAttribs_t list_methods[] = {
+  /* 2 arguments since we have to pass in self, append_item */
+  { "append", 2, (GPY_CFUNC) &gpy_obj_list_append },
+  /* ... */
+  { NULL, 0, NULL }
+};
+
 static struct gpy_number_prot_t list_binary_ops = {
-	.n_add = &gpy_obj_list_add,
+  .n_add = &gpy_obj_list_add,
 };
 
 static struct gpy_typedef_t list_obj = {
@@ -196,10 +218,12 @@ static struct gpy_typedef_t list_obj = {
   NULL,
   &gpy_obj_list_eval_bool,
   &list_binary_ops,
-  NULL
+  NULL,
+  list_methods,
 };
 
 void gpy_obj_list_mod_init (gpy_vector_t * const vec)
 {
+  gpy_wrap_builtins (&list_obj, nitems (list_methods));
   gpy_vec_push (vec, &list_obj);
 }

@@ -29,9 +29,6 @@ along with GCC; see the file COPYING3.  If not see
 #include <gpython/objects.h>
 #include <gpython/runtime.h>
 
-#include <gmp.h>
-#include <mpfr.h>
-
 #define GPY_ARG_LIT_CHECK(A,I,X)				\
   gpy_assert (A[I]->T == TYPE_OBJECT_LIT);			\
   gpy_assert (A[I]->o.literal->type == X);			\
@@ -184,4 +181,76 @@ gpy_object_t * gpy_create_object_state (gpy_typedef_t * type,
   retval->o.object_state = state;
 
   return retval;
+}
+
+void gpy_wrap_builtins (gpy_typedef_t * const type, size_t len)
+{
+  struct gpy_builtinAttribs_t * builtins = type->builtins;
+  struct gpy_builtinAttribs_t atm;
+
+  if (len > 1)
+    {
+      gpy_object_t ** folded = (gpy_object_t **)
+	gpy_calloc (len -1, sizeof (gpy_object_t *));
+
+      int idx;
+      for (idx = 0; builtins[idx].identifier != NULL; ++idx)
+	{
+	  atm = builtins [idx];
+	  gpy_object_t * builtin = NULL_OBJECT;
+
+	  gpy_object_t ** args = (gpy_object_t **)
+	    gpy_calloc (4, sizeof(gpy_object_t*));
+
+	  gpy_literal_t i;
+	  i.type = TYPE_STRING;
+	  i.literal.string = (char *)atm.identifier;
+
+	  gpy_literal_t p;
+	  p.type = TYPE_ADDR;
+	  p.literal.addr = (unsigned char *) atm.addr;
+
+	  gpy_literal_t n;
+	  n.type = TYPE_INTEGER;
+	  n.literal.integer = atm.nargs;
+
+	  gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &i };
+	  gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &p };
+	  gpy_object_t a3 = { .T = TYPE_OBJECT_LIT, .o.literal = &n };
+	  gpy_object_t a4 = { .T = TYPE_NULL, .o.literal = NULL };
+
+	  args[0] = &a1;
+	  args[1] = &a2;
+	  args[2] = &a3;
+	  args[3] = &a4;
+
+	  gpy_typedef_t * def = __gpy_func_type_node;
+	  builtin = def->tp_new (def, args);
+	  gpy_free (args);
+	  gpy_assert (builtin->T == TYPE_OBJECT_DECL);
+
+	  folded [idx] = builtin;
+	}
+      /* Now to append/create the attribute access table .. */
+      struct gpy_object_attrib_t ** members = (struct gpy_object_attrib_t **)
+	gpy_calloc (len, sizeof (struct gpy_object_attrib_t *));
+
+      for (idx = 0; idx < len - 1; ++idx)
+	{
+	  atm = builtins [idx];
+	  struct gpy_object_attrib_t * fattr = (struct gpy_object_attrib_t *)
+	    gpy_malloc (sizeof (struct gpy_object_attrib_t));
+
+	  fattr->identifier = strdup (atm.identifier);
+	  fattr->T = GPY_CATTR;
+	  fattr->offset = 0;
+	  fattr->addr = folded [idx];
+
+	  members[idx] = fattr;
+	}
+      // sentinal
+      members[idx] = NULL;
+      type->members_defintion = members;
+      gpy_free (folded);
+    }
 }

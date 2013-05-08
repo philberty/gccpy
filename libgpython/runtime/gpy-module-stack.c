@@ -1,3 +1,4 @@
+
 /* This file is part of GCC.
 
 GCC is free software; you can redistribute it and/or modify it under
@@ -66,6 +67,7 @@ gpy_object_t ** __GPY_RR_STACK_PTR;
 static
 void gpy_rr_init_primitives (void)
 {
+  gpy_obj_func_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_integer_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_staticmethod_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_class_mod_init (__GPY_GLOBL_PRIMITIVES);
@@ -142,6 +144,7 @@ gpy_object_attrib_t * gpy_rr_fold_attribute (const unsigned char * identifier,
 {
   gpy_object_attrib_t * attrib = gpy_malloc (sizeof (gpy_object_attrib_t));
   attrib->identifier = identifier;
+  attrib->T = GPY_GCCPY;
   if (code_addr)
     {
       gpy_object_t * f = gpy_rr_fold_classmethod_decl (identifier, code_addr, nargs);
@@ -398,18 +401,34 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
   struct gpy_object_attrib_t ** members = type->members_defintion;
   gpy_object_state_t * objs = base->o.object_state;
 
-  int idx, offset = -1;
-  for (idx = 0; members[idx] != NULL; ++idx)
+  if (members)
     {
-      struct gpy_object_attrib_t * it = members[idx];
-      if (!strcmp (attrib, it->identifier))
+      int idx, offset = -1;
+      for (idx = 0; members[idx] != NULL; ++idx)
 	{
-	  offset = it->offset;
-	  unsigned char * state = (unsigned char *)objs->state;
-	  retval = state + offset;
-	  break;
+	  struct gpy_object_attrib_t * it = members[idx];
+	  if (!strcmp (attrib, it->identifier))
+	    {
+	      if (it->T == GPY_GCCPY)
+		{
+		  /* when part of the type we can access the instance from the state */
+		  offset = it->offset;
+		  unsigned char * state = (unsigned char *)objs->state;
+		  retval = state + offset;
+		}
+	      else
+		{
+		  // this is probably an internal C attribute to an object.
+		  gpy_assert (it->T = GPY_CATTR);
+		  retval = (unsigned char *) &(it->addr);
+		}
+	      break;
+	    }
 	}
     }
+  if (!retval)
+    fatal ("object has no attribute <%s>\n", attrib);
+
   gpy_assert (retval);
   return retval;
 }
