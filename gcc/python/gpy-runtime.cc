@@ -28,15 +28,14 @@ static tree gpy_build_py_object_type (void);
 static tree gpy_build_py_vector_type (void);
 
 
-tree GPY_RR_initRRStack (tree size, tree decl, tree id)
+tree GPY_RR_extendRRStack (tree size, tree id)
 {
-  tree fntype = build_function_type_list (void_type_node,
+  tree fntype = build_function_type_list (sizetype,
 	                 integer_type_node,
-			 gpy_object_type_ptr_ptr,
 			 gpy_const_char_ptr,
 			 NULL_TREE);
   tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
-			    get_identifier ("gpy_rr_initRRStack"),
+			    get_identifier ("gpy_rr_extendRRStack"),
 			    fntype);
   tree restype = TREE_TYPE (fndecl);
   tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
@@ -46,7 +45,7 @@ tree GPY_RR_initRRStack (tree size, tree decl, tree id)
   DECL_EXTERNAL (fndecl) = 1;
   TREE_PUBLIC (fndecl) = 1;
 
-  return build_call_expr (fndecl, 3, size, decl, id);
+  return build_call_expr (fndecl, 2, size, id);
 }
 
 tree GPY_RR_fold_attrib (tree ident, tree addr, tree offset, tree nargs)

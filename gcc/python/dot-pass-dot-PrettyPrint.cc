@@ -331,6 +331,16 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	  }
 	  break;
 
+	case D_KEY_IMPORT:
+	  {
+	    int i;
+	    for (i = 0; i < indents; ++i)
+	      fprintf (fd, "    ");
+	    fprintf (fd, "import ");
+	    dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+	  }
+	  break;
+
 	case D_PRINT_STMT:
 	  {
 	    int i;

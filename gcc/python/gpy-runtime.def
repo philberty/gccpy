@@ -16,19 +16,18 @@ along with GCC; see the file COPYING3.  If not see
 
 autogen definitions gpy-runtime;
 
-py-runtime = { code = GPY_RR_initRRStack;
-	       arguments = "tree size, tree decl, tree id";
-	       proto = "tree, tree, tree";
+py-runtime = { code = GPY_RR_extendRRStack;
+	       arguments = "tree size, tree id";
+	       proto = "tree, tree";
 	       comment = "/* Extends shizzle */";
-               function_identifier = "gpy_rr_initRRStack";
-               fntype = "void_type_node,
+               function_identifier = "gpy_rr_extendRRStack";
+               fntype = "sizetype,
 	                 integer_type_node,
-			 gpy_object_type_ptr_ptr,
 			 gpy_const_char_ptr,
 			 NULL_TREE";
 	       build_call = build_call_expr;
-	       build_call_args = "fndecl, 3, size, decl, id";
-	   };
+	       build_call_args = "fndecl, 2, size, id";
+	     };
 py-runtime = { code = GPY_RR_fold_attrib;
 	       arguments = "tree ident, tree addr, tree offset, tree nargs";
 	       proto = "tree, tree, tree, tree";

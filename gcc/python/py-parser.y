@@ -151,6 +151,7 @@ extern void yyerror (const char *);
 %type<symbol> list_display
 %type<symbol> enclosure
 %type<symbol> return_stmt
+%type<symbol> import_stmt
 
 %type<symbol> funcname
 %type<symbol> classname
@@ -293,6 +294,14 @@ stmt_list: simple_stmt
 simple_stmt: expression
            | print_stmt
            | return_stmt
+           | import_stmt
+           ;
+
+import_stmt: IMPORT IDENTIFIER
+           {
+	     $$ = dot_build_decl1 (D_KEY_IMPORT,
+				   dot_build_identifier ($2));
+	   }
            ;
 
 return_stmt: RETURN expression

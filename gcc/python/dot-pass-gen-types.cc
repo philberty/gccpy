@@ -264,7 +264,12 @@ vec<tree, va_gc> * dot_pass_GenTypes (vec<gpydot,va_gc> * decls)
   gpy_dot_tree_t * idtx = NULL_DOT;
   for (idx = 0; vec_safe_iterate (decls, idx, &idtx); ++idx)
     {
-      if (DOT_TYPE (idtx) == D_STRUCT_CLASS)
+      if (DOT_TYPE (idtx) == D_KEY_IMPORT)
+	{
+	  const char * import = DOT_IDENTIFIER_POINTER (DOT_lhs_TT (idtx));
+	  gpy_dd_hash_insert (gpy_dd_hash_string (import), DOT_lhs_TT (idtx), &main_module);
+	}
+      else if (DOT_TYPE (idtx) == D_STRUCT_CLASS)
 	{
 	  tree module = dot_pass_types_GenClassType (idtx);
 	  gcc_assert (module);

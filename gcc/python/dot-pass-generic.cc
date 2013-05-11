@@ -17,7 +17,7 @@
 #include "gpython.h"
 
 /* DEFINES */
-#define DOT_CURRENT_CONTEXT(x_) \
+#define DOT_CURRENT_CONTEXT(x_)					\
   VEC_index (dot_contextEntry_t, x_, VEC_length (x_) - 1)
 /* ... ... ... */
 
@@ -213,23 +213,27 @@ void dot_pass_genWalkClass (tree * block, tree type,
 
   switch (TREE_CODE (decl))
     {
-    case VAR_DECL:
+    case POINTER_PLUS_EXPR:
       {
+	tree fold = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+				create_tmp_var_name ("__MOD_DECL_ACC"),
+				gpy_object_type_ptr_ptr);
+	append_to_statement_list (build2 (MODIFY_EXPR,
+					  gpy_object_type_ptr_ptr,
+					  fold, decl),
+				  block);
+
 	tree class_tmp = build_decl (UNKNOWN_LOCATION, VAR_DECL,
 				     create_tmp_var_name ("ATFC"),
 				     gpy_object_type_ptr);
 	append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
 					  class_tmp, fold_class),
 				  block);
-	if (TREE_TYPE (decl) == gpy_object_type_ptr_ptr)
-	  {
-	    append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr,
-					      build_fold_indirect_ref (decl),
-					      class_tmp),
-				      block);
-	  }
-	else
-	  fatal_error ("serious error at ATFC!\n");
+	tree refer = build_fold_indirect_ref (fold);
+	append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+					  refer,
+					  class_tmp),
+				  block);
       }
       break;
 
@@ -254,14 +258,13 @@ void dot_pass_setupContext (tree module,
   tree stack_pointer = build_decl (BUILTINS_LOCATION, VAR_DECL,
 				   get_identifier (GPY_RR_stack_ptr),
 				   gpy_object_type_ptr_ptr);
-  TREE_STATIC (stack_pointer) = 1;
   TREE_PUBLIC (stack_pointer) = 1;
   TREE_USED (stack_pointer) = 1;
-  DECL_ARTIFICIAL (stack_pointer) = 1;
+  DECL_EXTERNAL (stack_pointer) = 1;
 
-  // set it to 0 because its not initilized yet..
   DECL_INITIAL (stack_pointer) = build_int_cst (integer_type_node, 0);
   rest_of_decl_compilation (stack_pointer, 1, 0);
+
   gpy_dd_hash_insert (gpy_dd_hash_string (GPY_RR_stack_ptr), stack_pointer, globls);
   vec_safe_push (generic, stack_pointer);
 
@@ -278,55 +281,51 @@ void dot_pass_setupContext (tree module,
   gpy_preserve_from_gc (type);
   tree str = build_string (strlen (GPY_current_module_name), GPY_current_module_name);
   TREE_TYPE (str) = type;
-  append_to_statement_list (GPY_RR_initRRStack (build_int_cst (integer_type_node,
+
+  tree stack_extendCall = GPY_RR_extendRRStack (build_int_cst (integer_type_node,
 							       field_count),
-						stack_pointer,
-						build_fold_addr_expr (str)),
+						build_fold_addr_expr (str));
+
+  tree stack_offset = build_decl (BUILTINS_LOCATION, VAR_DECL,
+				  create_tmp_var_name ("__MODULE_STK_OFFS"),
+				  sizetype);
+  TREE_STATIC (stack_offset) = 1;
+  TREE_PUBLIC (stack_offset) = 1;
+  TREE_USED (stack_offset) = 1;
+  DECL_INITIAL (stack_offset) = build_int_cst (integer_type_node, 0);
+  rest_of_decl_compilation (stack_offset, 1, 0);
+
+  append_to_statement_list (build2 (MODIFY_EXPR, integer_type_node,
+				    stack_offset, stack_extendCall),
 			    block);
-  debug ("--- --- --- \n");
+
   offset = 0;
   field_count = 0;
   for (field = TYPE_FIELDS (module); field != NULL_TREE;
        field = DECL_CHAIN (field))
     {
       gcc_assert (TREE_CODE (field) == FIELD_DECL);
-      const char * ident = IDENTIFIER_POINTER (DECL_NAME (field));
+      const char * ident = IDENTIFIER_POINTER (DECL_NAME (field));   
 
       tree element_size = TYPE_SIZE_UNIT (TREE_TYPE (field));
-      tree offs = fold_build2_loc (UNKNOWN_LOCATION, MULT_EXPR, sizetype,
-				   build_int_cst (sizetype, offset),
-				   element_size);
-      tree addr = fold_build2_loc (UNKNOWN_LOCATION, POINTER_PLUS_EXPR,
-				   TREE_TYPE (stack_pointer),
-				   stack_pointer, offs);
+      
+      tree offs1 = build2 (MULT_EXPR, sizetype,
+			   build_int_cst (sizetype, offset),
+			   element_size);
+      tree offs2 = build2 (MULT_EXPR, sizetype,
+			   stack_offset,
+			   element_size);
 
-      // mangle the name with the module name
-      char * mangled = dot_pass_concat (GPY_current_module_name, "__DECL__");
-      char * nm = dot_pass_concat (mangled, ident);
-      tree addr_decl = build_decl (UNKNOWN_LOCATION, VAR_DECL,
-				   get_identifier (nm),
-				   gpy_object_type_ptr_ptr);
-      TREE_STATIC (addr_decl) = 1;
-      TREE_PUBLIC (addr_decl) = 1;
-      TREE_USED (addr_decl) = 1;
-      DECL_ARTIFICIAL (addr_decl) = 1;
-      DECL_INITIAL (addr_decl) = build_int_cst (integer_type_node, 0);
+      tree offs = build2 (PLUS_EXPR, sizetype,
+			  offs1, offs2);
+      tree addr = build2 (POINTER_PLUS_EXPR,
+			  TREE_TYPE (stack_pointer),
+			  stack_pointer, offs);
 
-      rest_of_decl_compilation (addr_decl, 1, 0);
-      vec_safe_push (generic, addr_decl);
-
-      append_to_statement_list (build2 (MODIFY_EXPR,
-					gpy_object_type_ptr_ptr,
-					addr_decl, addr),
-				block);
-
-      // sizeof is wrong here need to get the integer cst of the element_size;
-      debug ("\t%s :: %i * %lu\n", ident, offset, sizeof (void *));
-      gcc_assert (dot_pass_pushDecl (addr_decl, ident, globls_symbols));
-      offset--;
+      gcc_assert (dot_pass_pushDecl (addr, ident, globls_symbols));
+      offset++;
       field_count++;
     }
-  debug ("--- --- --- \n");
 }
 
 static
@@ -705,6 +704,25 @@ tree dot_pass_genModifyExpr (gpy_dot_tree_t * decl,
 
 	switch (TREE_CODE (addr))
 	  {
+	  case POINTER_PLUS_EXPR:
+	    {
+	      tree fold = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+				      create_tmp_var_name ("__MOD_DECL_ACC"),
+				      gpy_object_type_ptr_ptr);
+	      append_to_statement_list (build2 (MODIFY_EXPR,
+						gpy_object_type_ptr_ptr,
+						fold, addr),
+					block);
+
+	      tree refer = build_fold_indirect_ref (fold);
+	      append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+						refer,
+						addr_rhs_tree),
+					block);
+	      retval = refer;
+	    }
+	    break;
+
 	  case PARM_DECL:
 	  case COMPONENT_REF:
 	  case VAR_DECL:
@@ -713,7 +731,7 @@ tree dot_pass_genModifyExpr (gpy_dot_tree_t * decl,
 		{
 		  /* *T.x = addr */
 		  tree refer = build_fold_indirect_ref (addr);
-		  append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr,
+		  append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
 						    refer,
 						    addr_rhs_tree),
 					    block);

@@ -53,6 +53,7 @@ typedef enum {
   D_STRUCT_CONDITIONAL,
 
   D_KEY_RETURN,
+  D_KEY_IMPORT,
 
   D_EQ_EQ_EXPR,
   D_LESS_EXPR,

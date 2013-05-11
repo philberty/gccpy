@@ -52,6 +52,7 @@ __STACK
 ...
 */
 #define __GPY_INIT_LEN              3
+static int __GPY_GLOBL_modOffs = 0;
 static int __GPY_GLOBAL_STACK_LEN = 0;
 static gpy_hash_tab_t stack_table;
 
@@ -107,10 +108,9 @@ void gpy_rr_extend_runtime_stack (int nslots)
   __GPY_RR_STACK_PTR += __GPY_GLOBAL_STACK_LEN + (nslots - 1);
 }
 
-void gpy_rr_initRRStack (int slots,
-			 gpy_object_t ** sptr,
-			 const char * stack_id)
+int gpy_rr_extendRRStack (int slots, const char * stack_id)
 {
+  int retOffs = -1;
   /* Make sure it doesn't already exist! */
   gpy_hashval_t h = gpy_dd_hash_string (stack_id);
   gpy_hash_entry_t * e = gpy_dd_hash_lookup_table (&stack_table, h);
@@ -118,11 +118,17 @@ void gpy_rr_initRRStack (int slots,
     {
       /* extend the stack and setup the stack pointer for the callee' */
       gpy_rr_extend_runtime_stack (slots);
-      sptr = __GPY_RR_STACK_PTR;
-      gpy_dd_hash_insert (h, sptr, &stack_table);
+
+      int *offs = malloc (sizeof (int));
+      *offs = __GPY_GLOBL_modOffs;
+      retOffs = __GPY_GLOBL_modOffs;
+      __GPY_GLOBL_modOffs += slots;
+
+      gpy_dd_hash_insert (h, offs, &stack_table);
     }
   else
     fatal ("Stack id <%s> already exists!\n", stack_id);
+  return retOffs;
 }
 
 void gpy_rr_init_runtime (void)
@@ -134,8 +140,8 @@ void gpy_rr_cleanup_final (void)
 {
   /*
     Cleanup the runtime stack and all other object data
+    .....
    */
-  mpfr_free_cache ();
 }
 
 gpy_object_attrib_t * gpy_rr_fold_attribute (const unsigned char * identifier,
