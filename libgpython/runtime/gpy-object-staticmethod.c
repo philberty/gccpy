@@ -23,9 +23,6 @@ along with GCC; see the file COPYING3.  If not see
 #include <string.h>
 #include <stdbool.h>
 
-#include <gmp.h>
-#include <mpfr.h>
-
 #ifdef USE_LIBFFI
 # include <ffi.h>
 #endif

@@ -23,9 +23,6 @@ along with GCC; see the file COPYING3.  If not see
 #include <string.h>
 #include <stdbool.h>
 
-#include <gmp.h>
-#include <mpfr.h>
-
 #include <gpython/gpython.h>
 #include <gpython/vectors.h>
 #include <gpython/objects.h>
@@ -93,18 +90,8 @@ gpy_obj_integer_add (gpy_object_t * o1, gpy_object_t * o2)
 	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
 	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
 
-	  mpfr_t x,y,z;
-	  mpfr_init (z);
-	  mpfr_init_set_si (x, t1->Int, GMP_RNDU);
-	  mpfr_init_set_si (y, t2->Int, GMP_RNDU);
-
-	  if (mpfr_add (z, x, y, GMP_RNDU))
-	    {
-	      fatal("overflow in integer addition!\n");
-	    }
-
-	  retval = gpy_rr_fold_integer (mpfr_get_si (z, GMP_RNDU));
-	  mpfr_clears (x, y, z, (mpfr_ptr)0);
+          int z = t1->Int + t2->Int;
+	  retval = gpy_rr_fold_integer (z);
 	}
       else
 	{
@@ -133,18 +120,8 @@ gpy_obj_integer_minus (gpy_object_t * o1, gpy_object_t * o2)
 	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
 	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
 
-	  mpfr_t x,y,z;
-	  mpfr_init (z);
-	  mpfr_init_set_si (x, t1->Int, GMP_RNDU);
-	  mpfr_init_set_si (y, t2->Int, GMP_RNDU);
-
-	  if (mpfr_sub (z, x, y, GMP_RNDU))
-	    {
-	      fatal("overflow in integer addition!\n");
-	    }
-
-	  retval = gpy_rr_fold_integer (mpfr_get_si (z, GMP_RNDU));
-	  mpfr_clears (x, y, z, (mpfr_ptr)0);
+          int z = t1->Int - t2->Int;
+	  retval = gpy_rr_fold_integer (z);
 	}
       else
 	{
@@ -173,18 +150,8 @@ gpy_obj_integer_mult (gpy_object_t * o1, gpy_object_t * o2)
 	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
 	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
 
-	  mpfr_t x,y,z;
-	  mpfr_init (z);
-	  mpfr_init_set_si (x, t1->Int, GMP_RNDU);
-	  mpfr_init_set_si (y, t2->Int, GMP_RNDU);
-
-	  if (mpfr_mul (z, x, y, GMP_RNDU))
-	    {
-	      fatal("overflow in integer addition!\n");
-	    }
-
-	  retval = gpy_rr_fold_integer (mpfr_get_si (z, GMP_RNDU));
-	  mpfr_clears (x, y, z, (mpfr_ptr)0);
+          int z = t1->Int * t2->Int;
+	  retval = gpy_rr_fold_integer (z);
 	}
       else
 	{

@@ -65,10 +65,6 @@ dnl FIXME: This should be controlled by --enable-maintainer-mode.
 WERROR="-Werror"
 AC_SUBST(WERROR)
 
-# Check for GMP, MPFR
-AC_CHECK_LIB([gmp],[mpz_init])
-AC_CHECK_LIB([mpfr],[mpfr_init])
-
 # See if the user wants to configure without libffi.  Some
 # architectures don't support it.  FIXME: We should set a default
 # based on the host.
