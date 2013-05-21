@@ -29,7 +29,6 @@ along with GCC; see the file COPYING3.  If not see
 #include <gpython/runtime.h>
 
 struct gpy_object_list {
-  int length;
   gpy_vector_t * enclosure;
 };
 
@@ -46,7 +45,6 @@ gpy_object_t * gpy_obj_list_new (gpy_typedef_t * type,
 
   struct gpy_object_list * self = (struct gpy_object_list *)
     gpy_malloc (sizeof (struct gpy_object_list));
-  self->length = len;
 
   self->enclosure = (struct gpy_vector_t *)
     gpy_malloc (sizeof (gpy_vector_t));
@@ -119,7 +117,10 @@ gpy_obj_list_add (gpy_object_t * o1, gpy_object_t * o2)
   struct gpy_object_list * l1 = (struct gpy_object_list *) x->state;
   struct gpy_object_list * l2 = (struct gpy_object_list *) y->state;
 
-  int n = l1->length + l2->length;
+  gpy_vector_t * vec1 = l1->enclosure;
+  gpy_vector_t * vec2 = l2->enclosure;
+
+  int n = vec1->length + vec2->length;
 
   gpy_object_t ** elems = (gpy_object_t **)
     gpy_calloc (n+1, sizeof (gpy_object_t *));
@@ -128,11 +129,10 @@ gpy_obj_list_add (gpy_object_t * o1, gpy_object_t * o2)
   for (i = 0; i < n; ++i)
     {
       gpy_object_state_t * x = o1->o.object_state;
-      if (i < l1->length)
-        elems[i] = GPY_VEC_index (gpy_object_t *, l1->enclosure, i);
+      if (i < vec1->length)
+        elems[i] = GPY_VEC_index (gpy_object_t *, vec1, i);
       else
-        elems[i] = GPY_VEC_index (gpy_object_t *, l2->enclosure,
-                                  i - l1->length);
+        elems[i] = GPY_VEC_index (gpy_object_t *, vec2, i - vec1->length);
     }
   elems [n] = NULL;
 
@@ -190,8 +190,9 @@ gpy_obj_list_eval_bool (gpy_object_t * x)
   bool retval = false;
   gpy_object_state_t * t = x->o.object_state;
   struct gpy_object_list * state = (struct gpy_object_list *) t->state;
+  gpy_vector_t * vec = state->enclosure;
 
-  if (state->length != 0)
+  if (vec->length != 0)
     retval = true;
 
   return retval;
