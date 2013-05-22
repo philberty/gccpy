@@ -48,6 +48,26 @@ tree GPY_RR_extendRRStack (tree size, tree id)
   return build_call_expr (fndecl, 2, size, id);
 }
 
+tree GPY_RR_makeSlice (tree object, tree slice)
+{
+  tree fntype = build_function_type_list (gpy_object_type_ptr,
+	                 gpy_object_type_ptr,
+			 gpy_object_type_ptr,
+			 NULL_TREE);
+  tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
+			    get_identifier ("gpy_rr_getSlice"),
+			    fntype);
+  tree restype = TREE_TYPE (fndecl);
+  tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
+			     restype);
+  DECL_CONTEXT (resdecl) = fndecl;
+  DECL_RESULT (fndecl) = resdecl;
+  DECL_EXTERNAL (fndecl) = 1;
+  TREE_PUBLIC (fndecl) = 1;
+
+  return build_call_expr (fndecl, 2, object, slice);
+}
+
 tree GPY_RR_fold_attrib (tree ident, tree addr, tree offset, tree nargs)
 {
   tree fntype = build_function_type_list (gpy_attrib_type_ptr,

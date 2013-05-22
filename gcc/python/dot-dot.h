@@ -28,6 +28,8 @@ typedef enum {
   D_ADD_EXPR,
   D_MINUS_EXPR,
 
+  D_SLICE,
+
   D_T_INTEGER,
   D_T_FLOAT,
   D_T_STRING,

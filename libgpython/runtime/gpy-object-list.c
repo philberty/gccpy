@@ -198,6 +198,33 @@ gpy_obj_list_eval_bool (gpy_object_t * x)
   return retval;
 }
 
+/*
+  tp_slice is very simple so far it only accepts x [1],
+  only simple expressions, slices of [lower:upper] does
+  not work yet symanticaly.
+*/
+static
+gpy_object_t * gpy_obj_list_getSlice (gpy_object_t * decl,
+                                      gpy_object_t * slice)
+{
+  gpy_assert (decl->T == TYPE_OBJECT_STATE);
+  gpy_object_t * retval = NULL;  
+  
+  int idx = gpy_obj_integer_getInt (slice);
+  gpy_object_state_t * t = decl->o.object_state;
+  struct gpy_object_list * state = (struct gpy_object_list *) t->state;
+  gpy_vector_t * vec = state->enclosure;
+
+  // i know gpy_vec_index does bounds checking but this
+  // will allow for more traceability maybe...
+  if ((idx >= 0) && (idx < vec->length))
+    retval = GPY_VEC_index (gpy_object_t *, vec, idx);
+  else
+    fatal ("index <%i> is out of bounds on list <%p>\n",
+           idx, (void *) decl);
+  return retval;
+}
+
 static struct gpy_builtinAttribs_t list_methods[] = {
   /* 2 arguments since we have to pass in self, append_item */
   { "append", 2, (GPY_CFUNC) &gpy_obj_list_append },
@@ -221,6 +248,7 @@ static struct gpy_typedef_t list_obj = {
   &list_binary_ops,
   NULL,
   list_methods,
+  &gpy_obj_list_getSlice,
 };
 
 void gpy_obj_list_mod_init (gpy_vector_t * const vec)

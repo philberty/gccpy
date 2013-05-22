@@ -75,6 +75,17 @@ void gpy_obj_integer_print (gpy_object_t * self, FILE * fd, bool newline)
     fprintf (fd, "\n");
 }
 
+int gpy_obj_integer_getInt (gpy_object_t * self)
+{
+  gpy_assert (self->T == TYPE_OBJECT_STATE);
+  gpy_object_state_t * x = self->o.object_state;
+  gpy_assert (!strcmp (x->definition->identifier, "Int"));
+
+  struct gpy_obj_integer_t *x1 = (struct gpy_obj_integer_t *)
+    x->state;
+  return (x1->Int);
+}
+
 gpy_object_t *
 gpy_obj_integer_add (gpy_object_t * o1, gpy_object_t * o2)
 {

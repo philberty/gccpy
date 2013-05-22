@@ -120,6 +120,7 @@ typedef struct gpy_typedef_t {
   struct gpy_number_prot_t * binary_protocol;
   struct gpy_object_attrib_t ** members_defintion;
   struct gpy_builtinAttribs_t * builtins;
+  gpy_object_t * (*tp_slice)(gpy_object_t *, gpy_object_t *);
 } gpy_typedef_t ;
 
 #define NULL_OBJ_STATE (gpy_object_state_t *) NULL
@@ -142,6 +143,8 @@ extern unsigned char * gpy_object_staticmethod_getaddr (gpy_object_t *);
 extern unsigned char * gpy_object_classmethod_getaddr (gpy_object_t *);
 
 extern void gpy_wrap_builtins (gpy_typedef_t * const, size_t);
+
+extern int gpy_obj_integer_getInt (gpy_object_t *);
 
 extern void gpy_obj_integer_mod_init (gpy_vector_t * const);
 extern void gpy_obj_staticmethod_mod_init (gpy_vector_t * const);

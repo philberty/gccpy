@@ -152,6 +152,8 @@ extern void yyerror (const char *);
 %type<symbol> enclosure
 %type<symbol> return_stmt
 %type<symbol> import_stmt
+%type<symbol> slicing
+%type<symbol> simple_slicing
 
 %type<symbol> funcname
 %type<symbol> classname
@@ -415,9 +417,19 @@ list_display: '[' argument_list_stmt ']'
 enclosure: list_display
          ;
 
+slicing: simple_slicing
+       ;
+
+simple_slicing: primary '[' expression ']'
+              {
+                $$ = dot_build_decl2 (D_SLICE, $1, $3);
+              }
+              ;
+
 primary: atom
        | call
        | attributeref
+       | slicing
        ;
 
 %%

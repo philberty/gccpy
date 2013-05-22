@@ -190,6 +190,15 @@ void dot_pass_dumpExprNode (FILE * fd, gpy_dot_tree_t * node)
       fprintf (fd, "%s", DOT_IDENTIFIER_POINTER (node));
       break;
 
+    case D_SLICE:
+      {
+        dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+        fprintf (fd, "[");
+        dot_pass_dump_expr (fd, DOT_rhs_TT (node));
+        fprintf (fd, "]");
+      }
+      break;
+
     case D_T_LIST:
       {
 	fprintf (fd, "[ ");
@@ -253,6 +262,7 @@ void dot_pass_dump_expr (FILE * fd, gpy_dot_tree_t * node)
     case D_IDENTIFIER:
     case D_ATTRIB_REF:
     case D_T_LIST:
+    case D_SLICE:
     case D_CALL_EXPR:
       dot_pass_dumpExprNode (fd, node);
       break;

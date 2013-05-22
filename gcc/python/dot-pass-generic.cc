@@ -937,6 +937,14 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
       retval = dot_pass_genEnclosure (dot, block, context);
       break;
 
+    case D_SLICE:
+      {
+        tree ident = dot_pass_lowerExpr (DOT_lhs_TT (dot), context, block);
+        tree slice = dot_pass_lowerExpr (DOT_rhs_TT (dot), context, block);
+        retval = GPY_RR_makeSlice (ident, slice);
+      }
+      break;
+
     case D_IDENTIFIER:
       {
 	tree lookup = dot_pass_lookupDecl (context,

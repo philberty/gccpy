@@ -352,6 +352,19 @@ gpy_object_t * gpy_rr_fold_classmethod_decl (const char * identifier,
   return retval;
 }
 
+gpy_object_t * gpy_rr_getSlice (gpy_object_t * decl, gpy_object_t * slice)
+{
+  gpy_object_t * retval = NULL;
+  gpy_typedef_t * type = decl->o.object_state->definition;
+  
+  if (type->tp_slice)
+    retval = type->tp_slice (decl, slice);
+  else
+    fatal ("Object <%p> has no slice hook!\n", (void *)decl);
+
+  return retval;
+}
+
 gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
 {
   gpy_object_t * retval = NULL_OBJECT;
