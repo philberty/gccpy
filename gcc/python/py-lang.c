@@ -109,9 +109,6 @@ bool gpy_langhook_post_options (const char **pfilename
   if (flag_excess_precision_cmdline == EXCESS_PRECISION_DEFAULT)
     flag_excess_precision_cmdline = EXCESS_PRECISION_STANDARD;
 
-  // if (gpy_set_dump_dot)
-  GPY_OPT_dump_dot = true;
-
   /* Returning false means that the backend should be used.  */
   return false;
 }
@@ -130,7 +127,13 @@ void gpy_langhook_parse_file (void)
 	 would be ideal to get fname base name and use this
 	 as prefix for identifiers within input module.
        */
+
+      // Get rid of the .py at the end..
+      size_t len = strlen (in_fnames [idx]);
       GPY_current_module_name = xstrdup (in_fnames [idx]);
+      GPY_current_module_name[len - 3] = '\0';
+
+      // lets now finally parse this..
       gpy_do_compile (in);
     }
 }
@@ -186,6 +189,12 @@ void gpy_langhook_write_globals (void)
 {
   // pass off to middle end function basically.
   dot_pass_manager_WriteGlobals ();
+}
+
+static
+unsigned int gpy_option_lang_mask (void)
+{
+  return CL_Python;
 }
 
 static int
@@ -273,6 +282,7 @@ void __gpy_debug__ (const char * file, unsigned int lineno,
 #undef LANG_HOOKS_WRITE_GLOBALS
 #undef LANG_HOOKS_GIMPLIFY_EXPR
 #undef LANG_HOOKS_GIMPLIFY_EXPR
+#undef LANG_HOOKS_OPTION_LANG_MASK
 
 #define LANG_HOOKS_NAME                 "GNU Python"
 #define LANG_HOOKS_INIT                 gpy_langhook_init
@@ -288,6 +298,7 @@ void __gpy_debug__ (const char * file, unsigned int lineno,
 #define LANG_HOOKS_GETDECLS             gpy_langhook_getdecls
 #define LANG_HOOKS_WRITE_GLOBALS        gpy_langhook_write_globals
 #define LANG_HOOKS_GIMPLIFY_EXPR        gpy_langhook_gimplify_expr
+#define LANG_HOOKS_OPTION_LANG_MASK     gpy_option_lang_mask
 
 struct lang_hooks lang_hooks = LANG_HOOKS_INITIALIZER;
 

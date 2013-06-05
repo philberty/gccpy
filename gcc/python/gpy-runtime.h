@@ -33,7 +33,10 @@ along with GCC; see the file COPYING3.  If not see
 extern tree gpy_dot_type_const_string_tree (const char *);
 
 /* Extends shizzle */
-extern tree GPY_RR_extendRRStack (tree, tree);
+extern tree GPY_RR_extendRRStack (tree, tree, tree);
+
+/* do flat import */
+extern tree GPY_RR_foldImport (tree, tree);
 
 /* Get slice of object */
 extern tree GPY_RR_makeSlice (tree, tree);

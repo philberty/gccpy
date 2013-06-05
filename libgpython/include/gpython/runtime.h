@@ -19,7 +19,17 @@ along with GCC; see the file COPYING3.  If not see
 
 /* Number of items in array. */
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
+
 extern gpy_vector_t * __GPY_GLOBL_PRIMITIVES;
+extern gpy_object_t ** __GPY_RR_STACK_PTR;
+
+typedef struct gpy_module_info {
+  int offset;
+  int length;
+  char * modID;
+  char ** idents;
+} gpy_moduleInfo_t;
+
 
 /* to the internal types... */
 #define __gpy_func_type_node				\
@@ -34,6 +44,8 @@ extern gpy_vector_t * __GPY_GLOBL_PRIMITIVES;
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[4]
 #define __gpy_list_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[5]
+#define __gpy_module_type_node				\
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[6]
 
 extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
 extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);

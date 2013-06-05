@@ -1,4 +1,3 @@
-
 /* This file is part of GCC.
 
 GCC is free software; you can redistribute it and/or modify it under
@@ -56,7 +55,7 @@ static int __GPY_GLOBL_modOffs = 0;
 static int __GPY_GLOBAL_STACK_LEN = 0;
 static gpy_hash_tab_t stack_table;
 
-bool __GPY_GLOBAL_RETURN;
+static bool __GPY_GLOBAL_RETURN;
 gpy_object_t ** __GPY_MODULE_RR_STACK;
 gpy_object_t ** __GPY_RR_STACK_PTR;
 
@@ -74,6 +73,7 @@ void gpy_rr_init_primitives (void)
   gpy_obj_class_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_classmethod_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_list_mod_init (__GPY_GLOBL_PRIMITIVES);
+  gpy_obj_module_mod_init (__GPY_GLOBL_PRIMITIVES);
 }
 
 static
@@ -108,26 +108,66 @@ void gpy_rr_extend_runtime_stack (int nslots)
   __GPY_RR_STACK_PTR += __GPY_GLOBAL_STACK_LEN + (nslots - 1);
 }
 
-int gpy_rr_extendRRStack (int slots, const char * stack_id)
+/* More of a helper function than trying to do this directly in GENERIC */
+char ** gpy_rr_modAttribList (int n, ...)
+{
+  char ** retval = NULL;
+  if (n > 0)
+    {
+      retval = (char **)
+	gpy_calloc (n + 1, sizeof (char *));
+
+      va_list ap;
+      va_start (ap, n);
+
+      int i;
+      for (i = 0; i < n; ++i)
+	{
+	  char * y = va_arg (ap, char *);
+	  retval[i] = strdup (y);
+	}
+
+      retval[i] = NULL;
+      va_end (ap);
+    }
+  return retval;
+}
+
+/**
+ * @slots is the length to which the stack needs extended
+ * @stack_id is the id of the module which is being loaded
+ * @elems is the _ordered_ list of attributes of the class
+ **/
+int gpy_rr_extendRRStack (int slots,
+			  const char * stack_id,
+			  char ** elems)
 {
   int retOffs = -1;
   /* Make sure it doesn't already exist! */
   gpy_hashval_t h = gpy_dd_hash_string (stack_id);
   gpy_hash_entry_t * e = gpy_dd_hash_lookup_table (&stack_table, h);
-  if (!e)
+
+  if (e == NULL || e->data == NULL)
     {
       /* extend the stack and setup the stack pointer for the callee' */
       gpy_rr_extend_runtime_stack (slots);
 
-      int *offs = malloc (sizeof (int));
-      *offs = __GPY_GLOBL_modOffs;
-      retOffs = __GPY_GLOBL_modOffs;
-      __GPY_GLOBL_modOffs += slots;
+      gpy_moduleInfo_t * info = (gpy_moduleInfo_t *)
+	gpy_malloc (sizeof (gpy_moduleInfo_t));
+      info->offset = __GPY_GLOBL_modOffs;
+      info->length = slots;
+      info->modID = strdup (stack_id);
+      info->idents = elems;
 
-      gpy_dd_hash_insert (h, offs, &stack_table);
+      gpy_assert (!gpy_dd_hash_insert (h, (void *) info, &stack_table));
+      retOffs = info->offset;
+
+      // update the offset for next module load...
+      __GPY_GLOBL_modOffs += slots;
     }
   else
     fatal ("Stack id <%s> already exists!\n", stack_id);
+
   return retOffs;
 }
 
@@ -142,6 +182,7 @@ void gpy_rr_cleanup_final (void)
     Cleanup the runtime stack and all other object data
     .....
    */
+  return;
 }
 
 gpy_object_attrib_t * gpy_rr_fold_attribute (const unsigned char * identifier,
@@ -356,13 +397,62 @@ gpy_object_t * gpy_rr_getSlice (gpy_object_t * decl, gpy_object_t * slice)
 {
   gpy_object_t * retval = NULL;
   gpy_typedef_t * type = decl->o.object_state->definition;
-  
+
   if (type->tp_slice)
     retval = type->tp_slice (decl, slice);
   else
     fatal ("Object <%p> has no slice hook!\n", (void *)decl);
 
   return retval;
+}
+
+void gpy_rr_foldImport (gpy_object_t ** decl,
+			const char * module)
+{
+  gpy_moduleInfo_t * mod = NULL;
+  gpy_hashval_t h = gpy_dd_hash_string (module);
+  gpy_hash_entry_t * e = gpy_dd_hash_lookup_table (&stack_table, h);
+
+  gpy_assert (e);
+  gpy_assert (e->data);
+  mod = (gpy_moduleInfo_t *) e->data;
+
+  gpy_object_t ** args = (gpy_object_t **)
+    gpy_calloc (5, sizeof (gpy_object_t *));
+
+  gpy_literal_t A;
+  A.type = TYPE_INTEGER;
+  A.literal.integer = mod->offset;
+
+  gpy_literal_t i;
+  i.type = TYPE_INTEGER;
+  i.literal.integer = mod->length;
+
+  gpy_literal_t s;
+  s.type = TYPE_STRING;
+  s.literal.string = mod->modID;
+
+  gpy_literal_t S;
+  S.type = TYPE_STR_ARRY;
+  S.literal.sarray = mod->idents;
+
+  gpy_object_t a0 = { .T = TYPE_OBJECT_LIT, .o.literal = &A };
+  gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &i };
+  gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &s };
+  gpy_object_t a3 = { .T = TYPE_OBJECT_LIT, .o.literal = &S };
+  gpy_object_t a4 = { .T = TYPE_NULL, .o.literal = NULL };
+
+  args[0] = &a0;
+  args[1] = &a1;
+  args[2] = &a2;
+  args[3] = &a3;
+  args[4] = &a4;
+
+  gpy_typedef_t * def = __gpy_module_type_node;
+  *decl = def->tp_new (def, args);
+  gpy_free (args);
+
+  gpy_assert ((*decl)->T == TYPE_OBJECT_DECL);
 }
 
 gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
@@ -390,12 +480,34 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
     {
       /* args length checks ... */
       int nparms = type->tp_nparms (decl);
-      if (nargs == nparms)
-	retval = type->tp_call (decl, args);
+
+      // if its not a class method we can drop the first argument
+      // since we dont need the self reference, this will be NULL
+      // on normal calls outside of attrib references on modules
+      bool iscmeth = false;
+      if (!strcmp ("classmethod", type->identifier))
+	iscmeth = true;
+
+      if (iscmeth)
+	{
+	  if (nargs == nparms)
+	    retval = type->tp_call (decl, args);
+	  else
+	    {
+	      fatal ("call takes %i arguments (%i given)!\n", nparms, nargs);
+	      retval = NULL;
+	    }
+	}
       else
 	{
-	  fatal ("call takes %i arguments (%i given)!\n", nparms, nargs);
-	  retval = NULL;
+	  nargs -= 1;
+	  if (nargs == nparms)
+	    retval = type->tp_call (decl, args + 1);
+	  else
+	    {
+	      fatal ("call takes %i arguments (%i given)!\n", nparms, nargs);
+	      retval = NULL;
+	    }
 	}
     }
   else
@@ -435,6 +547,16 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
 		  unsigned char * state = (unsigned char *)objs->state;
 		  retval = state + offset;
 		}
+	      else if (it->T == GPY_MOD)
+		{
+		  /* when part of the type we can access the instance from the state */
+		  offset = it->offset;
+		  unsigned char * state = (unsigned char *)objs->state;
+		  unsigned char * sref = state + offset;
+
+		  void ** ref = (void **) sref;
+		  retval = (unsigned char *) *ref;
+		}
 	      else
 		{
 		  // this is probably an internal C attribute to an object.
@@ -471,7 +593,7 @@ gpy_object_t * gpy_rr_fold_integer (const int x)
 
   gpy_typedef_t * Int_def = __gpy_integer_type_node;
   retval = Int_def->tp_new (Int_def, args);
-  gpy_free(args);
+  gpy_free (args);
   gpy_assert (retval->T == TYPE_OBJECT_STATE);
 
   return retval;
@@ -498,7 +620,8 @@ void gpy_rr_eval_return (gpy_object_t * o)
  **/
 void gpy_rr_eval_print (int fd, int count, ...)
 {
-  va_list vl; int idx;
+  va_list vl;
+  int idx;
   va_start (vl,count);
 
   gpy_object_t * it = NULL;

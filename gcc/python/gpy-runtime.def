@@ -17,16 +17,29 @@ along with GCC; see the file COPYING3.  If not see
 autogen definitions gpy-runtime;
 
 py-runtime = { code = GPY_RR_extendRRStack;
-	       arguments = "tree size, tree id";
-	       proto = "tree, tree";
+	       arguments = "tree size, tree id, tree elems";
+	       proto = "tree, tree, tree";
 	       comment = "/* Extends shizzle */";
                function_identifier = "gpy_rr_extendRRStack";
                fntype = "sizetype,
 	                 integer_type_node,
 			 gpy_const_char_ptr,
+			 ptr_type_node,
 			 NULL_TREE";
 	       build_call = build_call_expr;
-	       build_call_args = "fndecl, 2, size, id";
+	       build_call_args = "fndecl, 3, size, id, elems";
+	     };
+py-runtime = { code = GPY_RR_foldImport;
+	       arguments = "tree decl, tree entry";
+	       proto = "tree, tree";
+	       comment = "/* do flat import */";
+               function_identifier = "gpy_rr_foldImport";
+               fntype = "void_type_node,
+	                 gpy_attrib_type_ptr_ptr,
+			 gpy_const_char_ptr,
+			 NULL_TREE";
+	       build_call = build_call_expr;
+	       build_call_args = "fndecl, 2, decl, entry";
 	     };
 py-runtime = { code = GPY_RR_makeSlice;
 	       arguments = "tree object, tree slice";

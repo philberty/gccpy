@@ -32,7 +32,8 @@ AC_SUBST(libtool_VERSION)
 AC_CANONICAL_SYSTEM
 target_alias=${target_alias-$host_alias}
 
-AM_INIT_AUTOMAKE([1.9.3 no-define foreign -Wall])
+
+AM_INIT_AUTOMAKE([1.9.3 no-define foreign no-dist -Wall -Wno-portability])
 AH_TEMPLATE(PACKAGE, [Name of package])
 AH_TEMPLATE(VERSION, [Version number of package])
 
@@ -122,19 +123,18 @@ AC_HEADER_STDC
 AC_CHECK_HEADERS([stdlib.h string.h stdarg.h unistd.h \
    	      stdint.h stdio.h getopt.h \
 	      assert.h sys/types.h signal.h \
-		    fcntl.h pthread.h sys/wait.h \
-	   	      gmp.h mpfr.h])
+	      fcntl.h pthread.h sys/wait.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_CHECK_FUNCS([popen fopen fclose sprintf fprintf strdup \
-	    	    strlen strcpy strcmp getopt_long \
-	   	   memcpy calloc system sysconf atoi \
-	   	  getpid execl fork wait exit atof \
-	  	 vfprintf memcmp getc fgets pipe \
-		  waitpid fdopen])
+		      strlen strcpy strcmp getopt_long \
+	   	      memcpy calloc system sysconf atoi \
+	   	      getpid execl fork wait exit atof \
+	  	      vfprintf memcmp getc fgets pipe \
+		      waitpid fdopen])
 
 # Checks for library functions.
 AC_FUNC_MALLOC

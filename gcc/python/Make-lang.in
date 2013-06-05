@@ -47,6 +47,17 @@ py-parser.o: $(srcdir)/python/py-parser.y
 	$(COMPILER) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(GPY_CFLAGS) $(INCLUDES) \
 	$(LDFLAGS) -c -o $@ y.py.c
 
+gpy-import-lexer.o: $(srcdir)/python/gpy-import-lexer.l gpy-import-parser.o
+	$(FLEX) --outfile=lex.gpy.c --prefix=IMP $(srcdir)/python/gpy-import-lexer.l
+	$(COMPILER) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(GPY_CFLAGS) $(INCLUDES) \
+	$(LDFLAGS) -c -o $@ lex.gpy.c
+
+gpy-import-parser.o: $(srcdir)/python/gpy-import-parser.y
+	$(BISON) -v --debug --verbose --defines=y.gpy.h --name-prefix=IMP --output=y.gpy.c \
+	$(srcdir)/python/gpy-import-parser.y
+	$(COMPILER) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(GPY_CFLAGS) $(INCLUDES) \
+	$(LDFLAGS) -c -o $@ y.gpy.c
+
 py-lang.o: $(srcdir)/python/py-lang.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
   $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
   gt-python-py-lang.h gtype-python.h
@@ -128,6 +139,8 @@ gpy-data-export.o: $(srcdir)/python/gpy-data-export.cc $(CONFIG_H) $(SYSTEM_H) c
 GPY_OBJS = \
 	py-parser.o \
 	py-lexer.o \
+	gpy-import-parser.o \
+	gpy-import-lexer.o \
 	py-lang.o \
 	dot-hashtab.o \
 	gpy-runtime.o \

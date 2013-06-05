@@ -33,12 +33,16 @@ L
 Python Joined Separate
 ; Not documented
 
-Wall
-Python
-; Documented in c.opt
+fpy-gen-main
+Python Var(GPY_OPT_gen_main) Init(0)
+-fpy-gen-main    Dump out main hook such that compiled module is main
 
 fpy-dump-dot
-Go Var(GPY_OPT_dump_dot) Init(1)
-Makes front-end dump dot IL stuff
+Python Var(GPY_OPT_dump_dot) Init(0)
+-fpy-dump-dot    Makes front-end dump dotIL Types and AST
+
+o
+Python Joined Separate
+; Documented in common.opt
 
 ; This comment is to ensure we retain the blank line above.

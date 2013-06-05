@@ -1,21 +1,21 @@
 /* This file is part of GCC.
 
-GCC is free software; you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free
-Software Foundation; either version 3, or (at your option) any later
-version.
+   GCC is free software; you can redistribute it and/or modify it under
+   the terms of the GNU General Public License as published by the Free
+   Software Foundation; either version 3, or (at your option) any later
+   version.
 
-GCC is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details.
+   GCC is distributed in the hope that it will be useful, but WITHOUT ANY
+   WARRANTY; without even the implied warranty of MERCHANTABILITY or
+   FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+   for more details.
 
-You should have received a copy of the GNU General Public License
-along with GCC; see the file COPYING3.  If not see
-<http://www.gnu.org/licenses/>.  */
+   You should have received a copy of the GNU General Public License
+   along with GCC; see the file COPYING3.  If not see
+   <http://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+# include "config.h"
 #endif
 
 #include <stdio.h>
@@ -68,6 +68,7 @@ gpy_object_t * gpy_object_classobj_new (gpy_typedef_t * type,
   char * ident = gpy_args_lit_parse_string (args[2]);
 
   void * self = gpy_malloc (size);
+  memset (self, 0, size);
   gpy_object_classobj_init_decl_attribs (self, attribs);
 
   gpy_typedef_t * ctype = gpy_malloc (sizeof (gpy_typedef_t));
@@ -98,7 +99,7 @@ gpy_object_t * gpy_object_classobj_new (gpy_typedef_t * type,
   gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, 1,
 			    &ffi_type_void, argsdecl)
 	      == FFI_OK);
-  ffi_call (&cif, (void (*)(void))codeaddr, NULL, values);
+  ffi_call (&cif, FFI_FN (codeaddr), NULL, values);
 
   return retval;
 }

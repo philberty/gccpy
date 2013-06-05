@@ -14,8 +14,8 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>. */
 
-#ifndef __GCC_PY_TREE_H__
-#define __GCC_PY_TREE_H__
+#ifndef __GCC_DOT_TREE_H__
+#define __GCC_DOT_TREE_H__
 
 extern vec<tree,va_gc> * gpy_builtin_types_vec;
 
@@ -61,6 +61,14 @@ extern void dot_pass_manager_ProcessDecl (gpy_dot_tree_t * const);
 extern void gpy_dot_types_init (void);
 
 // gpy-data-export.c
-extern void gpy_write_export_data (const char *, unsigned int);
+struct gpy_dataExport {
+  bool main;
+  char * entry;
+  char * module;
+} ;
+extern void gpy_import_read (const char *);
+extern gpy_dataExport * gpy_readExportData (const char *);
+extern void gpy_pushExportData (struct gpy_dataExport *);
+extern void gpy_writeExport (const char *, bool, const char *, const char *);
 
-#endif //__PYGCC_PY_TREE_H__
+#endif //__GCC_DOT_TREE_H__

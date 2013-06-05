@@ -25,6 +25,7 @@ enum GPY_LIT_T {
   TYPE_ADDR,
   TYPE_ATTRIB_L,
   TYPE_VEC,
+  TYPE_STR_ARRY,
   TYPE_NONE,
 };
 
@@ -43,6 +44,7 @@ typedef struct gpy_rr_literal_t {
     char * string;
     bool boolean;
     unsigned char * addr;
+    char ** sarray;
     struct gpy_object_attrib_t ** attribs;
     struct gpy_object_t ** vec;
   } literal ;
@@ -91,6 +93,7 @@ typedef struct gpy_number_prot_t
 enum GPY_ATTRT {
   GPY_GCCPY,
   GPY_CATTR,
+  GPY_MOD,
   GPY_EMPTY,
 };
 
@@ -131,6 +134,7 @@ extern gpy_object_t * gpy_rr_fold_integer (int);
 
 extern bool gpy_args_check_fmt (gpy_object_t **, const char *);
 
+extern char ** gpy_args_lit_parse_sarray (gpy_object_t *);
 extern int gpy_args_lit_parse_int (gpy_object_t *);
 extern char * gpy_args_lit_parse_string (gpy_object_t *);
 extern unsigned char * gpy_args_lit_parse_pointer (gpy_object_t *);
@@ -150,5 +154,6 @@ extern void gpy_obj_integer_mod_init (gpy_vector_t * const);
 extern void gpy_obj_staticmethod_mod_init (gpy_vector_t * const);
 extern void gpy_obj_func_mod_init (gpy_vector_t * const);
 extern void gpy_obj_list_mod_init (gpy_vector_t * const);
+extern void gpy_obj_module_mod_init (gpy_vector_t * const);
 
 #endif //__GCC_OBJECTS_H__

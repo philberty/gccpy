@@ -110,7 +110,7 @@ gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
       gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
 				&ffi_type_void, args)
 		  == FFI_OK);
-      ffi_call (&cif, (void (*)(void))code, NULL, values);
+      ffi_call (&cif, FFI_FN (code), NULL, values);
     }
   return retval;
 }

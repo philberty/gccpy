@@ -208,8 +208,8 @@ gpy_object_t * gpy_obj_list_getSlice (gpy_object_t * decl,
                                       gpy_object_t * slice)
 {
   gpy_assert (decl->T == TYPE_OBJECT_STATE);
-  gpy_object_t * retval = NULL;  
-  
+  gpy_object_t * retval = NULL;
+
   int idx = gpy_obj_integer_getInt (slice);
   gpy_object_state_t * t = decl->o.object_state;
   struct gpy_object_list * state = (struct gpy_object_list *) t->state;

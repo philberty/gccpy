@@ -51,9 +51,6 @@
 /* Define to 1 if you have the `getc' function. */
 #undef HAVE_GETC
 
-/* Define if _Unwind_GetIPInfo is available. */
-#undef HAVE_GETIPINFO
-
 /* Define to 1 if you have the <getopt.h> header file. */
 #undef HAVE_GETOPT_H
 
@@ -63,17 +60,8 @@
 /* Define to 1 if you have the `getpid' function. */
 #undef HAVE_GETPID
 
-/* Define to 1 if you have the <gmp.h> header file. */
-#undef HAVE_GMP_H
-
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
-
-/* Define to 1 if you have the `gmp' library (-lgmp). */
-#undef HAVE_LIBGMP
-
-/* Define to 1 if you have the `mpfr' library (-lmpfr). */
-#undef HAVE_LIBMPFR
 
 /* Define to 1 if your system has a GNU libc compatible `malloc' function, and
    to 0 otherwise. */
@@ -87,9 +75,6 @@
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
-
-/* Define to 1 if you have the <mpfr.h> header file. */
-#undef HAVE_MPFR_H
 
 /* Define to 1 if you have the `pipe' function. */
 #undef HAVE_PIPE

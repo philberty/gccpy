@@ -738,7 +738,6 @@ with_pic
 enable_fast_install
 enable_libtool_lock
 with_libffi
-with_system_libunwind
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1382,7 +1381,6 @@ Optional Packages:
   --with-pic              try to use only PIC/non-PIC objects @<:@default=use
                           both@:>@
   --without-libffi        don't use libffi
-  --with-system-libunwind use installed libunwind
 
 Some influential environment variables:
   CC          C compiler command
@@ -2228,9 +2226,6 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
 
-
-
-
 ac_config_headers="$ac_config_headers config.h"
 
 
@@ -2372,6 +2367,7 @@ test -n "$target_alias" &&
   program_prefix=${target_alias}-
 
 target_alias=${target_alias-$host_alias}
+
 
 am__api_version='1.11'
 
@@ -3177,10 +3173,12 @@ done
 
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-
+@%:@include <stdio.h>
 int
 main ()
 {
+FILE *f = fopen ("conftest.out", "w");
+ return ferror (f) || fclose (f) != 0;
 
   ;
   return 0;
@@ -5901,7 +5899,14 @@ s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
 	    LD="${LD-ld} -m elf_i386_fbsd"
 	    ;;
 	  x86_64-*linux*)
-	    LD="${LD-ld} -m elf_i386"
+	    case `/usr/bin/file conftest.o` in
+	      *x86-64*)
+		LD="${LD-ld} -m elf32_x86_64"
+		;;
+	      *)
+		LD="${LD-ld} -m elf_i386"
+		;;
+	    esac
 	    ;;
 	  ppc64-*linux*|powerpc64-*linux*)
 	    LD="${LD-ld} -m elf32ppclinux"
@@ -7437,6 +7442,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
 	# AIX 5 now supports IA64 processor
 	lt_prog_compiler_static='-Bstatic'
       fi
+      lt_prog_compiler_pic='-fPIC'
       ;;
 
     amigaos*)
@@ -10781,98 +10787,6 @@ WARN_FLAGS='-Wall -Wextra -Wwrite-strings -Wcast-qual'
 WERROR="-Werror"
 
 
-# Check for GMP, MPFR
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for mpz_init in -lgmp" >&5
-$as_echo_n "checking for mpz_init in -lgmp... " >&6; }
-if test "${ac_cv_lib_gmp_mpz_init+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lgmp  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char mpz_init ();
-int
-main ()
-{
-return mpz_init ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_gmp_mpz_init=yes
-else
-  ac_cv_lib_gmp_mpz_init=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gmp_mpz_init" >&5
-$as_echo "$ac_cv_lib_gmp_mpz_init" >&6; }
-if test "x$ac_cv_lib_gmp_mpz_init" = x""yes; then :
-  cat >>confdefs.h <<_ACEOF
-@%:@define HAVE_LIBGMP 1
-_ACEOF
-
-  LIBS="-lgmp $LIBS"
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for mpfr_init in -lmpfr" >&5
-$as_echo_n "checking for mpfr_init in -lmpfr... " >&6; }
-if test "${ac_cv_lib_mpfr_mpfr_init+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lmpfr  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char mpfr_init ();
-int
-main ()
-{
-return mpfr_init ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_mpfr_mpfr_init=yes
-else
-  ac_cv_lib_mpfr_mpfr_init=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_mpfr_mpfr_init" >&5
-$as_echo "$ac_cv_lib_mpfr_mpfr_init" >&6; }
-if test "x$ac_cv_lib_mpfr_mpfr_init" = x""yes; then :
-  cat >>confdefs.h <<_ACEOF
-@%:@define HAVE_LIBMPFR 1
-_ACEOF
-
-  LIBS="-lmpfr $LIBS"
-
-fi
-
-
 # See if the user wants to configure without libffi.  Some
 # architectures don't support it.  FIXME: We should set a default
 # based on the host.
@@ -11235,42 +11149,7 @@ $as_echo "@%:@define AC_APPLE_UNIVERSAL_BUILD 1" >>confdefs.h
  esac
 
 
-
-  
-@%:@ Check whether --with-system-libunwind was given.
-if test "${with_system_libunwind+set}" = set; then :
-  withval=$with_system_libunwind; 
-fi
-
-  # If system-libunwind was not specifically set, pick a default setting.
-  if test x$with_system_libunwind = x; then
-    case ${target} in
-      ia64-*-hpux*) with_system_libunwind=yes ;;
-      *) with_system_libunwind=no ;;
-    esac
-  fi
-  # Based on system-libunwind and target, do we have ipinfo?
-  if  test x$with_system_libunwind = xyes; then
-    case ${target} in
-      ia64-*-*) have_unwind_getipinfo=no ;;
-      *) have_unwind_getipinfo=yes ;;
-    esac
-  else
-    # Darwin before version 9 does not have _Unwind_GetIPInfo.
-    
-    case ${target} in
-      *-*-darwin[3-8]|*-*-darwin[3-8].*) have_unwind_getipinfo=no ;;
-      *) have_unwind_getipinfo=yes ;;
-    esac
-    
-  fi
-
-  if test x$have_unwind_getipinfo = xyes; then
-    
-$as_echo "@%:@define HAVE_GETIPINFO 1" >>confdefs.h
-
-  fi
-
+GCC_CHECK_UNWIND_GETIPINFO
 
 
 
@@ -11499,10 +11378,9 @@ $as_echo "@%:@define STDC_HEADERS 1" >>confdefs.h
 fi
 
 for ac_header in stdlib.h string.h stdarg.h unistd.h \
-			   	      stdint.h stdio.h getopt.h \
-				      	         assert.h sys/types.h signal.h \
-						 	    fcntl.h pthread.h sys/wait.h \
-							    	      gmp.h mpfr.h
+   	      stdint.h stdio.h getopt.h \
+	      assert.h sys/types.h signal.h \
+	      fcntl.h pthread.h sys/wait.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
 ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
@@ -11621,11 +11499,11 @@ _ACEOF
 fi
 
 for ac_func in popen fopen fclose sprintf fprintf strdup \
-		      	    strlen strcpy strcmp getopt_long \
-			    	   memcpy calloc system sysconf atoi \
-				   	  getpid execl fork wait exit atof \
-					  	 vfprintf memcmp getc fgets pipe \
-						 	  waitpid fdopen
+		      strlen strcpy strcmp getopt_long \
+	   	      memcpy calloc system sysconf atoi \
+	   	      getpid execl fork wait exit atof \
+	  	      vfprintf memcmp getc fgets pipe \
+		      waitpid fdopen
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"

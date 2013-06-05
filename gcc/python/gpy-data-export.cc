@@ -16,31 +16,78 @@
 
 #include "gpython.h"
 
-/* for object read/write */
 #include "simple-object.h"
-#include "output.h"
+#include "rtl.h"
+#include "tm_p.h"
+#include "intl.h"
+#include "output.h"	/* for assemble_string */
 #include "target.h"
 #include "common/common-target.h"
 
-#ifndef PY_EXPORT_SEGMENT_NAME
-#define PY_EXPORT_SEGMENT_NAME "__GNU_PY"
-#endif
+#define GPY_EXPORT_INFO ".export.gpyx"
 
-/* The section name we use when reading and writing export data.  */
+static bool first = true;
+static gpy_hash_tab_t imports;
 
-#ifndef PY_EXPORT_SECTION_NAME
-#define PY_EXPORT_SECTION_NAME ".gpy_export"
-#endif
-
-void gpy_write_export_data (const char * bytes, unsigned int size)
+void gpy_writeExport (const char * fname, bool isMain,
+		      const char * modName,
+		      const char * modInitilizer)
 {
-  static section * sec;
+  debug ("Trying to write export data to %s\n", fname);
 
-  if (sec == NULL)
+  FILE * fd = fopen (fname, "w");
+  if (!fd)
     {
-      gcc_assert (targetm_common.have_named_sections);
-      sec = get_section (PY_EXPORT_SECTION_NAME, SECTION_DEBUG, NULL);
+      error ("Unable to open %s for write of export data\n", fname);
+      return;
     }
-  switch_to_section (sec);
-  assemble_string (bytes, size);
+
+  const char * isMainStr;
+  if (isMain)
+    isMainStr = "True";
+  else
+    isMainStr = "False";
+
+  fprintf (fd, "MODULE \"%s\" {\n", modName);
+  fprintf (fd, "\tHAS_MAIN %s\n", isMainStr);
+  fprintf (fd, "\tENTRY \"%s\"\n}\n", modInitilizer);
+
+  fclose (fd);
+}
+
+void gpy_pushExportData (struct gpy_dataExport * exp)
+{
+  gpy_hashval_t h = gpy_dd_hash_string (exp->module);
+  void ** slot = gpy_dd_hash_insert (h, (void *) exp, &imports);
+  gcc_assert (slot == NULL);
+}
+
+struct gpy_dataExport * gpy_readExportData (const char * module)
+{
+  if (first)
+    {
+      gpy_dd_hash_init_table (&imports);
+      first = false;
+    }
+
+  debug ("Trying to lookup module data on %s\n", module);
+
+  char * buf = (char *) alloca (128);
+  strcpy (buf, module);
+  strcat (buf, GPY_EXPORT_INFO);
+
+  // iterate over the SEARCH_PATH to find the export data..
+  // ... TODO
+  debug ("Trying to open <./%s>\n", buf);
+
+  gpy_import_read (buf);
+  struct gpy_dataExport * ret = NULL;
+
+  gpy_hashval_t h = gpy_dd_hash_string (module);
+  gpy_hash_entry_t * e = gpy_dd_hash_lookup_table (&imports, h);
+  if (e)
+    if (e->data)
+      ret = (struct gpy_dataExport *) e->data;
+
+  return ret;
 }

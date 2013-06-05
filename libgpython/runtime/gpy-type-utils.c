@@ -48,6 +48,7 @@ bool gpy_args_check_fmt (gpy_object_t ** args, const char * fmt)
 	  break;
 
 	case '.':
+	  goto exit;
 	  break;
 
 	case 'i':
@@ -80,6 +81,12 @@ bool gpy_args_check_fmt (gpy_object_t ** args, const char * fmt)
 	  }
 	  break;
 
+	case 'S':
+	  {
+	    GPY_ARG_LIT_CHECK (args, idx, TYPE_STR_ARRY);
+	  }
+	  break;
+
 	default:
 	  {
 	    error ("unhandled literal argument type <%c>!\n", *i);
@@ -88,9 +95,19 @@ bool gpy_args_check_fmt (gpy_object_t ** args, const char * fmt)
 	  break;
 	}
     }
+ exit:
   return retval;
 }
 
+char ** gpy_args_lit_parse_sarray (gpy_object_t * arg)
+{
+  char ** retval = NULL;
+  gpy_assert (arg->T == TYPE_OBJECT_LIT);
+  gpy_assert (arg->o.literal->type == TYPE_STR_ARRY);
+
+  retval = arg->o.literal->literal.sarray;
+  return retval;
+}
 
 int gpy_args_lit_parse_int (gpy_object_t * arg)
 {
