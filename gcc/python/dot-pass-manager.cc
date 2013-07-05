@@ -23,7 +23,7 @@ static dot_pass dot_pass_mngr[] =
   &dot_pass_check1,       /* sanity checks */
   &dot_pass_const_fold,   /* Constant folding */
   &dot_pass_translate,    /* translate/fix the python code for lowering */
-  &dot_pass_PrettyPrint, /* pretty print if -fdump-dot */
+  &dot_pass_PrettyPrint,  /* pretty print if -fdump-dot */
   /*
     Potential to add in more passes here ... just hook the function pointer in here
     and it shall be called and you gain access to the current state of the dot AST.

@@ -141,6 +141,7 @@ extern void yyerror (const char *);
 %type<symbol> attributeref
 %type<symbol> ident
 %type<symbol> while_stmt
+%type<symbol> for_stmt
 %type<symbol> ifblock
 %type<symbol> elifstmt
 %type<symbol> elsestmt
@@ -193,6 +194,7 @@ elifstmt: ELIF expression ':' suite
 
 elsestmt: ELSE ':' suite
         { $$ = dot_build_decl1 (D_STRUCT_ELSE, $3); }
+        ;
 
 elseblock:
          { $$ = NULL; }
@@ -209,20 +211,28 @@ elif_list: elif_list elifstmt
 	   vec_safe_push (gpy_symbol_stack, $1);
 	   $$ = $1;
 	 }
+         ;
 
 elifblock:
          { $$ = NULL; }
          | elif_list
          { $$ = gpy_symbol_stack->pop (); }
+         ;
 
 if_stmt: ifblock elifblock elseblock
        { $$ = dot_build_conditional_struct ($1, $2, $3); }
+       ;
 
 compound_stmt: funcdef
              | classdef
              | while_stmt
              | if_stmt
+             | for_stmt
              ;
+
+for_stmt: FOR ident IN expression ':' suite
+        { $$ = dot_build_for ($2, $4, $6); }
+        ;
 
 classdef: CLASS classname ':' suite
         {

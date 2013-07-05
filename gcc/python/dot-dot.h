@@ -41,6 +41,7 @@ typedef enum {
   D_STRUCT_CLASS,
   D_STRUCT_METHOD,
   D_STRUCT_WHILE,
+  D_STRUCT_FOR,
 
   D_D_EXPR,
   D_TD_COM,
@@ -121,5 +122,6 @@ extern gpy_dot_tree_t * dot_build_decl2 (opcode_t, gpy_dot_tree_t *, gpy_dot_tre
 extern gpy_dot_tree_t * dot_build_integer (int);
 extern gpy_dot_tree_t * dot_build_string (char *);
 extern gpy_dot_tree_t * dot_build_identifier (const char *);
+extern gpy_dot_tree_t * dot_build_for (gpy_dot_tree_t *, gpy_dot_tree_t *, gpy_dot_tree_t *);
 
 #endif /* __GCC_PY_DOTIL_H_ */

@@ -1,18 +1,18 @@
 /* This file is part of GCC.
 
-GCC is free software; you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free
-Software Foundation; either version 3, or (at your option) any later
-version.
-
-GCC is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details.
-
-You should have received a copy of the GNU General Public License
-along with GCC; see the file COPYING3.  If not see
-<http://www.gnu.org/licenses/>.  */
+   GCC is free software; you can redistribute it and/or modify it under
+   the terms of the GNU General Public License as published by the Free
+   Software Foundation; either version 3, or (at your option) any later
+   version.
+   
+   GCC is distributed in the hope that it will be useful, but WITHOUT ANY
+   WARRANTY; without even the implied warranty of MERCHANTABILITY or
+   FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+   for more details.
+   
+   You should have received a copy of the GNU General Public License
+   along with GCC; see the file COPYING3.  If not see
+   <http://www.gnu.org/licenses/>.  */
 
 #include "gpython.h"
 
@@ -20,6 +20,8 @@ static void dot_pass_dump_IL (vec<gpydot,va_gc> *, const char *);
 static void dot_pass_dump_node (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dumpCBlock (FILE *, gpy_dot_tree_t *, int, opcode_t);
 static void dot_pass_dump_conditional (FILE *, gpy_dot_tree_t *, int);
+
+static void dot_pass_dump_for (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_while (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_method (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_class (FILE *, gpy_dot_tree_t *, int);
@@ -142,6 +144,33 @@ void dot_pass_dump_while (FILE * fd, gpy_dot_tree_t * node,
     fprintf (fd, "    ");
 
   fprintf (fd, "while ");
+  dot_pass_dump_expr (fd, DOT_lhs_TT (node));
+  fprintf (fd, " {\n");
+
+  suite = DOT_rhs_TT (node);
+   do {
+    dot_pass_dump_node (fd, suite, indents + 1);
+    fprintf (fd, "\n");
+  }
+  while ((suite = DOT_CHAIN (suite)));
+
+  for (i = 0; i < indents; ++i)
+    fprintf (fd, "    ");
+  fprintf (fd, "}\n");
+}
+
+static
+void dot_pass_dump_for (FILE * fd, gpy_dot_tree_t * node,
+			int indents)
+{
+  gpy_dot_tree_t * suite = NULL_DOT;
+  int i;
+  for (i = 0; i < indents; ++i)
+    fprintf (fd, "    ");
+
+  fprintf (fd, "for ");
+  dot_pass_dump_expr (fd, DOT_FIELD (node));
+  fprintf (fd, " in ");
   dot_pass_dump_expr (fd, DOT_lhs_TT (node));
   fprintf (fd, " {\n");
 
@@ -384,6 +413,10 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 
 	case D_STRUCT_CLASS:
 	  dot_pass_dump_class (fd, node, indents);
+	  break;
+
+	case D_STRUCT_FOR:
+	  dot_pass_dump_for (fd, node, indents);
 	  break;
 
 	default:

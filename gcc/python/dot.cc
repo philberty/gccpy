@@ -91,7 +91,8 @@ gpy_dot_tree_t * dot_build_decl1 (opcode_t o, gpy_dot_tree_t * t1)
   return decl;
 }
 
-gpy_dot_tree_t * dot_build_decl2 (opcode_t o, gpy_dot_tree_t * t1,
+gpy_dot_tree_t * dot_build_decl2 (opcode_t o,
+				  gpy_dot_tree_t * t1,
 				  gpy_dot_tree_t * t2)
 {
   gpy_dot_tree_t * decl = DOT_alloc;
@@ -172,6 +173,27 @@ gpy_dot_tree_t * dot_build_identifier (const char * s)
   decl->opbT = D_TD_NULL;
 
   DOT_CHAIN(decl) = NULL_DOT;
+
+  return decl;
+}
+
+gpy_dot_tree_t * dot_build_for (gpy_dot_tree_t * id,
+				gpy_dot_tree_t * expr,
+				gpy_dot_tree_t * suite)
+{
+  gpy_dot_tree_t * decl = DOT_alloc;
+  memset (decl, 0, sizeof(gpy_dot_tree_t));
+
+  DOT_TYPE (decl) = D_STRUCT_FOR;
+  DOT_FIELD (decl) = id;
+  DOT_T_FIELD (decl) = D_TD_DOT;
+
+  decl->opaT = D_TD_DOT;
+  decl->opa.t = expr;
+  decl->opbT = D_TD_DOT;
+  decl->opb.t = suite;
+
+  DOT_CHAIN (decl) = NULL_DOT;
 
   return decl;
 }

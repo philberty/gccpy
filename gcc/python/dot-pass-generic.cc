@@ -52,6 +52,7 @@ static tree dot_pass_genBinExpr (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 
 static void dot_pass_genConditional (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genWhile (gpy_dot_tree_t *, tree *, dot_contextTable_t);
+static void dot_pass_genFor (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genImport (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genSuite (gpy_dot_tree_t * , tree *, dot_contextTable_t);
 /* ... ... ... */
@@ -528,6 +529,10 @@ void dot_pass_genSuite (gpy_dot_tree_t * decl,
 	  dot_pass_genWhile (node, block, context);
 	  break;
 
+	case D_STRUCT_FOR:
+	  dot_pass_genFor (node, block, context);
+	  break;
+
 	default:
 	  error ("unhandled syntax within suite");
 	  break;
@@ -662,6 +667,30 @@ void dot_pass_genImport (gpy_dot_tree_t * decl,
       tree imp = GPY_RR_foldImport (decl, build_fold_addr_expr (tstr));
       append_to_statement_list (imp, block);
     }
+}
+
+static
+void dot_pass_genFor (gpy_dot_tree_t * decl,
+		      tree * block,
+		      dot_contextTable_t context)
+{
+  debug ("Trying to compile the for loop!\n");
+
+  gpy_dot_tree_t * it = DOT_FIELD (decl);
+  gpy_dot_tree_t * in = DOT_lhs_TT (decl);
+  gpy_dot_tree_t * suite = DOT_rhs (decl);
+
+  fatal_error ("For loops/iterators not implemented yet!\n");
+
+  /* Not sure how to implement this yet... */
+  tree exprVal = dot_pass_lowerExpr (in, context, block);
+
+  /**
+   * Really not sure how to implement iterators at the moment
+   **/
+
+  dot_pass_genSuite (suite, block, context);
+
 }
 
 static
@@ -1504,6 +1533,10 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 
 	case D_STRUCT_WHILE:
 	  dot_pass_genWhile (dot, &block, &context);
+	  break;
+
+	case D_STRUCT_FOR:
+	  dot_pass_genFor (dot, &block, &context);
 	  break;
 
 	case D_KEY_RETURN:
