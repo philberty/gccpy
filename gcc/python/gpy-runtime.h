@@ -35,6 +35,9 @@ extern tree gpy_dot_type_const_string_tree (const char *);
 /* Extends shizzle */
 extern tree GPY_RR_extendRRStack (tree, tree, tree);
 
+/* fold string */
+extern tree GPY_RR_fold_string (tree);
+
 /* do flat import */
 extern tree GPY_RR_foldImport (tree, tree);
 

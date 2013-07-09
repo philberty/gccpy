@@ -25,6 +25,8 @@ static void dot_pass_dump_for (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_while (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_method (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dump_class (FILE *, gpy_dot_tree_t *, int);
+
+static void dot_pass_dumpPrimitive (FILE *, gpy_dot_tree_t *);
 static void dot_pass_dump_expr (FILE *, gpy_dot_tree_t *);
 
 static
@@ -205,14 +207,33 @@ void dot_pass_dump_conditional (FILE * fd, gpy_dot_tree_t * node,
 }
 
 static
+void dot_pass_dumpPrimitive (FILE * fd, gpy_dot_tree_t * node)
+{
+  /* Handle other primitive literal types here ... */
+  switch (DOT_lhs_TC (node)->T)
+    {
+    case D_T_INTEGER:
+      fprintf (fd, "%i", DOT_lhs_TC (node)->o.integer);
+      break;
+
+    case D_T_STRING:
+      fprintf (fd, "\"%s\"", DOT_lhs_TC (node)->o.string);
+      break;
+
+    default:
+      fatal_error ("Something very wrong!\n");
+      break;
+    }
+}
+
+static
 void dot_pass_dumpExprNode (FILE * fd, gpy_dot_tree_t * node)
 {
   /* print expr tree ... */
   switch (DOT_TYPE (node))
     {
     case D_PRIMITIVE:
-      /* all are integers for now... */
-      fprintf (fd, "%i", DOT_lhs_TC (node)->o.integer);
+      dot_pass_dumpPrimitive (fd, node);
       break;
 
     case D_IDENTIFIER:

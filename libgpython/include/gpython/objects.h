@@ -73,8 +73,7 @@ typedef struct gpy_object_t {
 typedef void (*staticmethod_fndecl)(gpy_object_t **);
 typedef void (*classmethod_fndecl) (gpy_object_t *, gpy_object_t **);
 typedef gpy_object_t * (*binary_op)(gpy_object_t *, gpy_object_t *);
-typedef struct gpy_number_prot_t
-{
+typedef struct gpy_number_prot_t {
   binary_op n_add; // x + y
   binary_op n_sub; // x - y
   binary_op n_div; // x / y

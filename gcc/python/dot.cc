@@ -151,10 +151,24 @@ gpy_dot_tree_t * dot_build_integer (int i)
   return decl;
 }
 
-gpy_dot_tree_t * dot_build_string (char * s ATTRIBUTE_UNUSED)
+gpy_dot_tree_t * dot_build_string (char * s)
 {
-  fatal_error ("unhandled function <gpy_dot_tree_t * dot_build_string (const char *)>");
-  return NULL_DOT;
+  gpy_dot_tree_t * decl = DOT_alloc;
+  DOT_TYPE (decl) = D_PRIMITIVE;
+
+  DOT_FIELD (decl) = NULL_DOT;
+  DOT_T_FIELD (decl) = D_TD_NULL;
+
+  decl->opaT = D_TD_COM;
+  decl->opa.tc = DOT_CM_alloc;
+
+  decl->opa.tc->T = D_T_STRING;
+  decl->opa.tc->o.string = xstrdup (s);
+
+  decl->opbT = D_TD_NULL;
+  DOT_CHAIN (decl) = NULL_DOT;
+
+  return decl;
 }
 
 gpy_dot_tree_t * dot_build_identifier (const char * s)

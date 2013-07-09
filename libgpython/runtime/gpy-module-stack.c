@@ -74,6 +74,7 @@ void gpy_rr_init_primitives (void)
   gpy_obj_classmethod_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_list_mod_init (__GPY_GLOBL_PRIMITIVES);
   gpy_obj_module_mod_init (__GPY_GLOBL_PRIMITIVES);
+  gpy_obj_string_mod_init (__GPY_GLOBL_PRIMITIVES);
 }
 
 static
@@ -574,12 +575,38 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
   return retval;
 }
 
+gpy_object_t * gpy_rr_fold_string (char * string)
+{
+  gpy_object_t * retval = NULL_OBJECT;
+
+  gpy_object_t ** args = (gpy_object_t **)
+    gpy_calloc (2, sizeof (gpy_object_t *));
+  gpy_assert (args);
+
+  gpy_literal_t s;
+  s.type = TYPE_STRING;
+  s.literal.string = string;
+
+  gpy_object_t s1 = { .T = TYPE_OBJECT_LIT, .o.literal = &s };
+  gpy_object_t s2 = { .T = TYPE_NULL, .o.literal = NULL };
+
+  args [0] = &s1;
+  args [1] = &s2;
+
+  gpy_typedef_t * Str_def = __gpy_string_type_node;
+  retval = Str_def->tp_new (Str_def, args);
+  gpy_free (args);
+  gpy_assert (retval->T == TYPE_OBJECT_STATE);
+
+  return retval;
+}
+
 gpy_object_t * gpy_rr_fold_integer (const int x)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   gpy_object_t ** args = (gpy_object_t **)
-    gpy_calloc (2, sizeof(gpy_object_t*));
+    gpy_calloc (2, sizeof(gpy_object_t *));
 
   gpy_literal_t i;
   i.type = TYPE_INTEGER;

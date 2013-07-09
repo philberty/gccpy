@@ -46,6 +46,8 @@ typedef struct gpy_module_info {
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[5]
 #define __gpy_module_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[6]
+#define __gpy_string_type_node				\
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES->vector[7]
 
 extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
 extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);

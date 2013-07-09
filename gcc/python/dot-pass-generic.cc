@@ -451,6 +451,20 @@ tree dot_pass_genScalar (gpy_dot_tree_t * decl, tree * block)
       }
       break;
 
+    case D_T_STRING:
+      {
+	retval = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			     create_tmp_var_name ("PI"),
+                             gpy_object_type_ptr);
+	tree fstr = gpy_dot_type_const_string_tree (DOT_lhs_TC (decl)->o.string);
+	tree fold_call = GPY_RR_fold_string (build_fold_addr_expr (fstr));
+        append_to_statement_list (build2 (MODIFY_EXPR,
+					  gpy_object_type_ptr,
+					  retval, fold_call),
+                                  block);
+      }
+      break;
+
     default:
       error ("invalid scalar type!\n");
       break;
@@ -676,20 +690,11 @@ void dot_pass_genFor (gpy_dot_tree_t * decl,
 {
   debug ("Trying to compile the for loop!\n");
 
-  gpy_dot_tree_t * it = DOT_FIELD (decl);
+  /*  gpy_dot_tree_t * it = DOT_FIELD (decl);
   gpy_dot_tree_t * in = DOT_lhs_TT (decl);
-  gpy_dot_tree_t * suite = DOT_rhs (decl);
+  gpy_dot_tree_t * suite = DOT_rhs (decl);*/
 
   fatal_error ("For loops/iterators not implemented yet!\n");
-
-  /* Not sure how to implement this yet... */
-  tree exprVal = dot_pass_lowerExpr (in, context, block);
-
-  /**
-   * Really not sure how to implement iterators at the moment
-   **/
-
-  dot_pass_genSuite (suite, block, context);
 
 }
 
