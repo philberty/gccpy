@@ -775,7 +775,17 @@ gpy_object_t * gpy_rr_eval_expression (gpy_object_t * x1,
       o = binops_l.n_eee;
       break;
 
-      /* FINISH .... */
+    case 11:
+      o = binops_l.n_nee;
+      break;
+
+    case 12:
+      o = binops_l.n_orr;
+      break;
+
+    case 13:
+      o = binops_l.n_and;
+      break;
 
     default:
       fatal("unhandled binary operation <%x>!\n", op );

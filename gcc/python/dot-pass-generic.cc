@@ -998,6 +998,11 @@ tree dot_pass_genBinExpr (gpy_dot_tree_t * decl, tree * block,
 				   build_int_cst (integer_type_node, 10));
       break;
 
+    case D_NOT_EQ_EXPR:
+      op = GPY_RR_eval_expression (lhs_eval, rhs_eval,
+				   build_int_cst (integer_type_node, 11));
+      break;
+
     default:
       error ("unhandled binary operation type!\n");
       break;
@@ -1112,7 +1117,13 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
       {
 	tree lookup = dot_pass_lookupDecl (context,
 					   DOT_IDENTIFIER_POINTER (dot));
-	gcc_assert (lookup != error_mark_node);
+
+	//debug ("IDENT lExpr lookup %s!\n", DOT_IDENTIFIER_POINTER (dot));
+	//gcc_assert (lookup != error_mark_node);
+	if (lookup == error_mark_node)
+	  fatal_error ("Identifier <%s> was not found in this scope\n",
+		       DOT_IDENTIFIER_POINTER (dot));
+
 	switch (TREE_CODE (lookup))
 	  {
 	  case VAR_DECL:
@@ -1278,6 +1289,8 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 	  case D_LESS_EXPR:
 	  case D_GREATER_EXPR:
 	  case D_EQ_EQ_EXPR:
+	  case D_NOT_EQ_EXPR:
+	    /* TODO remember to add the rest of the bin ops */
 	    retval = dot_pass_genBinExpr (dot, block, context);
 	    break;
 

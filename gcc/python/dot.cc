@@ -109,6 +109,7 @@ gpy_dot_tree_t * dot_build_decl2 (opcode_t o,
       || (o == D_LESS_EQ_EXPR)
       || (o == D_GREATER_EXPR)
       || (o == D_GREATER_EQ_EXPR)
+      || (o == D_NOT_EQ_EXPR)
       )
     DOT_T_FIELD(decl) = D_D_EXPR;
   else

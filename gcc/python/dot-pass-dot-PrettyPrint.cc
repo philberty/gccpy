@@ -354,6 +354,10 @@ void dot_pass_dump_expr (FILE * fd, gpy_dot_tree_t * node)
 	    fprintf (fd, " == ");
 	    break;
 
+	  case D_NOT_EQ_EXPR:
+	    fprintf (fd, " != ");
+	    break;
+
 	  default:
 	    fatal_error ("unhandled dump!\n");
 	    break;

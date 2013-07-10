@@ -390,6 +390,8 @@ expression_stmt: target_list '=' expression_stmt
           { $$ = dot_build_decl2 (D_GREATER_EXPR, $1, $3); }
           | expression_stmt EQUAL_EQUAL expression_stmt
           { $$ = dot_build_decl2 (D_EQ_EQ_EXPR, $1, $3); }
+          | expression_stmt NOT_EQUAL expression_stmt
+          { $$ = dot_build_decl2 (D_NOT_EQ_EXPR, $1, $3); }
           | '(' expression_stmt ')'
           { $$ = $2; }
           | primary

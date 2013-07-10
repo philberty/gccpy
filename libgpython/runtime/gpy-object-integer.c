@@ -282,6 +282,43 @@ gpy_obj_integer_equal_to (gpy_object_t * o1, gpy_object_t * o2)
   return retval;
 }
 
+gpy_object_t *
+gpy_obj_integer_not_eq_to (gpy_object_t * o1, gpy_object_t * o2)
+{
+  gpy_object_t * retval = NULL_OBJECT;
+
+  gpy_object_state_t * x = o1->o.object_state;
+  gpy_object_state_t * y = o2->o.object_state;
+
+  if (!strcmp (x->identifier, "Int"))
+    {
+      if (!strcmp (y->identifier, "Int"))
+	{
+	  struct gpy_obj_integer_t * t1 = (struct gpy_obj_integer_t *)
+	    x->state;
+	  struct gpy_obj_integer_t * t2 = (struct gpy_obj_integer_t *)
+	    y->state;
+
+	  int x = t1->Int;
+	  int y = t2->Int;
+	  int z = 0;
+
+	  if (x != y)
+	    z = 1;
+	  retval = gpy_rr_fold_integer (z);
+	}
+      else
+	{
+	  fatal ("invalid object type <%s>!\n", y->identifier);
+	}
+    }
+  else
+    {
+      fatal ("invalid object type <%s>!\n", x->identifier);
+    }
+  return retval;
+}
+
 bool gpy_obj_integer_eval_bool (gpy_object_t * x)
 {
   bool retval = false;
@@ -305,7 +342,7 @@ static struct gpy_number_prot_t integer_binary_ops = {
   &gpy_obj_integer_greater_than,
   NULL,
   &gpy_obj_integer_equal_to,
-  NULL,
+  &gpy_obj_integer_not_eq_to,
   NULL,
   NULL,
 };
