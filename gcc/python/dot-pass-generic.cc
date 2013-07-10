@@ -900,6 +900,30 @@ tree dot_pass_genModifyExpr (gpy_dot_tree_t * decl,
       }
       break;
 
+    case D_SLICE:
+      {
+	tree addr_rhs_tree = dot_pass_lowerExpr (rhs, context, block);
+	gcc_assert (TREE_TYPE (addr_rhs_tree) == gpy_object_type_ptr);
+
+	tree ident = dot_pass_lowerExpr (DOT_lhs_TT (lhs), context, block);
+	tree slice = dot_pass_lowerExpr (DOT_rhs_TT (lhs), context, block);
+
+	tree sla = GPY_RR_makeRefSlice (ident, slice);
+	gcc_assert (TREE_TYPE (sla) == gpy_object_type_ptr_ptr);
+
+	tree tmp = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			       create_tmp_var_name ("MSLA"),
+			       gpy_object_type_ptr_ptr);
+	append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr,
+					  tmp, sla),
+				  block);
+	append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr,
+					  build_fold_indirect_ref (tmp), addr_rhs_tree),
+				  block);
+	retval = tmp;
+      }
+      break;
+
     default:
       error ("unhandled target or target list in modify expression\n");
       break;
@@ -1072,7 +1096,15 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
       {
         tree ident = dot_pass_lowerExpr (DOT_lhs_TT (dot), context, block);
         tree slice = dot_pass_lowerExpr (DOT_rhs_TT (dot), context, block);
-        retval = GPY_RR_makeSlice (ident, slice);
+	
+	tree sla = GPY_RR_makeSlice (ident, slice);
+	tree tmp = build_decl (UNKNOWN_LOCATION, VAR_DECL,
+			       create_tmp_var_name ("SLA"),
+			       gpy_object_type_ptr);
+	append_to_statement_list (build2 (MODIFY_EXPR, gpy_object_type_ptr,
+					  tmp, sla),
+				  block);
+	retval = tmp;
       }
       break;
 

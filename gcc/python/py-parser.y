@@ -362,6 +362,7 @@ target: IDENTIFIER
 	gpy_dot_tree_t *dot = dot_build_identifier ($1);
 	$$ = dot;
       }
+      | slicing
       | attributeref
       ;
 

@@ -236,7 +236,7 @@ gpy_object_t * gpy_rr_fold_encList (int n, ...)
   va_start (ap, n);
 
   gpy_object_t ** elems = (gpy_object_t **)
-    gpy_calloc (n+1, sizeof (gpy_object_t *));
+    gpy_calloc (n + 1, sizeof (gpy_object_t *));
 
   int i;
   for (i = 0; i < n; ++i)
@@ -394,17 +394,28 @@ gpy_object_t * gpy_rr_fold_classmethod_decl (const char * identifier,
   return retval;
 }
 
-gpy_object_t * gpy_rr_getSlice (gpy_object_t * decl, gpy_object_t * slice)
+gpy_object_t ** gpy_rr_getRefSlice (gpy_object_t * decl, gpy_object_t * slice)
 {
-  gpy_object_t * retval = NULL;
   gpy_typedef_t * type = decl->o.object_state->definition;
 
   if (type->tp_slice)
-    retval = type->tp_slice (decl, slice);
+    return type->tp_ref_slice (decl, slice);
   else
-    fatal ("Object <%p> has no slice hook!\n", (void *)decl);
+    fatal ("Object <%p> has no slice assign hook!\n", (void *) decl);
 
-  return retval;
+  return NULL;
+}
+
+gpy_object_t * gpy_rr_getSlice (gpy_object_t * decl, gpy_object_t * slice)
+{
+  gpy_typedef_t * type = decl->o.object_state->definition;
+
+  if (type->tp_slice)
+    return type->tp_slice (decl, slice);
+  else
+    fatal ("Object <%p> has no slice hook!\n", (void *) decl);
+
+  return NULL;
 }
 
 void gpy_rr_foldImport (gpy_object_t ** decl,

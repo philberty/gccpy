@@ -64,6 +64,18 @@ py-runtime = { code = GPY_RR_makeSlice;
 	       build_call = build_call_expr;
 	       build_call_args = "fndecl, 2, object, slice";
              };
+py-runtime = { code = GPY_RR_makeRefSlice;
+	       arguments = "tree object, tree slice";
+	       proto = "tree, tree";
+	       comment = "/* Get slice of object */";
+               function_identifier = "gpy_rr_getRefSlice";
+               fntype = "gpy_object_type_ptr_ptr,
+	                 gpy_object_type_ptr,
+			 gpy_object_type_ptr,
+			 NULL_TREE";
+	       build_call = build_call_expr;
+	       build_call_args = "fndecl, 2, object, slice";
+             };
 py-runtime = { code = GPY_RR_fold_attrib;
 	       arguments = "tree ident, tree addr, tree offset, tree nargs";
 	       proto = "tree, tree, tree, tree";

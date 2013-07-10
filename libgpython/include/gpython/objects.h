@@ -123,6 +123,7 @@ typedef struct gpy_typedef_t {
   struct gpy_object_attrib_t ** members_defintion;
   struct gpy_builtinAttribs_t * builtins;
   gpy_object_t * (*tp_slice)(gpy_object_t *, gpy_object_t *);
+  gpy_object_t ** (*tp_ref_slice)(gpy_object_t *, gpy_object_t *);
 } gpy_typedef_t ;
 
 #define NULL_OBJ_STATE (gpy_object_state_t *) NULL

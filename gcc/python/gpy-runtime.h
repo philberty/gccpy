@@ -44,6 +44,9 @@ extern tree GPY_RR_foldImport (tree, tree);
 /* Get slice of object */
 extern tree GPY_RR_makeSlice (tree, tree);
 
+/* Get slice of object */
+extern tree GPY_RR_makeRefSlice (tree, tree);
+
 /* Fold attribute info into an attribute type */
 extern tree GPY_RR_fold_attrib (tree, tree, tree, tree);
 
