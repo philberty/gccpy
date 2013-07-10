@@ -497,7 +497,8 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
       // since we dont need the self reference, this will be NULL
       // on normal calls outside of attrib references on modules
       bool iscmeth = false;
-      if (!strcmp ("classmethod", type->identifier))
+      if (!strcmp ("classmethod", type->identifier) ||
+	  !strcmp ("func", type->identifier))
 	iscmeth = true;
 
       if (iscmeth)
@@ -663,7 +664,7 @@ void gpy_rr_eval_print (int fd, int count, ...)
   va_start (vl,count);
 
   gpy_object_t * it = NULL;
-  for (idx = 0; idx<count; ++idx)
+  for (idx = 0; idx < count; ++idx)
     {
       it = va_arg (vl, gpy_object_t *);
       struct gpy_typedef_t * definition = it->o.object_state->definition;
