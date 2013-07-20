@@ -17,6 +17,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gpython.h"
 
 static void dot_pass_dump_type (FILE *, tree);
+#define GPY_DOT_EXT "-types.dot"
 
 static
 void dot_pass_dump_type (FILE * fd, tree decl)
@@ -40,7 +41,12 @@ void dot_pass_pretty_PrintTypes (vec<tree,va_gc> * decls)
 {
   if (GPY_OPT_dump_dot)
     {
-      FILE * fd = fopen ("gccpy-types.dot", "w");
+      char * buf = (char *) alloca (128);
+      gcc_assert (buf);
+      strcpy (buf, GPY_current_module_name);
+      strcat (buf, GPY_DOT_EXT);
+
+      FILE * fd = fopen (buf, "w");
       gcc_assert (fd);
 
       int i;
