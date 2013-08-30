@@ -93,32 +93,29 @@ void __gpy_fatal__( const char * file, unsigned line,
 
 /* --- memory allocators --- */
 
-inline
-void * gpy_malloc( size_t s )
+void * gpy_malloc (size_t s)
 {
-  register void * retval = malloc( s );
-  if( !retval )
-    fatal("virtual memory exhausted!\n");
+  register void * retval = malloc (s);
+  if (!retval)
+    fatal ("virtual memory exhausted!\n");
 
   return retval;
 }
 
-inline
-void * gpy_realloc( void * p, size_t s )
+void * gpy_realloc (void * p, size_t s)
 {
-  register void * retval = realloc( p, s );
-  if( !retval )
-    fatal("virtual memory exhausted!\n");
+  register void * retval = realloc (p, s);
+  if (!retval)
+    fatal ("virtual memory exhausted!\n");
 
   return retval;
 }
 
-inline
-void * gpy_calloc( size_t n, size_t s )
+void * gpy_calloc (size_t n, size_t s)
 {
-  register void * retval = calloc( n , s );
-  if( !retval )
-    fatal("virtual memory exhausted!\n");
+  register void * retval = calloc (n, s);
+  if (!retval)
+    fatal ("virtual memory exhausted!\n");
 
   return retval;
 }

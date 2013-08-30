@@ -63,7 +63,9 @@ typedef enum {
   D_LESS_EQ_EXPR,
   D_GREATER_EXPR,
   D_GREATER_EQ_EXPR,
-  D_NOT_EQ_EXPR
+  D_NOT_EQ_EXPR,
+  
+  GLOBAL_STMT
 } opcode_t ;
 
 typedef struct GTY(()) gpy_tree_common_dot_t {

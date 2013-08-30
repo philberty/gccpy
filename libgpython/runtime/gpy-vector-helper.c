@@ -45,7 +45,7 @@ gpy_hash_entry_t *
 gpy_dd_hash_lookup_table (gpy_hash_tab_t * tbl, gpy_hashval_t h)
 {
   gpy_hash_entry_t * retval = NULL;
-  if (tbl->array)
+  if (tbl->array != NULL)
     {
       gpy_hashval_t size = tbl->size, idx = (h % size);
       gpy_hash_entry_t *array = tbl->array;
@@ -60,9 +60,6 @@ gpy_dd_hash_lookup_table (gpy_hash_tab_t * tbl, gpy_hashval_t h)
         }
       retval = (array+idx);
     }
-  else
-    retval= NULL;
-
   return retval;
 }
 
@@ -112,35 +109,22 @@ void gpy_dd_hash_grow_table (gpy_hash_tab_t * tbl)
     gpy_free (prev_array);
 }
 
-inline
-void gpy_dd_hash_init_table (gpy_hash_tab_t * tb)
-{
-  tb->size = 0;
-  tb->length = 0;
-  tb->array = NULL;
-}
-
-inline
-void gpy_vec_init (gpy_vector_t * const v)
-{
-  v->size = gpy_threshold_alloc (0);
-  v->vector = (void **) gpy_calloc (v->size, sizeof (void *));
-  v->length = 0;
-}
-
 void gpy_vec_push (gpy_vector_t * const v, void * const s)
 {
-  if (s)
+  if (v->size == 0)
     {
-      if (v->length >= v->size)
-	{
-	  signed long size = gpy_threshold_alloc (v->size);
-	  v->vector = (void**) gpy_realloc (v->vector, size * sizeof (void *));
-	  v->size = size;
-	}
-      v->vector[v->length] = s;
-      v->length++;
+      v->size = gpy_threshold_alloc (0);
+      v->vector = (void **) gpy_calloc (v->size, sizeof (void*));
+      v->length = 0;
     }
+  else if (v->length >= v->size)
+    {
+      v->size = gpy_threshold_alloc (v->size);
+      v->vector = (void**) gpy_realloc (v->vector,
+					v->size * sizeof (void *));
+    }
+  v->vector[v->length] = s;
+  v->length++;
 }
 
 inline
@@ -152,32 +136,23 @@ void * gpy_vec_pop (gpy_vector_t * const v)
       retval = v->vector[v->length-1];
       v->length--;
     }
-
   return retval;
 }
 
 void * gpy_vec_index (int idx, gpy_vector_t * const v)
 {
   void * retval = NULL;
-  if (v)
+  if ((idx >= 0) && (idx < v->length))
     {
-      if ((idx >= 0) && (idx < v->length))
-	{
-	  retval = v->vector[idx];
-	}
-      else
-	fatal("vector index <%i> out of bounds!\n", idx );
+      retval = v->vector[idx];
     }
+  else
+    fatal ("vector index <%i> out of bounds!\n", idx);
   return retval;
 }
 
 void gpy_vec_free (gpy_vector_t * v)
 {
-  if (v)
-    {
-      if (v->vector)
-	gpy_free (v->vector);
-      gpy_free (v);
-    }
-  v = NULL;
+  if (v->vector)
+    gpy_free (v->vector);
 }

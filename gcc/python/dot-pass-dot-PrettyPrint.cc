@@ -426,6 +426,24 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	  }
 	  break;
 
+	case GLOBAL_STMT:
+	  {
+	    int i;
+	    for (i = 0; i < indents; ++i)
+	      fprintf (fd, "    ");
+	    gpy_dot_tree_t * args = NULL;
+	    fprintf (fd, "global (");
+	    for (args = DOT_lhs_TT (node); args!= NULL_DOT;
+		 args = DOT_CHAIN (args))
+	      {
+		dot_pass_dump_expr (fd, args);
+		if (DOT_CHAIN (args))
+		  fprintf (fd, ", ");
+	      }
+	    fprintf (fd, ")");
+	  }
+	  break;
+
 	case D_STRUCT_CONDITIONAL:
 	  dot_pass_dump_conditional (fd, node, indents);
 	  break;
