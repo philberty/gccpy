@@ -1,3 +1,33 @@
+2013-08-06  Ian Lance Taylor  <iant@google.com>
+
+	* go-gcc.cc (Gcc_backend::immutable_struct_set_init): Use
+	compute_reloc_for_constant.
+
+2013-08-02  Ian Lance Taylor  <iant@google.com>
+
+	* go-gcc.cc (immutable_struct_set_init): Always call
+	resolve_unique_section.
+
+2013-07-24  Ian Lance Taylor  <iant@google.com>
+
+	* go-gcc.cc (Gcc_backend::non_zero_size_type): If a struct has a
+	fields, recreate those fields with the first one with a non-zero
+	size.
+
+2013-06-18  Ian Lance Taylor  <iant@google.com>
+
+	* go-gcc.cc (Gcc_backend::immutable_struct): Add is_hidden
+	parameter.
+	(Gcc_backend::immutable_struct_set_init): Likewise.
+
+2013-05-31  Release Manager
+
+	* GCC 4.8.1 released.
+
+2013-03-22  Release Manager
+
+	* GCC 4.8.0 released.
+
 2013-01-16  Shenghou Ma  <minux.ma@gmail.com>
 
 	* gospec.c: pass -u pthread_create to linker when static linking.

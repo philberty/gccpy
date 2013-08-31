@@ -2,21 +2,28 @@
    Copyright (C) 2012-2013 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
-   This file is part of GCC.
+This file is part of GCC.
 
-   GCC is free software; you can redistribute it and/or modify it
-   under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+GCC is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 3, or (at your option) any later
+version.
 
-   GCC is distributed in the hope that it will be useful, but
-   WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   General Public License for more details.
+GCC is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GCC; see the file COPYING3.  If not see
-   <http://www.gnu.org/licenses/>.  */
+Under Section 7 of GPL version 3, you are granted additional
+permissions described in the GCC Runtime Library Exception, version
+3.1, as published by the Free Software Foundation.
+
+You should have received a copy of the GNU General Public License and
+a copy of the GCC Runtime Library Exception along with this program;
+see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+<http://www.gnu.org/licenses/>.  */
+
+void __aarch64_sync_cache_range (const void *, const void *);
 
 void
 __aarch64_sync_cache_range (const void *base, const void *end)
@@ -43,7 +50,7 @@ __aarch64_sync_cache_range (const void *base, const void *end)
   address = (const char*) ((__UINTPTR_TYPE__) base
 			   & ~ (__UINTPTR_TYPE__) (dcache_lsize - 1));
 
-  for (address; address < (const char *) end; address += dcache_lsize)
+  for (; address < (const char *) end; address += dcache_lsize)
     asm volatile ("dc\tcvau, %0"
 		  :
 		  : "r" (address)
@@ -55,7 +62,7 @@ __aarch64_sync_cache_range (const void *base, const void *end)
   address = (const char*) ((__UINTPTR_TYPE__) base
 			   & ~ (__UINTPTR_TYPE__) (icache_lsize - 1));
 
-  for (address; address < (const char *) end; address += icache_lsize)
+  for (; address < (const char *) end; address += icache_lsize)
     asm volatile ("ic\tivau, %0"
 		  :
 		  : "r" (address)
