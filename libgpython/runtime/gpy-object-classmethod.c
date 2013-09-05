@@ -41,16 +41,16 @@ struct gpy_object_classmethod_t {
 extern char * gpy_object_classmethod_ident (gpy_object_t *);
 
 gpy_object_t * gpy_object_classmethod_new (gpy_typedef_t * type,
-					   gpy_object_t ** args)
+					   gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "s,p,i.");
   gpy_assert (check);
 
-  char * id = gpy_args_lit_parse_string (args[0]);
-  unsigned char * code_addr = gpy_args_lit_parse_pointer (args[1]);
-  int nargs = gpy_args_lit_parse_int (args[2]);
+  char * id = gpy_args_lit_parse_string (&args[0]);
+  unsigned char * code_addr = gpy_args_lit_parse_pointer (&args[1]);
+  int nargs = gpy_args_lit_parse_int (&args[2]);
 
   struct gpy_object_classmethod_t * self = gpy_malloc (type->state_size);
   self->identifier = id;
@@ -66,19 +66,19 @@ gpy_object_t * gpy_object_classmethod_new (gpy_typedef_t * type,
 void gpy_object_classmethod_dealloc (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  gpy_free (object_state->state);
-  object_state->state = NULL;
+  gpy_free (object_state.state);
+  object_state.state = NULL;
 }
 
 void gpy_object_classmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 {
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
   fprintf (fd, "bound method %s @ <%p> ",
 	   gpy_object_classmethod_ident (self),
-	   (void *)self);
+	   (void *) self);
   if (newline)
     fprintf (fd, "\n");
 }
@@ -128,22 +128,25 @@ gpy_object_t * gpy_object_classmethod_call (gpy_object_t * self,
 
 unsigned char * gpy_object_classmethod_getaddr (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_classmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_classmethod_t * s =
+    (struct gpy_object_classmethd_t *) state.state;
   return s->code;
 }
 
 int gpy_object_classmethod_nparms (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_classmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_classmethod_t * s =
+    (struct gpy_object_classmethod_t *) state.state;
   return s->nargs;
 }
 
 char * gpy_object_classmethod_ident (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_classmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_classmethod_t * s =
+    (struct gpy_object_classmethod_t *) state.state;
   return s->identifier;
 }
 

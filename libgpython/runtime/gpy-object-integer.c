@@ -33,20 +33,19 @@ struct gpy_obj_integer_t {
 };
 
 gpy_object_t * gpy_obj_integer_new (gpy_typedef_t * type,
-				    gpy_object_t ** args)
+				    gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "i.");
   gpy_assert (check);
 
-  int val = gpy_args_lit_parse_int (args[0]);
+  int val = gpy_args_lit_parse_int (&args[0]);
   struct gpy_obj_integer_t * self = (struct gpy_obj_integer_t *)
     gpy_malloc (sizeof (struct gpy_obj_integer_t));
   self->Int = val;
 
   retval = gpy_create_object_state (type, self);
-
   return retval;
 }
 
@@ -54,23 +53,22 @@ gpy_object_t * gpy_obj_integer_new (gpy_typedef_t * type,
 void gpy_obj_integer_destroy (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  struct gpy_obj_integer_t *x1 = (struct gpy_obj_integer_t *)
-    x->state;
-
+  gpy_object_state_t x = OBJECT_STATE (self);
+  struct gpy_obj_integer_t *x1 =
+    (struct gpy_obj_integer_t *) x.state;
   gpy_free (x1);
-  x->state = NULL;
+  x.state = NULL;
 }
 
 void gpy_obj_integer_print (gpy_object_t * self, FILE * fd, bool newline)
 {
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  struct gpy_obj_integer_t *x1 = (struct gpy_obj_integer_t *)
-    x->state;
+  gpy_object_state_t x = OBJECT_STATE (self);
+
+  struct gpy_obj_integer_t *x1 =
+    (struct gpy_obj_integer_t *) x.state;
 
   fprintf (fd, "%i ", x1->Int);
-
   if (newline)
     fprintf (fd, "\n");
 }
@@ -78,41 +76,36 @@ void gpy_obj_integer_print (gpy_object_t * self, FILE * fd, bool newline)
 int gpy_obj_integer_getInt (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  gpy_assert (!strcmp (x->definition->identifier, "Int"));
+  gpy_object_state_t x = OBJECT_STATE (self);
+  gpy_assert (!strcmp (OBJECT_DEFINITION (self)->identifier, "Int"));
 
-  struct gpy_obj_integer_t *x1 = (struct gpy_obj_integer_t *)
-    x->state;
-  return (x1->Int);
+  struct gpy_obj_integer_t *x1 =
+    (struct gpy_obj_integer_t *) x.state;
+  return x1->Int;
 }
 
 gpy_object_t *
 gpy_obj_integer_add (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
-	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
-	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
+	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x.state;
+	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y.state;
 
           int z = t1->Int + t2->Int;
 	  retval = gpy_rr_fold_integer (z);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+      fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
@@ -120,29 +113,24 @@ gpy_object_t *
 gpy_obj_integer_minus (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
-	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
-	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
+	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x.state;
+	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y.state;
 
           int z = t1->Int - t2->Int;
 	  retval = gpy_rr_fold_integer (z);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+    fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
@@ -150,29 +138,24 @@ gpy_object_t *
 gpy_obj_integer_mult (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
-	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
-	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
+	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x.state;
+	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y.state;
 
           int z = t1->Int * t2->Int;
 	  retval = gpy_rr_fold_integer (z);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+    fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
@@ -181,34 +164,26 @@ gpy_object_t *
 gpy_obj_integer_less_than (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
-	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
-	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
+	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x.state;
+	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y.state;
 
 	  int x = t1->Int;
 	  int y = t2->Int;
-	  int z = 0;
-
-	  if (x < y)
-	    z = 1;
-	  retval = gpy_rr_fold_integer (z);
+	  
+	  retval = gpy_rr_fold_integer (x < y);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+    fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
@@ -216,34 +191,25 @@ gpy_object_t *
 gpy_obj_integer_greater_than (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
-	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
-	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
+	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x.state;
+	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y.state;
 
 	  int x = t1->Int;
 	  int y = t2->Int;
-	  int z = 0;
-
-	  if (x > y)
-	    z = 1;
-	  retval = gpy_rr_fold_integer (z);
+	  retval = gpy_rr_fold_integer (x > y);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+    fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
@@ -251,34 +217,25 @@ gpy_object_t *
 gpy_obj_integer_equal_to (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
-	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x->state;
-	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y->state;
+	  struct gpy_obj_integer_t *t1 = (struct gpy_obj_integer_t*) x.state;
+	  struct gpy_obj_integer_t *t2 = (struct gpy_obj_integer_t*) y.state;
 
 	  int x = t1->Int;
 	  int y = t2->Int;
-	  int z = 0;
-
-	  if (x == y)
-	    z = 1;
-	  retval = gpy_rr_fold_integer (z);
+	  retval = gpy_rr_fold_integer (x == y);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+    fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
@@ -286,48 +243,39 @@ gpy_object_t *
 gpy_obj_integer_not_eq_to (gpy_object_t * o1, gpy_object_t * o2)
 {
   gpy_object_t * retval = NULL_OBJECT;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
-
-  if (!strcmp (x->identifier, "Int"))
+  if (!strcmp (x.identifier, "Int"))
     {
-      if (!strcmp (y->identifier, "Int"))
+      if (!strcmp (y.identifier, "Int"))
 	{
 	  struct gpy_obj_integer_t * t1 = (struct gpy_obj_integer_t *)
-	    x->state;
+	    x.state;
 	  struct gpy_obj_integer_t * t2 = (struct gpy_obj_integer_t *)
-	    y->state;
+	    y.state;
 
 	  int x = t1->Int;
 	  int y = t2->Int;
-	  int z = 0;
-
-	  if (x != y)
-	    z = 1;
-	  retval = gpy_rr_fold_integer (z);
+	  retval = gpy_rr_fold_integer (x != y);
 	}
       else
-	{
-	  fatal ("invalid object type <%s>!\n", y->identifier);
-	}
+	fatal ("invalid object type <%s>!\n", y.identifier);
     }
   else
-    {
-      fatal ("invalid object type <%s>!\n", x->identifier);
-    }
+    fatal ("invalid object type <%s>!\n", x.identifier);
   return retval;
 }
 
 bool gpy_obj_integer_eval_bool (gpy_object_t * x)
 {
   bool retval = false;
-  gpy_object_state_t * t = x->o.object_state;
-  struct gpy_obj_integer_t *state = (struct gpy_obj_integer_t*) t->state;
+  gpy_object_state_t t = OBJECT_STATE (x);
+  struct gpy_obj_integer_t *state = (struct gpy_obj_integer_t*)
+    t.state;
 
   if (state->Int)
     retval = true;
-
   return retval;
 }
 

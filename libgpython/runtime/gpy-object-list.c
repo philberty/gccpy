@@ -35,15 +35,15 @@ struct gpy_object_list {
 };
 
 gpy_object_t * gpy_obj_list_new (gpy_typedef_t * type,
-				 gpy_object_t ** args)
+				 gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "i,V.");
   gpy_assert (check);
 
-  int len = gpy_args_lit_parse_int (args [0]);
-  gpy_object_t ** vec = gpy_args_lit_parse_vec (args [1]);
+  int len = gpy_args_lit_parse_int (&args [0]);
+  gpy_object_t ** vec = gpy_args_lit_parse_vec (&args [1]);
 
   struct gpy_object_list * self = (struct gpy_object_list *)
     gpy_malloc (sizeof (struct gpy_object_list));
@@ -66,12 +66,10 @@ gpy_object_t * gpy_obj_list_new (gpy_typedef_t * type,
 void gpy_obj_list_destroy (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  struct gpy_obj_list *x1 = (struct gpy_obj_list *)
-    x->state;
+  gpy_object_state_t x = OBJECT_STATE (self);
 
-  gpy_free (x1);
-  x->state = NULL;
+  gpy_free (x.state);
+  x.state = NULL;
 }
 
 void gpy_obj_list_print (gpy_object_t * self,
@@ -79,9 +77,9 @@ void gpy_obj_list_print (gpy_object_t * self,
 			 bool newline)
 {
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  struct gpy_object_list * state = (struct gpy_object_list *)
-    x->state;
+  gpy_object_state_t x = OBJECT_STATE (self);
+  struct gpy_object_list * state =
+    (struct gpy_object_list *) x.state;
 
   gpy_object_t ** gvec = state->vector;
   fprintf (fd, "[");
@@ -89,7 +87,7 @@ void gpy_obj_list_print (gpy_object_t * self,
   for (i = 0; i < state->length; ++i)
     {
       gpy_object_t * node = gvec [i];
-      struct gpy_typedef_t * def = node->o.object_state->definition;
+      struct gpy_typedef_t * def = OBJECT_DEFINITION (node);
       def->tp_print (node, stdout, false);
 
       if (i < (state->length - 1))
@@ -107,18 +105,18 @@ gpy_obj_list_add (gpy_object_t * o1, gpy_object_t * o2)
   gpy_assert (o1->T == TYPE_OBJECT_STATE);
   gpy_assert (o2->T == TYPE_OBJECT_STATE);
 
-  gpy_object_state_t * x = o1->o.object_state;
-  gpy_object_state_t * y = o2->o.object_state;
+  gpy_object_state_t x = OBJECT_STATE (o1);
+  gpy_object_state_t y = OBJECT_STATE (o2);
 
-  if (strcmp (x->identifier, "List") != 0 ||
-      strcmp (y->identifier, "List") != 0)
-    {
-      fatal ("invalid object types for '+': <%s> and <%s>\n",
-             x->identifier, y->identifier);
-    }
+  const char * id1 = OBJECT_DEFINITION (o1)->identifier;
+  const char * id2 = OBJECT_DEFINITION (o2)->identifier;
+  if (strcmp (id1, "List") != 0 || strcmp (id2, "List") != 0)
+      fatal ("invalid object types for '+': <%s> and <%s>\n", id1, id2);
 
-  struct gpy_object_list * l1 = (struct gpy_object_list *) x->state;
-  struct gpy_object_list * l2 = (struct gpy_object_list *) y->state;
+  struct gpy_object_list * l1 =
+    (struct gpy_object_list *) x.state;
+  struct gpy_object_list * l2 =
+    (struct gpy_object_list *) y.state;
 
   int n = l1->length + l2->length;
   int ns = gpy_threshold_alloc (n + 1);
@@ -153,9 +151,9 @@ gpy_object_t * gpy_obj_list_append (gpy_object_t * self,
 				    gpy_object_t ** args)
 {
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  struct gpy_object_list * state = (struct gpy_object_list *)
-    x->state;
+  gpy_object_state_t x = OBJECT_STATE (self);
+  struct gpy_object_list * state =
+    (struct gpy_object_list *) x.state;
 
   gpy_object_t * append = *args;
   gpy_assert (append);
@@ -173,14 +171,15 @@ gpy_object_t * gpy_obj_list_append (gpy_object_t * self,
   return NULL;
 }
 
-static bool
-gpy_obj_list_eval_bool (gpy_object_t * x)
+static
+bool gpy_obj_list_eval_bool (gpy_object_t * x)
 {
   gpy_assert (x->T == TYPE_OBJECT_STATE);
 
   bool retval = false;
-  gpy_object_state_t * t = x->o.object_state;
-  struct gpy_object_list * state = (struct gpy_object_list *) t->state;
+  gpy_object_state_t t = OBJECT_STATE (x);
+  struct gpy_object_list * state =
+    (struct gpy_object_list *) t.state;
   
   if (state->length > 0)
     retval = true;
@@ -201,8 +200,9 @@ gpy_object_t ** gpy_obj_list_getRefSlice (gpy_object_t * decl,
   gpy_object_t ** retval = NULL;
 
   int i = gpy_obj_integer_getInt (slice);
-  gpy_object_state_t * t = decl->o.object_state;
-  struct gpy_object_list * state = (struct gpy_object_list *) t->state;
+  gpy_object_state_t t = OBJECT_STATE (decl);
+  struct gpy_object_list * state =
+    (struct gpy_object_list *) t.state;
 
   if ((i >= 0) && (i < state->length))
       retval = state->vector + i;

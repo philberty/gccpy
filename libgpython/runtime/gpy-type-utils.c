@@ -30,11 +30,11 @@ along with GCC; see the file COPYING3.  If not see
 #include <gpython/runtime.h>
 
 #define GPY_ARG_LIT_CHECK(A,I,X)				\
-  gpy_assert (A[I]->T == TYPE_OBJECT_LIT);			\
-  gpy_assert (A[I]->o.literal->type == X);			\
+  gpy_assert (A[I].T == TYPE_OBJECT_LIT);			\
+  gpy_assert (A[I].o.literal.type == X);			\
   ++I;
 
-bool gpy_args_check_fmt (gpy_object_t ** args, const char * fmt)
+bool gpy_args_check_fmt (gpy_object_t * args, const char * fmt)
 {
   bool retval = true;
 
@@ -103,9 +103,9 @@ char ** gpy_args_lit_parse_sarray (gpy_object_t * arg)
 {
   char ** retval = NULL;
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
-  gpy_assert (arg->o.literal->type == TYPE_STR_ARRY);
+  gpy_assert (arg->o.literal.type == TYPE_STR_ARRY);
 
-  retval = arg->o.literal->literal.sarray;
+  retval = arg->o.literal.literal.sarray;
   return retval;
 }
 
@@ -113,9 +113,9 @@ int gpy_args_lit_parse_int (gpy_object_t * arg)
 {
   int retval = -1;
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
-  gpy_assert (arg->o.literal->type == TYPE_INTEGER);
+  gpy_assert (arg->o.literal.type == TYPE_INTEGER);
 
-  retval = arg->o.literal->literal.integer;
+  retval = arg->o.literal.literal.integer;
 
   return retval;
 }
@@ -124,9 +124,9 @@ char * gpy_args_lit_parse_string (gpy_object_t * arg)
 {
   char * retval = NULL;
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
-  gpy_assert (arg->o.literal->type == TYPE_STRING);
+  gpy_assert (arg->o.literal.type == TYPE_STRING);
 
-  retval = strdup (arg->o.literal->literal.string);
+  retval = strdup (arg->o.literal.literal.string);
 
   return retval;
 }
@@ -135,9 +135,9 @@ unsigned char * gpy_args_lit_parse_pointer (gpy_object_t * arg)
 {
   unsigned char * retval = NULL;
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
-  gpy_assert (arg->o.literal->type == TYPE_ADDR);
+  gpy_assert (arg->o.literal.type == TYPE_ADDR);
 
-  retval = arg->o.literal->literal.addr;
+  retval = arg->o.literal.literal.addr;
 
   return retval;
 }
@@ -146,9 +146,9 @@ gpy_object_attrib_t ** gpy_args_lit_parse_attrib_table (gpy_object_t * arg)
 {
   gpy_object_attrib_t ** retval = NULL;
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
-  gpy_assert (arg->o.literal->type == TYPE_ATTRIB_L);
+  gpy_assert (arg->o.literal.type == TYPE_ATTRIB_L);
 
-  retval = arg->o.literal->literal.attribs;
+  retval = arg->o.literal.literal.attribs;
 
   return retval;
 }
@@ -157,9 +157,9 @@ gpy_object_t ** gpy_args_lit_parse_vec (gpy_object_t * arg)
 {
   gpy_object_t ** retval = NULL;
   gpy_assert (arg->T == TYPE_OBJECT_LIT);
-  gpy_assert (arg->o.literal->type == TYPE_VEC);
+  gpy_assert (arg->o.literal.type == TYPE_VEC);
 
-  retval = arg->o.literal->literal.vec;
+  retval = arg->o.literal.literal.vec;
 
   return retval;
 }
@@ -167,17 +167,14 @@ gpy_object_t ** gpy_args_lit_parse_vec (gpy_object_t * arg)
 gpy_object_t * gpy_create_object_decl (gpy_typedef_t * type,
 				       void * self)
 {
-  gpy_object_state_t * state = (gpy_object_state_t *)
-    gpy_malloc (sizeof(gpy_object_state_t));
-  state->identifier = strdup (type->identifier);
-  state->ref_count = 0;
-  state->state = self;
-  state->definition = type;
-
   gpy_object_t * retval = (gpy_object_t *)
     gpy_malloc (sizeof(gpy_object_t));
+
   retval->T = TYPE_OBJECT_DECL;
-  retval->o.object_state = state;
+  OBJECT_STATE (retval).identifier = strdup (type->identifier);
+  OBJECT_STATE (retval).ref_count = 0;
+  OBJECT_STATE (retval).state = self;
+  OBJECT_STATE (retval).definition = type;
 
   return retval;
 }
@@ -185,17 +182,14 @@ gpy_object_t * gpy_create_object_decl (gpy_typedef_t * type,
 gpy_object_t * gpy_create_object_state (gpy_typedef_t * type,
 					void * self)
 {
-  gpy_object_state_t * state = (gpy_object_state_t *)
-    gpy_malloc (sizeof(gpy_object_state_t));
-  state->identifier = strdup (type->identifier);
-  state->ref_count = 0;
-  state->state = self;
-  state->definition = type;
-
   gpy_object_t * retval = (gpy_object_t *)
     gpy_malloc (sizeof(gpy_object_t));
+
   retval->T = TYPE_OBJECT_STATE;
-  retval->o.object_state = state;
+  OBJECT_STATE (retval).identifier = strdup (type->identifier);
+  OBJECT_STATE (retval).ref_count = 0;
+  OBJECT_STATE (retval).state = self;
+  OBJECT_STATE (retval).definition = type;
 
   return retval;
 }
@@ -215,9 +209,7 @@ void gpy_wrap_builtins (gpy_typedef_t * const type, size_t len)
 	{
 	  atm = builtins [idx];
 	  gpy_object_t * builtin = NULL_OBJECT;
-
-	  gpy_object_t ** args = (gpy_object_t **)
-	    gpy_calloc (4, sizeof(gpy_object_t*));
+	  gpy_object_t args[4];
 
 	  gpy_literal_t i;
 	  i.type = TYPE_STRING;
@@ -231,19 +223,17 @@ void gpy_wrap_builtins (gpy_typedef_t * const type, size_t len)
 	  n.type = TYPE_INTEGER;
 	  n.literal.integer = atm.nargs;
 
-	  gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = &i };
-	  gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = &p };
-	  gpy_object_t a3 = { .T = TYPE_OBJECT_LIT, .o.literal = &n };
-	  gpy_object_t a4 = { .T = TYPE_NULL, .o.literal = NULL };
+	  gpy_object_t a1 = { .T = TYPE_OBJECT_LIT, .o.literal = i };
+	  gpy_object_t a2 = { .T = TYPE_OBJECT_LIT, .o.literal = p };
+	  gpy_object_t a3 = { .T = TYPE_OBJECT_LIT, .o.literal = n };
 
-	  args[0] = &a1;
-	  args[1] = &a2;
-	  args[2] = &a3;
-	  args[3] = &a4;
+	  args[0] = a1;
+	  args[1] = a2;
+	  args[2] = a3;
+	  args[3] = NULL_OBJECT_REF;
 
 	  gpy_typedef_t * def = __gpy_func_type_node;
 	  builtin = def->tp_new (def, args);
-	  gpy_free (args);
 	  gpy_assert (builtin->T == TYPE_OBJECT_DECL);
 
 	  folded [idx] = builtin;

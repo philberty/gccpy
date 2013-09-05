@@ -38,20 +38,20 @@ struct gpy_object_staticmethod_t {
   unsigned int nargs;
 };
 
-/* args = code addr/nargs */
 gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
-					    gpy_object_t ** args)
+					    gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "s,p,i.");
   gpy_assert (check);
 
-  char * id = gpy_args_lit_parse_string (args[0]);
-  unsigned char * code_addr = gpy_args_lit_parse_pointer (args[1]);
-  int nargs = gpy_args_lit_parse_int (args[2]);
+  char * id = gpy_args_lit_parse_string (&args[0]);
+  unsigned char * code_addr = gpy_args_lit_parse_pointer (&args[1]);
+  int nargs = gpy_args_lit_parse_int (&args[2]);
 
-  struct gpy_object_staticmethod_t * self = gpy_malloc (type->state_size);
+  struct gpy_object_staticmethod_t * self =
+    (struct gpy_object_staticmethod_t *) gpy_malloc (type->state_size);
   self->identifier = id;
   self->code = code_addr;
   self->nargs = nargs;
@@ -65,15 +65,15 @@ gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
 void gpy_object_staticmethod_dealloc (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  gpy_free (object_state->state);
-  object_state->state = NULL;
+  gpy_free (object_state.state);
+  object_state.state = NULL;
 }
 
 void gpy_object_staticmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 {
-  fprintf (fd, "static method instance <%p> ", (void *)self);
+  fprintf (fd, "static method instance <%p> ", (void *) self);
   if (newline)
     fprintf (fd, "\n");
 }
@@ -136,15 +136,17 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
 
 int gpy_object_staticmethod_nparms (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_staticmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_staticmethod_t * s =
+    (struct gpy_object_staticmethod_t *) state.state;
   return s->nargs;
 }
 
 unsigned char * gpy_object_staticmethod_getaddr (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_staticmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_staticmethod_t * s =
+    (struct gpy_object_staticmethod_t *) state.state;
   return s->code;
 }
 
