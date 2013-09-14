@@ -385,9 +385,10 @@ void dot_pass_setupContext (tree module,
 			   get_identifier ("__MOD_INIT_CHK"),
 			   boolean_type_node);
   TREE_STATIC (moduleInit) = 1;
-  TREE_PUBLIC (moduleInit) = 1;
+  TREE_PUBLIC (moduleInit) = 0;
   TREE_USED (moduleInit) = 1;
   DECL_INITIAL(moduleInit) = boolean_false_node;
+
   rest_of_decl_compilation (moduleInit, 1, 0);
   vec_safe_push (generic, stack_offset);
 }
