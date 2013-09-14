@@ -128,6 +128,13 @@ extern gpy_object_t NULL_OBJECT_REF;
 #define OBJECT_STATE(x_)       x_->o.object_state
 #define OBJECT_DEFINITION(x_)  OBJECT_STATE(x_).definition
 
+typedef void (*gpy_ffiCall0)(void);
+typedef void (*gpy_ffiCall1)(gpy_object_t *);
+typedef void (*gpy_ffiCall2)(gpy_object_t *, gpy_object_t *);
+typedef void (*gpy_ffiCall3)(gpy_object_t *, gpy_object_t *, gpy_object_t *);
+typedef void (*gpy_ffiCall4)(gpy_object_t *, gpy_object_t *, gpy_object_t *, gpy_object_t *);
+typedef void (*gpy_ffiCall5)(gpy_object_t *, gpy_object_t *, gpy_object_t *, gpy_object_t *, gpy_object_t *);
+
 extern void gpy_rr_init_runtime (void);
 extern gpy_object_t * gpy_rr_fold_integer (int);
 
