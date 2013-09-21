@@ -63,7 +63,6 @@ void gpy_obj_string_print (gpy_object_t * self,
 			   FILE * fd,
 			   bool newline)
 {
-  
   gpy_assert (self->T == TYPE_OBJECT_STATE);
   gpy_object_state_t x = OBJECT_STATE (self);
   struct gpy_object_string * state =

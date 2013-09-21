@@ -85,9 +85,9 @@ gpy_object_t * gpy_object_classobj_new (gpy_typedef_t * type,
   retval = gpy_create_object_decl (ctype, self);
 
   /* we need to walk though the field_init here */
-  unsigned char * __field_init__ = gpy_rr_eval_attrib_reference (retval,
+  gpy_object_t ** __field_init__ = gpy_rr_eval_attrib_reference (retval,
 								 "__field_init__");
-  gpy_object_t * field_init = *((gpy_object_t **) __field_init__);
+  gpy_object_t * field_init = *__field_init__;
   unsigned char * codeaddr = gpy_object_classmethod_getaddr (field_init);
 
   ffi_cif cif;
@@ -181,8 +181,8 @@ gpy_object_t * gpy_object_classobj_call (gpy_object_t * self,
   retval = gpy_create_object_state (type, newstate);
   gpy_assert (retval);
 
-  unsigned char * __init__ = gpy_rr_eval_attrib_reference (retval, "__init__");
-  gpy_object_t * init = *((gpy_object_t **) __init__);
+  gpy_object_t ** __init__ = gpy_rr_eval_attrib_reference (retval, "__init__");
+  gpy_object_t * init = *__init__;
 
   gpy_assert (init->T == TYPE_OBJECT_DECL);
   gpy_typedef_t * calltype = OBJECT_DEFINITION (init);
@@ -200,8 +200,8 @@ gpy_object_t * gpy_object_classobj_call (gpy_object_t * self,
 int gpy_object_classobj_nparms (gpy_object_t * self)
 {
   int retval = 0;
-  unsigned char * __init__ = gpy_rr_eval_attrib_reference (self, "__init__");
-  gpy_object_t * init = *((gpy_object_t **) __init__);
+  gpy_object_t ** __init__ = gpy_rr_eval_attrib_reference (self, "__init__");
+  gpy_object_t * init = *__init__;
 
   gpy_assert (init->T == TYPE_OBJECT_DECL);
   gpy_typedef_t * calltype = OBJECT_DEFINITION (init);

@@ -6,6 +6,7 @@ lib_LTLIBRARIES = libgpython.la
 
 AM_CPPFLAGS = -I$(top_srcdir)/include
 AM_YFLAGS = -d --verbose
+AM_CFLAGS = -std=gnu99 -Wall -Werror
 
 library_includedir = $(includedir)/gpython
 library_include_HEADERS = \
@@ -14,8 +15,8 @@ library_include_HEADERS = \
 	include/gpython/vectors.h \
 	include/gpython/objects.h
 
-libgpython_la_CFLAGS = -DGPYHON -DSHARED  $(LIBFFIINCS) $(PTHREAD_CFLAGS)
-libgpython_la_LDFLAGS = -release 0.0.0 $(PTHREAD_CFLAGS) $(AM_LDFLAGS)
+libgpython_la_CFLAGS = -DGPYHON -DSHARED -Wall -Werror $(LIBFFIINCS) $(PTHREAD_CFLAGS)
+libgpython_la_LDFLAGS = -release 0.1.0 $(PTHREAD_CFLAGS) $(AM_LDFLAGS)
 libgpython_la_LIBADD = $(LIBFFI) $(PTHREAD_LIBS) $(MATH_LIBS)
 libgpython_la_SOURCES = \
 	runtime/gpy-gogo.c \
@@ -28,6 +29,8 @@ libgpython_la_SOURCES = \
 	runtime/gpy-object-func.c \
 	runtime/gpy-object-module.c \
 	runtime/gpy-object-string.c \
+	runtime/gpy-object-dict.c \
+	runtime/gpy-builtin-sys.c \
 	runtime/gpy-osdep-routines.c \
 	runtime/gpy-vector-helper.c \
 	runtime/gpy-type-utils.c \

@@ -130,7 +130,7 @@ unsigned char * gpy_object_classmethod_getaddr (gpy_object_t * self)
 {
   gpy_object_state_t state = OBJECT_STATE (self);
   struct gpy_object_classmethod_t * s =
-    (struct gpy_object_classmethd_t *) state.state;
+    (struct gpy_object_classmethod_t *) state.state;
   return s->code;
 }
 

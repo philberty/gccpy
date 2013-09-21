@@ -30,29 +30,32 @@ typedef struct gpy_module_info {
   char ** idents;
 } gpy_moduleInfo_t;
 
-
 /* to the internal types... */
 #define __gpy_func_type_node				\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[0]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [0]
 #define __gpy_integer_type_node				\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[1]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [1]
 #define __gpy_staticmethod_type_node			\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[2]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [2]
 #define __gpy_class_type_node				\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[3]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [3]
 #define __gpy_classmethod_type_node			\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[4]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [4]
 #define __gpy_list_type_node				\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[5]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [5]
 #define __gpy_module_type_node				\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[6]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [6]
 #define __gpy_string_type_node				\
-  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector[7]
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [7]
+#define __gpy_dict_type_node				\
+  (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [8]
 
 extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
 extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);
-extern unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t *, const char *);
+extern gpy_object_t ** gpy_rr_eval_attrib_reference (gpy_object_t *, const char *);
 
 extern void gpy_rr_eval_print (int, int, ...);
+extern void gpy_rr_foldImport (gpy_object_t **, const char *);
+extern gpy_object_t * gpy_rr_fold_string (const char *);
 
 #endif //__GCC_RUNTIME_H__

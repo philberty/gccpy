@@ -161,5 +161,6 @@ extern void gpy_obj_staticmethod_mod_init (gpy_vector_t * const);
 extern void gpy_obj_func_mod_init (gpy_vector_t * const);
 extern void gpy_obj_list_mod_init (gpy_vector_t * const);
 extern void gpy_obj_module_mod_init (gpy_vector_t * const);
+extern void gpy_obj_dict_mod_init (gpy_vector_t * const);
 
 #endif //__GCC_OBJECTS_H__

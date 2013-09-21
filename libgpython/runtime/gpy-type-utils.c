@@ -183,7 +183,7 @@ gpy_object_t * gpy_create_object_state (gpy_typedef_t * type,
 					void * self)
 {
   gpy_object_t * retval = (gpy_object_t *)
-    gpy_malloc (sizeof(gpy_object_t));
+    gpy_malloc (sizeof (gpy_object_t));
 
   retval->T = TYPE_OBJECT_STATE;
   OBJECT_STATE (retval).identifier = strdup (type->identifier);

@@ -51,9 +51,9 @@ __STACK
  -> MODULE_B
 ...
 */
-#define __GPY_INIT_LEN              3
-static int __GPY_GLOBL_modOffs = 0;
-static int __GPY_GLOBAL_STACK_LEN = 0;
+#define __GPY_INIT_LEN                3
+static int __GPY_GLOBL_modOffs      = 0;
+static int __GPY_GLOBAL_STACK_LEN   = 0;
 static gpy_hash_tab_t stack_table;
 
 static bool __GPY_GLOBAL_RETURN;
@@ -76,6 +76,7 @@ void gpy_rr_init_primitives (void)
   gpy_obj_list_mod_init (&__GPY_GLOBL_PRIMITIVES);
   gpy_obj_module_mod_init (&__GPY_GLOBL_PRIMITIVES);
   gpy_obj_string_mod_init (&__GPY_GLOBL_PRIMITIVES);
+  gpy_obj_dict_mod_init (&__GPY_GLOBL_PRIMITIVES);
 }
 
 static
@@ -84,26 +85,25 @@ void gpy_rr_init_runtime_stack (void)
   __GPY_GLOBAL_RETURN = false;
   gpy_rr_init_primitives ();
 
-  __GPY_MODULE_RR_STACK = (gpy_object_t **) gpy_calloc
-    (__GPY_INIT_LEN, sizeof (gpy_object_t *));
-
-  *__GPY_MODULE_RR_STACK = gpy_rr_fold_integer (__GPY_INIT_LEN);
-  __GPY_RR_STACK_PTR = (__GPY_MODULE_RR_STACK + __GPY_INIT_LEN);
+  __GPY_MODULE_RR_STACK = (gpy_object_t **)
+    gpy_calloc (__GPY_INIT_LEN,	sizeof (gpy_object_t *));
 
   __GPY_GLOBAL_STACK_LEN += __GPY_INIT_LEN;
+  __GPY_MODULE_RR_STACK [0] = gpy_rr_fold_integer (__GPY_GLOBAL_STACK_LEN);
+  __GPY_RR_STACK_PTR = __GPY_MODULE_RR_STACK + __GPY_INIT_LEN;
 }
 
 /* remember to update the stack pointer's and the stack size */
 void gpy_rr_extend_runtime_stack (int nslots)
 {
   // calculate the size of reallocation
-  size_t size = sizeof (gpy_object_t *) * (__GPY_INIT_LEN + nslots);
+  size_t size = sizeof (gpy_object_t *) * (__GPY_GLOBAL_STACK_LEN + nslots);
   __GPY_MODULE_RR_STACK = gpy_realloc (__GPY_MODULE_RR_STACK, size);
-  __GPY_GLOBAL_STACK_LEN += nslots;
 
-  // update the stack pointer to the begining of all modules
-  __GPY_RR_STACK_PTR = __GPY_MODULE_RR_STACK;
-  __GPY_RR_STACK_PTR += __GPY_GLOBAL_STACK_LEN + (nslots - 1);
+  __GPY_GLOBAL_STACK_LEN += nslots;
+  __GPY_RR_STACK_PTR = __GPY_MODULE_RR_STACK + __GPY_INIT_LEN;
+  //gpy_free (__GPY_MODULE_RR_STACK [0]);
+  __GPY_MODULE_RR_STACK [0] = gpy_rr_fold_integer (__GPY_GLOBAL_STACK_LEN);
 }
 
 /* More of a helper function than trying to do this directly in GENERIC */
@@ -112,8 +112,7 @@ char ** gpy_rr_modAttribList (int n, ...)
   char ** retval = NULL;
   if (n > 0)
     {
-      retval = (char **)
-	gpy_calloc (n + 1, sizeof (char *));
+      retval = (char **) gpy_calloc (n + 1, sizeof (char *));
 
       va_list ap;
       va_start (ap, n);
@@ -223,6 +222,12 @@ gpy_object_attrib_t ** gpy_rr_fold_attrib_list (int n, ...)
       retval[idx] = NULL;
       va_end (ap);
     }
+  return retval;
+}
+
+gpy_object_t * gpy_rr_fold_encDict (int n, ...)
+{
+  gpy_object_t * retval = NULL;
   return retval;
 }
 
@@ -399,6 +404,27 @@ gpy_object_t * gpy_rr_getSlice (gpy_object_t * decl, gpy_object_t * slice)
   return NULL;
 }
 
+void gpy_rr_foldBuiltinImport (gpy_object_t ** decl,
+			       const unsigned builtin)
+{
+  gpy_object_t * val = NULL;
+  switch (builtin)
+    {
+      /* import sys... */
+    case 1:
+      {
+	// call init sys.. then fold the module
+	gpy_builtin_sys_init ();
+	gpy_rr_foldImport (decl, "sys");
+      }
+      break;
+
+    default:
+      fatal ("Unable to import builtin!\n");
+      break;
+    }
+}
+
 void gpy_rr_foldImport (gpy_object_t ** decl,
 			const char * module)
 {
@@ -514,10 +540,10 @@ gpy_object_t * gpy_rr_fold_call (gpy_object_t * decl, int nargs, ...)
   return retval;
 }
 
-unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
+gpy_object_t ** gpy_rr_eval_attrib_reference (gpy_object_t * base,
 					      const char * attrib)
 {
-  unsigned char * retval = NULL;
+  gpy_object_t ** retval = NULL;
   gpy_typedef_t * type = OBJECT_DEFINITION (base);
   struct gpy_object_attrib_t ** members = type->members_defintion;
   gpy_object_state_t objs = OBJECT_STATE (base);
@@ -535,7 +561,7 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
 		  /* when part of the type we can access the instance from the state */
 		  offset = it->offset;
 		  unsigned char * state = (unsigned char *)objs.state;
-		  retval = state + offset;
+		  retval = (gpy_object_t **) (state + offset);
 		}
 	      else if (it->T == GPY_MOD)
 		{
@@ -545,13 +571,13 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
 		  unsigned char * sref = state + offset;
 
 		  void ** ref = (void **) sref;
-		  retval = (unsigned char *) *ref;
+		  retval = (gpy_object_t **) *ref;
 		}
 	      else
 		{
 		  // this is probably an internal C attribute to an object.
 		  gpy_assert (it->T = GPY_CATTR);
-		  retval = (unsigned char *) &(it->addr);
+		  retval = (gpy_object_t **) &(it->addr);
 		}
 	      break;
 	    }
@@ -564,14 +590,14 @@ unsigned char * gpy_rr_eval_attrib_reference (gpy_object_t * base,
   return retval;
 }
 
-gpy_object_t * gpy_rr_fold_string (char * string)
+gpy_object_t * gpy_rr_fold_string (const char * string)
 {
   gpy_object_t * retval = NULL_OBJECT;
   gpy_object_t args[2];
 
   gpy_literal_t s;
   s.type = TYPE_STRING;
-  s.literal.string = string;
+  s.literal.string = (char *) string;
 
   gpy_object_t lit = { .T = TYPE_OBJECT_LIT, .o.literal = s };
   args [0] = lit;

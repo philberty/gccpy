@@ -71,4 +71,7 @@ extern gpy_dataExport * gpy_readExportData (const char *);
 extern void gpy_pushExportData (struct gpy_dataExport *);
 extern void gpy_writeExport (const char *, bool, const char *, const char *);
 
+// gpy-builtins.c
+extern int gpy_checkBuiltin (const char *);
+
 #endif //__GCC_DOT_TREE_H__

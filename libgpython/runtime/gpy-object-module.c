@@ -36,7 +36,7 @@ gpy_object_attrib_t ** gpy_obj_module_fill (int len, char ** idents,
 {
   gpy_object_attrib_t ** attribs = (gpy_object_attrib_t **)
     gpy_calloc (len + 1, sizeof (gpy_object_attrib_t *));
-  memset (attribs, 0, len * sizeof (gpy_object_attrib_t *));
+  memset (attribs, 0, (len + 1) * sizeof (gpy_object_attrib_t *));
 
   unsigned char ** selfptr = (unsigned char **) self;
 
