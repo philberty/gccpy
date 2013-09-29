@@ -594,6 +594,15 @@ Assignment_statement::do_check_types(Gogo*)
 
   Type* lhs_type = this->lhs_->type();
   Type* rhs_type = this->rhs_->type();
+
+  // Invalid assignment of nil to the blank identifier.
+  if (lhs_type->is_sink_type()
+      && rhs_type->is_nil_type())
+    {
+      this->report_error(_("use of untyped nil"));
+      return;
+    }
+
   std::string reason;
   bool ok;
   if (this->are_hidden_fields_ok_)
@@ -975,7 +984,10 @@ Tuple_assignment_statement::do_lower(Gogo*, Named_object*, Block* enclosing,
 
       if ((*plhs)->is_sink_expression())
 	{
-	  b->add_statement(Statement::make_statement(*prhs, true));
+          if ((*prhs)->type()->is_nil_type())
+            this->report_error(_("use of untyped nil"));
+          else
+            b->add_statement(Statement::make_statement(*prhs, true));
 	  continue;
 	}
 
@@ -1658,46 +1670,23 @@ Statement::make_tuple_type_guard_assignment(Expression* val, Expression* ok,
 						   location);
 }
 
-// An expression statement.
+// Class Expression_statement.
 
-class Expression_statement : public Statement
+// Constructor.
+
+Expression_statement::Expression_statement(Expression* expr, bool is_ignored)
+  : Statement(STATEMENT_EXPRESSION, expr->location()),
+    expr_(expr), is_ignored_(is_ignored)
 {
- public:
-  Expression_statement(Expression* expr, bool is_ignored)
-    : Statement(STATEMENT_EXPRESSION, expr->location()),
-      expr_(expr), is_ignored_(is_ignored)
-  { }
+}
 
-  Expression*
-  expr()
-  { return this->expr_; }
+// Determine types.
 
- protected:
-  int
-  do_traverse(Traverse* traverse)
-  { return this->traverse_expression(traverse, &this->expr_); }
-
-  void
-  do_determine_types()
-  { this->expr_->determine_type_no_context(); }
-
-  void
-  do_check_types(Gogo*);
-
-  bool
-  do_may_fall_through() const;
-
-  Bstatement*
-  do_get_backend(Translate_context* context);
-
-  void
-  do_dump_statement(Ast_dump_context*) const;
-
- private:
-  Expression* expr_;
-  // Whether the value of this expression is being explicitly ignored.
-  bool is_ignored_;
-};
+void
+Expression_statement::do_determine_types()
+{
+  this->expr_->determine_type_no_context();
+}
 
 // Check the types of an expression statement.  The only check we do
 // is to possibly give an error about discarding the value of the
@@ -4093,6 +4082,16 @@ Type_case_clauses::Type_case_clause::lower(Type* switch_val_type,
 bool
 Type_case_clauses::Type_case_clause::may_fall_through() const
 {
+  if (this->is_fallthrough_)
+    {
+      // This case means that we automatically fall through to the
+      // next case (it's used for T1 in case T1, T2:).  It does not
+      // mean that we fall through to the end of the type switch as a
+      // whole.  There is sure to be a next case and that next case
+      // will determine whether we fall through to the statements
+      // after the type switch.
+      return false;
+    }
   if (this->statements_ == NULL)
     return true;
   return this->statements_->may_fall_through();

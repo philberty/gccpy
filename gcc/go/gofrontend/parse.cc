@@ -1940,12 +1940,9 @@ Parse::init_var(const Typed_identifier& tid, Type* type, Expression* init,
 	{
 	  if (this->gogo_->in_global_scope())
 	    return this->create_dummy_global(type, init, location);
-	  else if (type == NULL)
-	    this->gogo_->add_statement(Statement::make_statement(init, true));
 	  else
 	    {
-	      // With both a type and an initializer, create a dummy
-	      // variable so that we will check whether the
+	      // Create a dummy variable so that we will check whether the
 	      // initializer can be assigned to the type.
 	      Variable* var = new Variable(type, init, false, false, false,
 					   location);
@@ -5266,7 +5263,8 @@ Parse::range_clause_decl(const Typed_identifier_list* til,
 	no->var_value()->set_type_from_range_value();
       if (is_new)
 	any_new = true;
-      p_range_clause->value = Expression::make_var_reference(no, location);
+      if (!Gogo::is_sink_name(pti->name()))
+        p_range_clause->value = Expression::make_var_reference(no, location);
     }
 
   if (!any_new)
