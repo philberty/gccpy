@@ -14,23 +14,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-
-#ifdef USE_LIBFFI
-# include <ffi.h>
-#endif
-
 #include <gpython/gpython.h>
-#include <gpython/vectors.h>
-#include <gpython/objects.h>
-#include <gpython/runtime.h>
 
 struct gpy_object_classmethod_t {
   unsigned char * code;
@@ -74,8 +58,6 @@ void gpy_object_classmethod_dealloc (gpy_object_t * self)
 
 void gpy_object_classmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 {
-  gpy_object_state_t object_state = OBJECT_STATE (self);
-
   fprintf (fd, "bound method %s @ <%p> ",
 	   gpy_object_classmethod_ident (self),
 	   (void *) self);

@@ -38,7 +38,7 @@ extern char * dot_pass_concat (const char *, const char *);
 /* Appends vector y on x */
 #define GPY_VEC_stmts_append(T,x,y)			\
   do {							\
-    int x_; T t_ = NULL_TREE;				\
+    size_t x_; T t_;					\
     for (x_ = 0; y->iterate (x_, &t_); ++x_)		\
       vec_safe_push (x, t_);				\
   } while (0);

@@ -14,19 +14,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifdef HAVE_CONFIG_H
-# include "config.h"
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-
 #include <gpython/gpython.h>
-#include <gpython/vectors.h>
-#include <gpython/objects.h>
-#include <gpython/runtime.h>
 
 #define PYTHON_VERSION "2.4"
 
@@ -45,12 +33,12 @@ void gpy_builtin_sys_init (void)
     return;
 
   __MOD_OFFSET = gpy_rr_extendRRStack (nitems (mod_items - 1),
-				       "sys", mod_items);
+				       "sys", (char **) mod_items);
   gpy_object_t ** esp =  __GPY_RR_STACK_PTR + __MOD_OFFSET;  
 
   // sys.version
   char * buf = (char *) alloca (128);
-  snprintf (buf, 128, "%s - %s part of GCCPY python compile\n"
+  snprintf (buf, 128, "%s - %s part of GCC Python Compiler\n"
 	    "[%s - Targeting python %s]\n",
 	    PACKAGE_NAME, PACKAGE_VERSION, PACKAGE_BUGREPORT, PYTHON_VERSION);
 

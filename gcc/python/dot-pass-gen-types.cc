@@ -29,42 +29,42 @@ static void dot_pass_types_ClassMethodSuite (gpy_dot_tree_t *, gpy_hash_tab_t *)
    another class definition and we still need to generate its type here for
    the next pass so we can calculate the attribute offsets
 
-----------------------------------------------
+   ----------------------------------------------
 
-  Process class method attribute's their suites for more decls to be part of
-  the type for example:
+   Process class method attribute's their suites for more decls to be part of
+   the type for example:
 
-  class foo:
-    x = 1
-    def __init__ (self):
-      print x
+   class foo:
+   x = 1
+   def __init__ (self):
+   print x
 
-  x = foo ()
-  x.x = bla
+   x = foo ()
+   x.x = bla
 
-  works very similar to at least with scoping and address access with scoping as:
+   works very similar to at least with scoping and address access with scoping as:
 
-  class foo:
-    def __init__ (self):
-      self.x = 1
-      print x
+   class foo:
+   def __init__ (self):
+   self.x = 1
+   print x
 
-  x = foo ()
-  x.x = bla
+   x = foo ()
+   x.x = bla
 
-  you do not need to declare attributes in the field of a class such that these
-  attribs must be part of the type we must process the suites for references to
-  self.<> to see if there is any such assignments to make sure the type is
-  generated correctly
+   you do not need to declare attributes in the field of a class such that these
+   attribs must be part of the type we must process the suites for references to
+   self.<> to see if there is any such assignments to make sure the type is
+   generated correctly
 
-  This function iterates over any compound statements suite for any possible
-  self.var decls to be part of the type we ignore any nested classes we come
-  across within these
+   This function iterates over any compound statements suite for any possible
+   self.var decls to be part of the type we ignore any nested classes we come
+   across within these
 */
 
 static
 tree dot_pass_types_FinalizeType (gpy_hash_tab_t * module,
-				  const char * identifier)
+                                  const char * identifier)
 {
   tree retval = NULL_TREE;
   if (module->length > 0)
@@ -75,44 +75,44 @@ tree dot_pass_types_FinalizeType (gpy_hash_tab_t * module,
       int i, y = 0;
       gpy_hash_entry_t * array = module->array;
       for (i = 0; i < module->size; ++i)
-	{
-	  if (array[i].data)
-	    {
-	      const char * dot_ident;
-	      gpy_dot_tree_t * d = (gpy_dot_tree_t *) array[i].data;
-	      if (d)
-		{
-		  switch (DOT_TYPE (d))
-		    {
-		    case D_STRUCT_CLASS:
-		      dot_ident = DOT_IDENTIFIER_POINTER (DOT_FIELD (d));
-		      break;
+        {
+          if (array[i].data)
+            {
+              const char * dot_ident;
+              gpy_dot_tree_t * d = (gpy_dot_tree_t *) array[i].data;
+              if (d)
+                {
+                  switch (DOT_TYPE (d))
+                    {
+                    case D_STRUCT_CLASS:
+                      dot_ident = DOT_IDENTIFIER_POINTER (DOT_FIELD (d));
+                      break;
 
-		    case D_STRUCT_METHOD:
-		      dot_ident = DOT_IDENTIFIER_POINTER (DOT_FIELD (d));
-		      break;
+                    case D_STRUCT_METHOD:
+                      dot_ident = DOT_IDENTIFIER_POINTER (DOT_FIELD (d));
+                      break;
 
-		    default:
-		      dot_ident = DOT_IDENTIFIER_POINTER (d);
-		      break;
-		    }
-		  field = build_decl (BUILTINS_LOCATION, FIELD_DECL,
-				      get_identifier (dot_ident),
-				      gpy_object_type_ptr);
-		  DECL_CONTEXT (field) = module_struct;
-		  if (y == 0)
-		    TYPE_FIELDS (module_struct) = field;
-		  else
-		    DECL_CHAIN (last_field) = field;
-		  last_field = field;
-		  y++;
-		}
-	    }
-	}
+                    default:
+                      dot_ident = DOT_IDENTIFIER_POINTER (d);
+                      break;
+                    }
+                  field = build_decl (BUILTINS_LOCATION, FIELD_DECL,
+                                      get_identifier (dot_ident),
+                                      gpy_object_type_ptr);
+                  DECL_CONTEXT (field) = module_struct;
+                  if (y == 0)
+                    TYPE_FIELDS (module_struct) = field;
+                  else
+                    DECL_CHAIN (last_field) = field;
+                  last_field = field;
+                  y++;
+                }
+            }
+        }
       layout_type (module_struct);
       tree name = get_identifier (identifier);
       tree type_decl = build_decl (BUILTINS_LOCATION, TYPE_DECL,
-				   name, module_struct);
+                                   name, module_struct);
       DECL_ARTIFICIAL (type_decl) = 1;
       TYPE_NAME (module_struct) = name;
       gpy_preserve_from_gc (type_decl);
@@ -125,51 +125,51 @@ tree dot_pass_types_FinalizeType (gpy_hash_tab_t * module,
 
 static
 void dot_pass_types_ClassMethodSuite (gpy_dot_tree_t * suite,
-				      gpy_hash_tab_t * module)
+                                      gpy_hash_tab_t * module)
 {
   gpy_dot_tree_t * dot = suite;
   do {
     switch (DOT_TYPE (dot))
       {
       default:
-	{
-	  if (DOT_T_FIELD (dot) == D_D_EXPR)
-	    {
-	      gpy_dot_tree_t * itx = dot;
-	      if (DOT_TYPE(itx) == D_MODIFY_EXPR)
-		{
-		  gcc_assert ((DOT_lhs_T(itx) == D_TD_DOT)
-			      && (DOT_rhs_T(itx) == D_TD_DOT)
-			      );
-		  gpy_dot_tree_t * target = DOT_lhs_TT (itx);
-		  switch (DOT_TYPE (target))
-		    {
-		    case D_ATTRIB_REF:
-		      {
-			gpy_dot_tree_t * root = target->opa.t;
-			if (DOT_TYPE (root) == D_IDENTIFIER)
-			  {
-			    gpy_dot_tree_t * attrib = target->opb.t;
-			    if (DOT_TYPE (attrib) == D_IDENTIFIER)
-			      {
-				const char * root_ident = DOT_IDENTIFIER_POINTER (root);
-				if (!strcmp ("self", root_ident))
-				  {
-				    gpy_hashval_t h = gpy_dd_hash_string (DOT_IDENTIFIER_POINTER (attrib));
-				    gpy_dd_hash_insert (h, attrib, module);
-				  }
-			      }
-			  }
-		      }
-		      break;
+        {
+          if (DOT_T_FIELD (dot) == D_D_EXPR)
+            {
+              gpy_dot_tree_t * itx = dot;
+              if (DOT_TYPE(itx) == D_MODIFY_EXPR)
+                {
+                  gcc_assert ((DOT_lhs_T(itx) == D_TD_DOT)
+                              && (DOT_rhs_T(itx) == D_TD_DOT)
+                              );
+                  gpy_dot_tree_t * target = DOT_lhs_TT (itx);
+                  switch (DOT_TYPE (target))
+                    {
+                    case D_ATTRIB_REF:
+                      {
+                        gpy_dot_tree_t * root = target->opa.t;
+                        if (DOT_TYPE (root) == D_IDENTIFIER)
+                          {
+                            gpy_dot_tree_t * attrib = target->opb.t;
+                            if (DOT_TYPE (attrib) == D_IDENTIFIER)
+                              {
+                                const char * root_ident = DOT_IDENTIFIER_POINTER (root);
+                                if (!strcmp ("self", root_ident))
+                                  {
+                                    gpy_hashval_t h = gpy_dd_hash_string (DOT_IDENTIFIER_POINTER (attrib));
+                                    gpy_dd_hash_insert (h, attrib, module);
+                                  }
+                              }
+                          }
+                      }
+                      break;
 
-		    default:
-		      break;
-		    }
-		}
-	    }
-	}
-	break;
+                    default:
+                      break;
+                    }
+                }
+            }
+        }
+        break;
       }
   } while ((dot = DOT_CHAIN (dot)));
 }
@@ -186,68 +186,68 @@ tree dot_pass_types_GenClassType (gpy_dot_tree_t * node)
   for (dot = suite; dot != NULL_DOT; dot = DOT_CHAIN (dot))
     {
       if (DOT_T_FIELD (dot) == D_D_EXPR)
-	dot_pass_types_ToplevelGenStmt (dot, &module);
+        dot_pass_types_ToplevelGenStmt (dot, &module);
       else
-	{
-	  switch (DOT_TYPE (dot))
-	    {
-	    case D_STRUCT_METHOD:
-	      {
-		const char * cid = DOT_IDENTIFIER_POINTER (DOT_FIELD (dot));
-		void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (cid),
-						dot, &module);
-		gcc_assert (!e);
-		dot_pass_types_ClassMethodSuite (DOT_rhs_TT (dot), &module);
-	      }
-	      break;
+        {
+          switch (DOT_TYPE (dot))
+            {
+            case D_STRUCT_METHOD:
+              {
+                const char * cid = DOT_IDENTIFIER_POINTER (DOT_FIELD (dot));
+                void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (cid),
+                                                dot, &module);
+                gcc_assert (!e);
+                dot_pass_types_ClassMethodSuite (DOT_rhs_TT (dot), &module);
+              }
+              break;
 
-	    default:
-	      break;
-	    }
-	}
+            default:
+              break;
+            }
+        }
     }
   /* Field initilizer function to type! */
   gcc_assert (!gpy_dd_hash_insert (gpy_dd_hash_string ("__field_init__"),
-				   dot_build_identifier ("__field_init__"),
-				   &module));
+                                   dot_build_identifier ("__field_init__"),
+                                   &module));
   tree retval = dot_pass_types_FinalizeType (&module,
-					     dot_pass_concat (GPY_current_module_name,
-							      DOT_IDENTIFIER_POINTER (DOT_FIELD (node))));
+                                             dot_pass_concat (GPY_current_module_name,
+                                                              DOT_IDENTIFIER_POINTER (DOT_FIELD (node))));
   free (module.array);
   return retval;
 }
 
 static
 void dot_pass_types_ToplevelGenStmt (gpy_dot_tree_t * node,
-				     gpy_hash_tab_t * module)
+                                     gpy_hash_tab_t * module)
 {
   if (DOT_T_FIELD (node) == D_D_EXPR)
     {
       if (DOT_TYPE (node) == D_MODIFY_EXPR)
-	{
-	  gcc_assert ((DOT_lhs_T (node) == D_TD_DOT)
-		      && (DOT_rhs_T (node) == D_TD_DOT)
-		      );
-	  gpy_dot_tree_t * target = DOT_lhs_TT (node);
-	  // remember to handle target lists here with DOT_CHAIN
-	  do
-	    {
-	      switch (DOT_TYPE (target))
-		{
-		case D_IDENTIFIER:
-		  {
-		    gpy_hashval_t h = gpy_dd_hash_string (DOT_IDENTIFIER_POINTER (target));
-		    gpy_dd_hash_insert (h, target, module);
-		  }
-		  break;
+        {
+          gcc_assert ((DOT_lhs_T (node) == D_TD_DOT)
+                      && (DOT_rhs_T (node) == D_TD_DOT)
+                      );
+          gpy_dot_tree_t * target = DOT_lhs_TT (node);
+          // remember to handle target lists here with DOT_CHAIN
+          do
+            {
+              switch (DOT_TYPE (target))
+                {
+                case D_IDENTIFIER:
+                  {
+                    gpy_hashval_t h = gpy_dd_hash_string (DOT_IDENTIFIER_POINTER (target));
+                    gpy_dd_hash_insert (h, target, module);
+                  }
+                  break;
 
-		default:
-		  break;
-		}
-	    } while ((target = DOT_CHAIN (target)));
-	}
+                default:
+                  break;
+                }
+            } while ((target = DOT_CHAIN (target)));
+        }
       /* need to go through compound_stmts like conditionals and looks to
-	 find any possible nested class's to generate their types
+         find any possible nested class's to generate their types
       */
     }
 }
@@ -265,42 +265,42 @@ vec<tree, va_gc> * dot_pass_GenTypes (vec<gpydot,va_gc> * decls)
   for (idx = 0; vec_safe_iterate (decls, idx, &idtx); ++idx)
     {
       if (DOT_TYPE (idtx) == D_KEY_IMPORT)
-	{
-	  const char * import = DOT_IDENTIFIER_POINTER (DOT_lhs_TT (idtx));
-	  gpy_dd_hash_insert (gpy_dd_hash_string (import), DOT_lhs_TT (idtx), &main_module);
-	}
+        {
+          const char * import = DOT_IDENTIFIER_POINTER (DOT_lhs_TT (idtx));
+          gpy_dd_hash_insert (gpy_dd_hash_string (import), DOT_lhs_TT (idtx), &main_module);
+        }
       else if (DOT_TYPE (idtx) == D_STRUCT_CLASS)
-	{
-	  tree module = dot_pass_types_GenClassType (idtx);
-	  gcc_assert (module);
-	  vec_safe_push (retval, module);
+        {
+          tree module = dot_pass_types_GenClassType (idtx);
+          gcc_assert (module);
+          vec_safe_push (retval, module);
 
-	  const char * mid = IDENTIFIER_POINTER (TYPE_NAME (module));
-	  void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (mid),
-					  idtx, &main_module);
-	  gcc_assert (!e);
-	}
+          const char * mid = IDENTIFIER_POINTER (TYPE_NAME (module));
+          void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (mid),
+                                          idtx, &main_module);
+          gcc_assert (!e);
+        }
       else if (DOT_TYPE (idtx) == D_STRUCT_METHOD)
-	{
-	  const char * mid = DOT_IDENTIFIER_POINTER (DOT_FIELD (idtx));
-	  void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (mid),
-					  idtx, &main_module);
-	  gcc_assert (!e);
-	  /* need to recursively go through the suite to find possible
-	     nested classes to generate those types */
-	}
+        {
+          const char * mid = DOT_IDENTIFIER_POINTER (DOT_FIELD (idtx));
+          void ** e = gpy_dd_hash_insert (gpy_dd_hash_string (mid),
+                                          idtx, &main_module);
+          gcc_assert (!e);
+          /* need to recursively go through the suite to find possible
+             nested classes to generate those types */
+        }
       else
-	dot_pass_types_ToplevelGenStmt (idtx, &main_module);
+        dot_pass_types_ToplevelGenStmt (idtx, &main_module);
     }
 
   /* NEED to add in the __main_start__.... */
   char * module_entry = dot_pass_concat (GPY_current_module_name, "__main_start__");
   gcc_assert (!gpy_dd_hash_insert (gpy_dd_hash_string (module_entry),
-				   dot_build_identifier (module_entry),
-				   &main_module)
-	      );
+                                   dot_build_identifier (module_entry),
+                                   &main_module)
+              );
   vec_safe_push (retval, dot_pass_types_FinalizeType (&main_module,
-						      GPY_current_module_name));
+                                                      GPY_current_module_name));
   free (main_module.array);
   return retval;
 }

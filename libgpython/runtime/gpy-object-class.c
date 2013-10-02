@@ -14,23 +14,7 @@
    along with GCC; see the file COPYING3.  If not see
    <http://www.gnu.org/licenses/>.  */
 
-#ifdef HAVE_CONFIG_H
-# include "config.h"
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-
-#ifdef USE_LIBFFI
-# include <ffi.h>
-#endif
-
 #include <gpython/gpython.h>
-#include <gpython/vectors.h>
-#include <gpython/objects.h>
-#include <gpython/runtime.h>
 
 static
 void gpy_object_classobj_init_decl_attribs (const void * self,
@@ -45,10 +29,7 @@ void gpy_object_classobj_init_decl_attribs (const void * self,
 
       gpy_object_t ** offs = (gpy_object_t **) typeoffs;
       if (i->addr)
-	{
-	  gpy_object_t * attrib = (gpy_object_t *)i->addr;
-	  *offs = i->addr;
-	}
+	*offs = i->addr;
       else
 	*offs = NULL;
     }

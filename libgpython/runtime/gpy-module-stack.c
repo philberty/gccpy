@@ -14,23 +14,10 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-#include <stdarg.h>
-
 #include <gpython/gpython.h>
-#include <gpython/vectors.h>
-#include <gpython/objects.h>
-#include <gpython/runtime.h>
 
 // Holds all runtime information to primitive types
-gpy_object_t NULL_OBJECT_REF = { .T = TYPE_NULL, .o.literal = 0 };
+gpy_object_t NULL_OBJECT_REF;
 gpy_vector_t __GPY_GLOBL_PRIMITIVES;
 
 // runtime stack for all module runtime data
@@ -60,10 +47,8 @@ static bool __GPY_GLOBAL_RETURN;
 gpy_object_t ** __GPY_MODULE_RR_STACK;
 gpy_object_t ** __GPY_RR_STACK_PTR;
 
-#define GPY_MODULE_STACK_RET_ADDR		\
-  (__GPY_MODULE_RR_STACK + 1)
-#define GPY_MODULE_STACK_RET_VAL		\
-  *(__GPY_MODULE_RR_STACK + 1)
+#define GPY_MODULE_STACK_RET_ADDR  (__GPY_MODULE_RR_STACK + 1)
+#define GPY_MODULE_STACK_RET_VAL   (__GPY_MODULE_RR_STACK + 1)[0]
 
 static
 void gpy_rr_init_primitives (void)
@@ -77,6 +62,9 @@ void gpy_rr_init_primitives (void)
   gpy_obj_module_mod_init (&__GPY_GLOBL_PRIMITIVES);
   gpy_obj_string_mod_init (&__GPY_GLOBL_PRIMITIVES);
   gpy_obj_dict_mod_init (&__GPY_GLOBL_PRIMITIVES);
+
+  /* builtins */
+  gpy_builtin_sys_init ();
 }
 
 static
@@ -171,6 +159,8 @@ int gpy_rr_extendRRStack (int slots,
 void gpy_rr_init_runtime (void)
 {
   gpy_rr_init_runtime_stack ();
+  memset (&NULL_OBJECT_REF, 0, sizeof (gpy_object_t));
+  NULL_OBJECT_REF.T = TYPE_NULL;
 }
 
 void gpy_rr_cleanup_final (void)
@@ -182,7 +172,7 @@ void gpy_rr_cleanup_final (void)
   return;
 }
 
-gpy_object_attrib_t * gpy_rr_fold_attribute (const unsigned char * identifier,
+gpy_object_attrib_t * gpy_rr_fold_attribute (const char * identifier,
 					     unsigned char * code_addr,
 					     unsigned int offset, int nargs)
 {
@@ -407,16 +397,11 @@ gpy_object_t * gpy_rr_getSlice (gpy_object_t * decl, gpy_object_t * slice)
 void gpy_rr_foldBuiltinImport (gpy_object_t ** decl,
 			       const unsigned builtin)
 {
-  gpy_object_t * val = NULL;
   switch (builtin)
     {
       /* import sys... */
     case 1:
-      {
-	// call init sys.. then fold the module
-	gpy_builtin_sys_init ();
-	gpy_rr_foldImport (decl, "sys");
-      }
+      gpy_rr_foldImport (decl, "sys");
       break;
 
     default:

@@ -20,23 +20,25 @@ along with GCC; see the file COPYING3.  If not see
 
 void gpy_vec_push (gpy_vector_t * const v,  void * s)
 {
-  if (s)
+  if (v->size == 0)
     {
-      if (v->length >= v->size-1)
-        {
-          signed long size = threshold_alloc (v->size);
-          v->vector = (void**) xrealloc (v->vector, size * sizeof (void*));
-          v->size = size;
-        }
-      v->vector [v->length] = s;
-      v->length++;
+      v->size = threshold_alloc (0);
+      v->vector = (void **) xcalloc (v->size, sizeof (void *));
     }
+  else if (v->length >= (v->size - 1))
+    {
+      v->size = threshold_alloc (v->size);
+      v->vector = (void **) xrealloc (v->vector, v->size * sizeof (void *));
+    }
+
+  v->vector [v->length] = s;
+  v->length++;
 }
 
 void * gpy_vec_pop (gpy_vector_t * const v)
 {
   void * retval = NULL;
-  int idx = v->length-1;
+  int idx = v->length - 1;
   if (idx >= 0)
     {
       retval = v->vector [v->length - 1];
@@ -45,15 +47,17 @@ void * gpy_vec_pop (gpy_vector_t * const v)
   return retval;
 }
 
-void * gpy_vec_index_diag (gpy_vector_t * const v, int i,
+void * gpy_vec_index_diag (gpy_vector_t * const v, size_t i,
 			   const char * file, unsigned int line)
 {
   void * retval = NULL;
-  if ((i >= 0) || (i < v->length))
+
+  // size_t or unisnged types so >=0 is negligable!
+  if (i < v->length)
     return (v->vector [i]);
   else
     {
-      fprintf (stderr, "fatal: <%s:%i> -> index <%i> out of bounds on vector <%p>!\n",
+      fprintf (stderr, "fatal: <%s:%u> -> index <%lu> out of bounds on vector <%p>!\n",
 	       file, line, i, (void*)v);
       exit (EXIT_FAILURE);
     }
@@ -142,9 +146,8 @@ void gpy_dd_hash_grow_table (gpy_hash_tab_t * tbl)
     free (prev_array);
 }
 
-void gpy_dd_hash_init_table (gpy_hash_tab_t * tbl)
+void gpy_dd_hash_init_table (gpy_hash_tab_t * tb)
 {
-  gpy_hash_tab_t *tb = tbl;
   tb->size = 0;
   tb->length = 0;
   tb->array = NULL;

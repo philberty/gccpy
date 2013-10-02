@@ -14,8 +14,8 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifndef __GCC_RUNTIME_H__
-#define __GCC_RUNTIME_H__
+#ifndef __GCC_GPY_RUNTIME_H__
+#define __GCC_GPY_RUNTIME_H__
 
 /* Number of items in array. */
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
@@ -50,12 +50,7 @@ typedef struct gpy_module_info {
 #define __gpy_dict_type_node				\
   (gpy_typedef_t *) __GPY_GLOBL_PRIMITIVES.vector [8]
 
-extern gpy_object_t * gpy_rr_fold_staticmethod_decl (const char *, unsigned char *, int);
-extern gpy_object_t * gpy_rr_fold_classmethod_decl (const char *, unsigned char *, int);
-extern gpy_object_t ** gpy_rr_eval_attrib_reference (gpy_object_t *, const char *);
+extern int gpy_object_classmethod_nparms (gpy_object_t *);
+extern int gpy_object_staticmethod_nparms (gpy_object_t *);
 
-extern void gpy_rr_eval_print (int, int, ...);
-extern void gpy_rr_foldImport (gpy_object_t **, const char *);
-extern gpy_object_t * gpy_rr_fold_string (const char *);
-
-#endif //__GCC_RUNTIME_H__
+#endif //__GCC_GPY_RUNTIME_H__
