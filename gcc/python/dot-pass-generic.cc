@@ -422,7 +422,14 @@ tree dot_pass_lookupDecl (dot_contextTable_t context,
 		int offset = ctx->offset;
 		tree element_size = ctx->size;
 		tree stack_offset = ctx->stack_offs;
-		tree stack_pointer = ctx->stack_ptr;
+		// tree stack_pointer = ctx->stack_ptr;
+		
+		tree stack_pointer = build_decl (BUILTINS_LOCATION, VAR_DECL,
+						 get_identifier (GPY_RR_stack_ptr),
+						 gpy_object_type_ptr_ptr);
+		TREE_PUBLIC (stack_pointer) = 1;
+		TREE_USED (stack_pointer) = 1;
+		DECL_EXTERNAL (stack_pointer) = 1;
 
 		tree offs1 = build2 (MULT_EXPR, sizetype,
 				     build_int_cst (sizetype, offset),
@@ -433,9 +440,9 @@ tree dot_pass_lookupDecl (dot_contextTable_t context,
 		
 		tree offs = build2 (PLUS_EXPR, sizetype,
 				    offs1, offs2);
-		retval = build2 (POINTER_PLUS_EXPR,
-				 TREE_TYPE (stack_pointer),
-				 stack_pointer, offs);
+		retval = fold_build2 (POINTER_PLUS_EXPR,
+				      TREE_TYPE (stack_pointer),
+				      stack_pointer, offs);
 	      }
 	    else
 	      retval = (tree) tmp;
@@ -1219,10 +1226,10 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 					      build_fold_indirect_ref (lhs_tree)),
 				      block);
 	  }
-	tree attrib_ref = build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr, addr_1,
-				  GPY_RR_fold_attrib_ref (lhs_tree_fold,
-							  build_fold_addr_expr (str))
-				  );
+	tree attrib_ref = fold_build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr, addr_1,
+				       GPY_RR_fold_attrib_ref (lhs_tree_fold,
+							       build_fold_addr_expr (str))
+				       );
 	append_to_statement_list (attrib_ref, block);
 	retval = addr_1;
       }

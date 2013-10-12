@@ -6,7 +6,7 @@ lib_LTLIBRARIES = libgpython.la
 
 AM_CPPFLAGS = -I$(top_srcdir)/include
 AM_YFLAGS = -d --verbose
-AM_CFLAGS = -std=gnu99 -Wall -Werror
+AM_CFLAGS = -g -O2 -std=gnu99 -Wall -Werror -fgcse
 
 library_includedir = $(includedir)/gpython
 library_include_HEADERS = \
@@ -15,7 +15,7 @@ library_include_HEADERS = \
 	include/gpython/vectors.h \
 	include/gpython/objects.h
 
-libgpython_la_CFLAGS = -DGPYHON -DSHARED -Wall -Werror $(LIBFFIINCS) $(PTHREAD_CFLAGS)
+libgpython_la_CFLAGS = -DGPYHON -DSHARED -Wall -Werror -g -O2 -std=gnu99 -fgcse $(LIBFFIINCS) $(PTHREAD_CFLAGS)
 libgpython_la_LDFLAGS = -release 0.1.0 $(PTHREAD_CFLAGS) $(AM_LDFLAGS)
 libgpython_la_LIBADD = $(LIBFFI) $(PTHREAD_LIBS) $(MATH_LIBS)
 libgpython_la_SOURCES = \

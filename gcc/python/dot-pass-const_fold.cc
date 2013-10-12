@@ -25,6 +25,7 @@ static void dot_pass_constFoldWhile (gpy_dot_tree_t *);
 static void dot_pass_constFoldReturn (gpy_dot_tree_t *);
 static void dot_pass_constFoldPrint (gpy_dot_tree_t *);
 static void dot_pass_constFoldMethod (gpy_dot_tree_t *);
+static void dot_pass_constFoldClass (gpy_dot_tree_t *);
 static void dot_pass_constFoldCondit (gpy_dot_tree_t *);
 
 static gpy_dot_tree_t * dot_pass_constFoldChain (gpy_dot_tree_t *);
@@ -160,12 +161,22 @@ gpy_dot_tree_t * dot_pass_constFoldExpr (gpy_dot_tree_t * expr)
       break;
 
     case D_CALL_EXPR:
-      DOT_rhs_TT (expr) = dot_pass_constFoldChain (DOT_rhs_TT (expr));
+      if (DOT_rhs_TT (expr))
+	DOT_rhs_TT (expr) = dot_pass_constFoldChain (DOT_rhs_TT (expr));
       break;
 
       /* ignore cases */
     case D_IDENTIFIER:
     case D_ATTRIB_REF:
+      break;
+
+    case D_SLICE:
+      DOT_rhs_TT (expr) = dot_pass_constFoldExpr (DOT_rhs_TT (expr));
+      break;
+
+    case D_T_LIST:
+      if (DOT_lhs_TT (expr))
+	DOT_lhs_TT (expr) = dot_pass_constFoldChain (DOT_lhs_TT (expr));
       break;
 
     default:
@@ -263,6 +274,12 @@ void dot_pass_constFoldMethod (gpy_dot_tree_t * decl)
 }
 
 static
+void dot_pass_constFoldClass (gpy_dot_tree_t * decl)
+{
+  DOT_lhs_TT (decl) = dot_pass_constFoldSuite (DOT_lhs_TT (decl));
+}
+
+static
 gpy_dot_tree_t * dot_pass_constFoldSuite (gpy_dot_tree_t * decl)
 {
   gpy_vector_t vec;
@@ -291,6 +308,10 @@ gpy_dot_tree_t * dot_pass_constFoldSuite (gpy_dot_tree_t * decl)
 	    
 	  case D_STRUCT_WHILE:
 	    dot_pass_constFoldWhile (curr);
+	    break;
+
+	  case D_STRUCT_METHOD:
+	    dot_pass_constFoldMethod (curr);
 	    break;
 
 	  default:
@@ -346,6 +367,10 @@ void dot_pass_constFoldToplevel (gpy_dot_tree_t * node)
 
 	case D_STRUCT_METHOD:
 	  dot_pass_constFoldMethod (node);
+	  break;
+
+	case D_STRUCT_CLASS:
+	  dot_pass_constFoldClass (node);
 	  break;
 
 	case D_STRUCT_WHILE:

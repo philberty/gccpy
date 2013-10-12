@@ -37,7 +37,7 @@ build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
 subdir = .
-DIST_COMMON = README $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
+DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) \
 	$(srcdir)/config.h.in $(srcdir)/../mkinstalldirs \
 	$(srcdir)/../depcomp $(library_include_HEADERS)
@@ -248,7 +248,7 @@ top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libgpython.la
 AM_CPPFLAGS = -I$(top_srcdir)/include
 AM_YFLAGS = -d --verbose
-AM_CFLAGS = -std=gnu99 -Wall -Werror
+AM_CFLAGS = -g -O2 -std=gnu99 -Wall -Werror -fgcse
 library_includedir = $(includedir)/gpython
 library_include_HEADERS = \
 	include/gpython/gpython.h \
@@ -256,7 +256,7 @@ library_include_HEADERS = \
 	include/gpython/vectors.h \
 	include/gpython/objects.h
 
-libgpython_la_CFLAGS = -DGPYHON -DSHARED -Wall -Werror $(LIBFFIINCS) $(PTHREAD_CFLAGS)
+libgpython_la_CFLAGS = -DGPYHON -DSHARED -Wall -Werror -g -O2 -std=gnu99 -fgcse $(LIBFFIINCS) $(PTHREAD_CFLAGS)
 libgpython_la_LDFLAGS = -release 0.1.0 $(PTHREAD_CFLAGS) $(AM_LDFLAGS)
 libgpython_la_LIBADD = $(LIBFFI) $(PTHREAD_LIBS) $(MATH_LIBS)
 libgpython_la_SOURCES = \
