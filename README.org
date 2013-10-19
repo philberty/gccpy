@@ -1,0 +1,40 @@
+* Python Front-End to GCC
+This is a fully ahead of time implementation of Python, built ontop
+of GCC for a feature rich, optimizing middle-end and backend.
+
+** Building
+Building GCCPY is fairly confsing to most people who haven't built
+GCC before:
+
+YOU CANNOT build GCC within the same directory of the sources!
+
+$ apt-get install bison flex build-essential
+
+$ git clone ...
+$ cd gccpy
+$ ./contrib/download_prerequisites # optional
+$ mkdir gccpy-build
+$ cd gccpy-build
+$ ../configure --prefix=/opt/gccpy \
+  --enable-languages=python \
+  --disable-multilib \
+  --disable-bootstrap
+$ make
+$ cd -
+
+** Status
+
+Very must still serves as a proof of concept but most of the core
+principles are implemented and work fairly well
+
+** Major Projects
+
+*** Garbage collector
+We need one.
+
+*** Port Python stdlib
+Port the python stdlib and figure out if we want to implement modules
+as static libraries or shared libraries.
+
+*** Multi-core
+Implement threading
