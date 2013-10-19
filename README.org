@@ -8,8 +8,13 @@ GCC before:
 
 YOU CANNOT build GCC within the same directory of the sources!
 
+#+BEGIN_SRC bash
 $ apt-get install bison flex build-essential
+#+END_SRC
 
+Then to compile:
+
+#+BEGIN_SRC bash
 $ git clone ...
 $ cd gccpy
 $ ./contrib/download_prerequisites # optional
@@ -21,6 +26,32 @@ $ ../configure --prefix=/opt/gccpy \
   --disable-bootstrap
 $ make
 $ cd -
+#+END_SRC
+
+*** Usage
+
+For my development sessions i generally pass:
+
+#+BEGIN_SRC bash
+$ gccpy -fdump-tree-gimple -fpy-dump-dot -fpy-gen-main -fpy-optimize -O0 -g test.py -o test
+#+END_SRC
+
+Options:
+
+-fpy-gen-main Python has no explicit main method so we require at
+compile time for the user to explicitly say where the main method
+should be compiled in.
+
+-fpy-dump-dot Dumps out the textural output of the DOT IL
+
+-fpy-optimize Experimental optimizers for Python at the DOT IL level
+constant folding and propagation to some extend with data-flow
+analysis could be implemented.
+
+-fdump-tree-gimple Dumps the textural output of the code generated
+for the GCC middle-end.
+
+You can use all normal GCC options -O2 -g -mtune= -march= etc...
 
 ** Status
 
