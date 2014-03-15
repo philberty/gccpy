@@ -29,6 +29,8 @@ static void dot_pass_dump_class (FILE *, gpy_dot_tree_t *, int);
 static void dot_pass_dumpPrimitive (FILE *, gpy_dot_tree_t *);
 static void dot_pass_dump_expr (FILE *, gpy_dot_tree_t *);
 
+#define GPY_DOT_EXT "-il.dot"
+
 static
 void dot_pass_dump_class (FILE * fd, gpy_dot_tree_t * node,
 			  int indents)
@@ -424,6 +426,24 @@ void dot_pass_dump_node (FILE * fd, gpy_dot_tree_t * node,
 	  }
 	  break;
 
+	case GLOBAL_STMT:
+	  {
+	    int i;
+	    for (i = 0; i < indents; ++i)
+	      fprintf (fd, "    ");
+	    gpy_dot_tree_t * args = NULL;
+	    fprintf (fd, "global (");
+	    for (args = DOT_lhs_TT (node); args!= NULL_DOT;
+		 args = DOT_CHAIN (args))
+	      {
+		dot_pass_dump_expr (fd, args);
+		if (DOT_CHAIN (args))
+		  fprintf (fd, ", ");
+	      }
+	    fprintf (fd, ")");
+	  }
+	  break;
+
 	case D_STRUCT_CONDITIONAL:
 	  dot_pass_dump_conditional (fd, node, indents);
 	  break;
@@ -475,8 +495,13 @@ void dot_pass_dump_IL (vec<gpydot,va_gc> * decls, const char * outfile)
 */
 vec<gpydot,va_gc> * dot_pass_PrettyPrint (vec<gpydot,va_gc> * decls)
 {
+  char * buf = (char *) alloca (128);
+  gcc_assert (buf);
+  strcpy (buf, GPY_current_module_name);
+  strcat (buf, GPY_DOT_EXT);
+
   if (GPY_OPT_dump_dot)
-    dot_pass_dump_IL (decls, "gccpy-il.dot");
+    dot_pass_dump_IL (decls, buf);
 
   return decls;
 }

@@ -22,7 +22,8 @@
 # aclocal && autoconf && autoheader && automake
 
 AC_PREREQ(2.64)
-AC_INIT(package-unused, version-unused,, libgpython)
+AC_INIT(gccpy-runtime, 0.1, http://gcc.gnu.org, libgpython,
+		       https://github.com/redbrain/gccpy)
 AC_CONFIG_SRCDIR(Makefile.am)
 AC_CONFIG_HEADER(config.h)
 

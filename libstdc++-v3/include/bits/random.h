@@ -2178,7 +2178,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        */
       result_type
       min() const
-      { return std::numeric_limits<result_type>::min(); }
+      { return std::numeric_limits<result_type>::lowest(); }
 
       /**
        * @brief Returns the least upper bound value of the distribution.
@@ -3011,7 +3011,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        */
       result_type
       min() const
-      { return std::numeric_limits<result_type>::min(); }
+      { return std::numeric_limits<result_type>::lowest(); }
 
       /**
        * @brief Returns the least upper bound value of the distribution.
@@ -3428,7 +3428,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        */
       result_type
       min() const
-      { return std::numeric_limits<result_type>::min(); }
+      { return std::numeric_limits<result_type>::lowest(); }
 
       /**
        * @brief Returns the least upper bound value of the distribution.
@@ -3978,7 +3978,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _UniformRandomNumberGenerator>
 	result_type
-	_M_waiting(_UniformRandomNumberGenerator& __urng, _IntType __t);
+	_M_waiting(_UniformRandomNumberGenerator& __urng,
+		   _IntType __t, double __q);
 
       param_type _M_param;
 
@@ -5135,7 +5136,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        */
       result_type
       min() const
-      { return std::numeric_limits<result_type>::min(); }
+      { return std::numeric_limits<result_type>::lowest(); }
 
       /**
        * @brief Returns the least upper bound value of the distribution.

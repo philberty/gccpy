@@ -478,9 +478,12 @@ take_address_of (tree obj, tree type, edge entry, htab_t decl_address,
       if (gsi == NULL)
 	return NULL;
       addr = TREE_OPERAND (*var_p, 0);
-      name = make_temp_ssa_name (TREE_TYPE (addr), NULL,
-				 get_name (TREE_OPERAND
-					   (TREE_OPERAND (*var_p, 0), 0)));
+      const char *obj_name
+	= get_name (TREE_OPERAND (TREE_OPERAND (*var_p, 0), 0));
+      if (obj_name)
+	name = make_temp_ssa_name (TREE_TYPE (addr), NULL, obj_name);
+      else
+	name = make_ssa_name (TREE_TYPE (addr), NULL);
       stmt = gimple_build_assign (name, addr);
       gsi_insert_on_edge_immediate (entry, stmt);
 
@@ -678,6 +681,12 @@ eliminate_local_variables_stmt (edge entry, gimple_stmt_iterator *gsi,
 	  gimple_debug_bind_reset_value (stmt);
 	  dta.changed = true;
 	}
+    }
+  else if (gimple_clobber_p (stmt))
+    {
+      stmt = gimple_build_nop ();
+      gsi_replace (gsi, stmt, false);
+      dta.changed = true;
     }
   else
     {
@@ -947,9 +956,9 @@ add_field_for_reduction (void **slot, void *data)
 
   struct reduction_info *const red = (struct reduction_info *) *slot;
   tree const type = (tree) data;
-  tree var = SSA_NAME_VAR (gimple_assign_lhs (red->reduc_stmt));
-  tree field = build_decl (gimple_location (red->reduc_stmt),
-			   FIELD_DECL, DECL_NAME (var), TREE_TYPE (var));
+  tree var = gimple_assign_lhs (red->reduc_stmt);
+  tree field = build_decl (gimple_location (red->reduc_stmt), FIELD_DECL,
+			   SSA_NAME_IDENTIFIER (var), TREE_TYPE (var));
 
   insert_field_into_struct (type, field);
 

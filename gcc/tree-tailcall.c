@@ -328,8 +328,10 @@ process_assignment (gimple stmt, gimple_stmt_iterator call, tree *m,
     case NEGATE_EXPR:
       if (FLOAT_TYPE_P (TREE_TYPE (op0)))
         *m = build_real (TREE_TYPE (op0), dconstm1);
-      else
+      else if (INTEGRAL_TYPE_P (TREE_TYPE (op0)))
         *m = build_int_cst (TREE_TYPE (op0), -1);
+      else
+        return false;
 
       *ass_var = dest;
       return true;
@@ -341,8 +343,10 @@ process_assignment (gimple stmt, gimple_stmt_iterator call, tree *m,
         {
           if (FLOAT_TYPE_P (TREE_TYPE (non_ass_var)))
             *m = build_real (TREE_TYPE (non_ass_var), dconstm1);
-          else
+          else if (INTEGRAL_TYPE_P (TREE_TYPE (non_ass_var)))
             *m = build_int_cst (TREE_TYPE (non_ass_var), -1);
+	  else
+	    return false;
 
           *a = fold_build1 (NEGATE_EXPR, TREE_TYPE (non_ass_var), non_ass_var);
         }
@@ -570,6 +574,11 @@ find_tail_calls (basic_block bb, struct tailcall **ret)
   if (!tail_recursion && (m || a))
     return;
 
+  /* For pointers don't allow additions or multiplications.  */
+  if ((m || a)
+      && POINTER_TYPE_P (TREE_TYPE (DECL_RESULT (current_function_decl))))
+    return;
+
   nw = XNEW (struct tailcall);
 
   nw->call_gsi = gsi;
@@ -599,8 +608,8 @@ add_successor_phi_arg (edge e, tree var, tree phi_arg)
 }
 
 /* Creates a GIMPLE statement which computes the operation specified by
-   CODE, OP0 and OP1 to a new variable with name LABEL and inserts the
-   statement in the position specified by GSI and UPDATE.  Returns the
+   CODE, ACC and OP1 to a new variable with name LABEL and inserts the
+   statement in the position specified by GSI.  Returns the
    tree node of the statement's result.  */
 
 static tree
@@ -622,7 +631,7 @@ adjust_return_value_with_ops (enum tree_code code, const char *label,
 					    fold_convert (TREE_TYPE (op1), acc),
 					    op1));
       rhs = force_gimple_operand_gsi (&gsi, rhs,
-				      false, NULL, true, GSI_CONTINUE_LINKING);
+				      false, NULL, true, GSI_SAME_STMT);
       stmt = gimple_build_assign (result, rhs);
     }
 

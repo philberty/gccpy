@@ -36,7 +36,7 @@ gpy_object_attrib_t ** gpy_obj_module_fill (int len, char ** idents,
 {
   gpy_object_attrib_t ** attribs = (gpy_object_attrib_t **)
     gpy_calloc (len + 1, sizeof (gpy_object_attrib_t *));
-  memset (attribs, 0, len * sizeof (gpy_object_attrib_t *));
+  memset (attribs, 0, (len + 1) * sizeof (gpy_object_attrib_t *));
 
   unsigned char ** selfptr = (unsigned char **) self;
 
@@ -63,17 +63,17 @@ gpy_object_attrib_t ** gpy_obj_module_fill (int len, char ** idents,
 }
 
 gpy_object_t * gpy_obj_module_new (gpy_typedef_t * type,
-				   gpy_object_t ** args)
+				   gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "i,i,s,S.");
   gpy_assert (check);
 
-  int offset = gpy_args_lit_parse_int (args [0]);
-  int len = gpy_args_lit_parse_int (args [1]);
-  char * ident = gpy_args_lit_parse_string (args [2]);
-  char ** attribs = gpy_args_lit_parse_sarray (args[3]);
+  int offset = gpy_args_lit_parse_int (&args [0]);
+  int len = gpy_args_lit_parse_int (&args [1]);
+  char * ident = gpy_args_lit_parse_string (&args [2]);
+  char ** attribs = gpy_args_lit_parse_sarray (&args[3]);
 
   void * self = gpy_malloc (len * sizeof (gpy_object_t **));
   memset (self, 0, sizeof (gpy_object_t **) * len);
@@ -99,17 +99,17 @@ gpy_object_t * gpy_obj_module_new (gpy_typedef_t * type,
 void gpy_obj_module_destroy (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  gpy_free (object_state->state);
-  object_state->state = NULL;
+  gpy_free (object_state.state);
+  object_state.state = NULL;
 }
 
 void gpy_obj_module_print (gpy_object_t * self,
 			   FILE * fd,
 			   bool newline)
 {
-  gpy_typedef_t * type = self->o.object_state->definition;
+  gpy_typedef_t * type = OBJECT_DEFINITION (self);
   const char * ident = type->identifier;
 
   fprintf (fd, "Module \'%s\'", ident);

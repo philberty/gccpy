@@ -33,14 +33,14 @@ struct gpy_object_string {
 };
 
 gpy_object_t * gpy_obj_string_new (gpy_typedef_t * type,
-				   gpy_object_t ** args)
+				   gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "s.");
   gpy_assert (check);
 
-  char * string = gpy_args_lit_parse_string (args [0]);
+  char * string = gpy_args_lit_parse_string (&args [0]);
   struct gpy_object_string * self = (struct gpy_object_string *)
     gpy_malloc (sizeof (struct gpy_object_string));
   self->string = gpy_strdup (string);
@@ -53,21 +53,20 @@ gpy_object_t * gpy_obj_string_new (gpy_typedef_t * type,
 void gpy_obj_string_destroy (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  gpy_free (object_state->state);
-  object_state->state = NULL;
+  gpy_free (object_state.state);
+  object_state.state = NULL;
 }
 
 void gpy_obj_string_print (gpy_object_t * self,
 			   FILE * fd,
 			   bool newline)
 {
-  
   gpy_assert (self->T == TYPE_OBJECT_STATE);
-  gpy_object_state_t * x = self->o.object_state;
-  struct gpy_object_string * state = (struct gpy_object_string *)
-    x->state;
+  gpy_object_state_t x = OBJECT_STATE (self);
+  struct gpy_object_string * state =
+    (struct gpy_object_string *) x.state;
 
   fprintf (fd, "%s", state->string);
   if (newline)

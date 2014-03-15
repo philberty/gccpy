@@ -155,6 +155,7 @@ extern void yyerror (const char *);
 %type<symbol> import_stmt
 %type<symbol> slicing
 %type<symbol> simple_slicing
+%type<symbol> global_stmt
 
 %type<symbol> funcname
 %type<symbol> classname
@@ -307,6 +308,11 @@ simple_stmt: expression
            | print_stmt
            | return_stmt
            | import_stmt
+           | global_stmt
+           ;
+
+global_stmt: GLOBAL parameter_list
+           { $$ = dot_build_decl1 (GLOBAL_STMT, $2); }
            ;
 
 import_stmt: IMPORT IDENTIFIER

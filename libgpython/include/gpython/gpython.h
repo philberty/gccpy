@@ -14,8 +14,22 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifndef __GCC_GPYTHON_H__
-#define __GCC_GPYTHON_H__
+#ifndef __GCC_GPY_GPYTHON_H__
+#define __GCC_GPY_GPYTHON_H__
+
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <stdarg.h>
+
+#ifdef USE_LIBFFI
+# include <ffi.h>
+#endif
 
 #undef DEBUG
 #define DEBUG 1
@@ -56,7 +70,7 @@ along with GCC; see the file COPYING3.  If not see
   ((expr) ? (void) 0 : gpy_assertion_failed(#expr, __LINE__,		\
 					    __FILE__, __func__ ));
 #else
-# define gpy_assert(expr)
+# define gpy_assert(expr) ;
 #endif
 
 extern void * gpy_malloc (size_t);
@@ -64,8 +78,7 @@ extern void * gpy_realloc (void *, size_t);
 extern void * gpy_calloc (size_t, size_t);
 
 #define gpy_free(x)   \
-  gpy_assert( x );    \
-  free( x );	      \
+  free (x);	      \
   x = NULL;
 
 #ifdef HAVE_STRDUP
@@ -78,18 +91,18 @@ extern char * gpy_strdup (const char *);
 extern void
 __gpy_debug__ (const char *, unsigned ,
                const char *, const char *, ...)
-  __gpy_fmt_check(4,5);
+  __gpy_fmt_check (4,5);
 #endif
 
 extern void
 __gpy_error__ (const char *, unsigned ,
                const char *, const char *, ...)
-  __gpy_fmt_check(4,5);
+  __gpy_fmt_check (4,5);
 
 extern void
 __gpy_fatal__ (const char *, unsigned ,
                const char *, const char *, ...)
-  __gpy_fmt_check(4,5);
+  __gpy_fmt_check (4,5);
 
 #ifdef DEBUG
 # define debug(...)						\
@@ -107,4 +120,9 @@ __gpy_fatal__ (const char *, unsigned ,
 extern void gpy_assertion_failed (const char *, unsigned, const char *,
 				  const char *);
 
-#endif //__GCC_GPYTHON_H__
+#include "gpython/vectors.h"
+#include "gpython/objects.h"
+#include "gpython/runtime.h"
+#include "gpython/lang-calls.h"
+
+#endif //__GCC_GPY_GPYTHON_H__

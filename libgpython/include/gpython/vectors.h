@@ -14,8 +14,8 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifndef __GCC_VECTORS_H__
-#define __GCC_VECTORS_H__
+#ifndef __GCC_GPY_VECTORS_H__
+#define __GCC_GPY_VECTORS_H__
 
 #define gpy_threshold_alloc(x) (((x)+16)*3/2)
 
@@ -45,22 +45,18 @@ typedef struct gpy_hash_table_t {
   (T)(V->vector[I])
 
 extern gpy_hashval_t gpy_dd_hash_string (const char *);
-extern gpy_hash_entry_t * gpy_dd_hash_lookup_table (gpy_hash_tab_t *, gpy_hashval_t);
-
+extern gpy_hash_entry_t * gpy_dd_hash_lookup_table (gpy_hash_tab_t *,
+						    gpy_hashval_t);
 extern void ** gpy_dd_hash_insert (const gpy_hashval_t , void * const ,
 				   gpy_hash_tab_t * const);
-
 extern void gpy_dd_hash_grow_table (gpy_hash_tab_t *);
-extern void gpy_dd_hash_init_table (gpy_hash_tab_t *);
-extern void gpy_vec_init (gpy_vector_t * const);
 
 extern void gpy_vec_push (gpy_vector_t * const, void * const);
 extern void * gpy_vec_pop (gpy_vector_t * const);
 extern void gpy_vec_free (gpy_vector_t *);
-extern void gpy_vec_frees (gpy_vector_t *, ...);
 
 extern gpy_vector_t * gpy_primitives;
 extern gpy_vector_t * gpy_namespace_vec;
 extern gpy_vector_t * gpy_call_stack;
 
-#endif //__GCC_VECTORS_H__
+#endif //__GCC_GPY_VECTORS_H__

@@ -5435,9 +5435,8 @@ gfc_conv_intrinsic_transfer (gfc_se * se, gfc_expr * expr)
       source = gfc_conv_descriptor_data_get (argse.expr);
       source_type = gfc_get_element_type (TREE_TYPE (argse.expr));
 
-      /* Repack the source if not a full variable array.  */
-      if (arg->expr->expr_type == EXPR_VARIABLE
-	      && arg->expr->ref->u.ar.type != AR_FULL)
+      /* Repack the source if not simply contiguous.  */
+      if (!gfc_is_simply_contiguous (arg->expr, false))
 	{
 	  tmp = gfc_build_addr_expr (NULL_TREE, argse.expr);
 
@@ -5654,8 +5653,7 @@ scalar_transfer:
 
   if (expr->ts.type == BT_CHARACTER)
     {
-      tree direct;
-      tree indirect;
+      tree direct, indirect, free;
 
       ptr = convert (gfc_get_pchar_type (expr->ts.kind), source);
       tmpdecl = gfc_create_var (gfc_get_pchar_type (expr->ts.kind),
@@ -5687,6 +5685,13 @@ scalar_transfer:
 			     dest_word_len, source_bytes);
       tmp = build3_v (COND_EXPR, tmp, direct, indirect);
       gfc_add_expr_to_block (&se->pre, tmp);
+
+      /* Free the temporary string, if necessary.  */
+      free = gfc_call_free (tmpdecl);
+      tmp = fold_build2_loc (input_location, GT_EXPR, boolean_type_node,
+			     dest_word_len, source_bytes);
+      tmp = build3_v (COND_EXPR, tmp, free, build_empty_stmt (input_location));
+      gfc_add_expr_to_block (&se->post, tmp);
 
       se->expr = tmpdecl;
       se->string_length = fold_convert (gfc_charlen_type_node, dest_word_len);

@@ -38,20 +38,20 @@ struct gpy_object_staticmethod_t {
   unsigned int nargs;
 };
 
-/* args = code addr/nargs */
 gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
-					    gpy_object_t ** args)
+					    gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "s,p,i.");
   gpy_assert (check);
 
-  char * id = gpy_args_lit_parse_string (args[0]);
-  unsigned char * code_addr = gpy_args_lit_parse_pointer (args[1]);
-  int nargs = gpy_args_lit_parse_int (args[2]);
+  char * id = gpy_args_lit_parse_string (&args[0]);
+  unsigned char * code_addr = gpy_args_lit_parse_pointer (&args[1]);
+  int nargs = gpy_args_lit_parse_int (&args[2]);
 
-  struct gpy_object_staticmethod_t * self = gpy_malloc (type->state_size);
+  struct gpy_object_staticmethod_t * self =
+    (struct gpy_object_staticmethod_t *) gpy_malloc (type->state_size);
   self->identifier = id;
   self->code = code_addr;
   self->nargs = nargs;
@@ -65,20 +65,18 @@ gpy_object_t * gpy_object_staticmethod_new (gpy_typedef_t * type,
 void gpy_object_staticmethod_dealloc (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  gpy_free (object_state->state);
-  object_state->state = NULL;
+  gpy_free (object_state.state);
+  object_state.state = NULL;
 }
 
 void gpy_object_staticmethod_print (gpy_object_t * self, FILE *fd, bool newline)
 {
-  fprintf (fd, "static method instance <%p> ", (void *)self);
+  fprintf (fd, "static method instance <%p> ", (void *) self);
   if (newline)
     fprintf (fd, "\n");
 }
-
-#ifdef USE_LIBFFI
 
 gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
 					     gpy_object_t ** arguments)
@@ -90,61 +88,88 @@ gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
   int nargs = gpy_object_staticmethod_nparms (self);
   if (code)
     {
-      if (nargs > 0)
+      switch (nargs)
 	{
-	  ffi_cif cif;
-	  ffi_type *args[nargs];
-	  void *values[nargs];
+	case 0:
+	  {
+	    gpy_ffiCall0 c = (gpy_ffiCall0) code;
+	    c ();
+	  }
+	  break;
 
-	  int idx;
-	  for (idx = 0; idx < nargs; ++idx)
-	    {
-	      args[idx] = &ffi_type_pointer;
+	case 1:
+	  {
+	    gpy_ffiCall1 c = (gpy_ffiCall1) code;
+	    c (*arguments);
+	  }
+	  break;
+
+	case 2:
+	  {
+	    gpy_ffiCall2 c = (gpy_ffiCall2) code;
+	    c (*arguments, *(arguments + 1));
+	  }
+	  break;
+
+	case 3:
+	  {
+	    gpy_ffiCall3 c = (gpy_ffiCall3) code;
+	    c (*arguments, *(arguments + 1), *(arguments + 2));
+	  }
+	  break;
+
+	case 4:
+	  {
+	    gpy_ffiCall4 c = (gpy_ffiCall4) code;
+	    c (*arguments, *(arguments + 1), (*arguments + 2),
+	       *(arguments + 3));
+	  }
+	  break;
+
+	case 5:
+	  {
+	    gpy_ffiCall5 c = (gpy_ffiCall5) code;
+	    c (*arguments, *(arguments + 1), (*arguments + 2),
+	       *(arguments + 3), *(arguments + 4));
+	  }
+	  break;
+
+	default:
+	  {
+	    ffi_cif cif;
+	    ffi_type *args[nargs];
+	    void *values[nargs];
+
+	    int idx;
+	    for (idx = 0; idx < nargs; ++idx)
+	      {
+		args[idx] = &ffi_type_pointer;
 	      values[idx] = (void *)(arguments + idx);
-	    }
-	  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
-				    &ffi_type_void, args)
-		      == FFI_OK);
-	  ffi_call (&cif, (void (*)(void))code, NULL, values);
-	}
-      else
-	{
-	  ffi_cif cif;
-	  ffi_type *args[1];
-
-	  args[0] = &ffi_type_void;
-
-	  gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, 0,
-		       &ffi_type_void, args)
-		      == FFI_OK);
-	  ffi_call (&cif, (void (*)(void))code, NULL, NULL);
+	      }
+	    gpy_assert (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, nargs,
+				      &ffi_type_void, args)
+			== FFI_OK);
+	    ffi_call (&cif, (void (*)(void))code, NULL, values);
+	  }
+	  break;
 	}
     }
   return retval;
 }
 
-#else /* !defined(USE_LIBFFI) */
-
-gpy_object_t * gpy_object_staticmethod_call (gpy_object_t * self,
-					     gpy_object_t ** args)
-{
-  fatal ("no libffi support!\n");
-  return NULL;
-}
-
-#endif /* !defined(USE_LIBFFI) */
-
 int gpy_object_staticmethod_nparms (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_staticmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_staticmethod_t * s =
+    (struct gpy_object_staticmethod_t *) state.state;
   return s->nargs;
 }
 
 unsigned char * gpy_object_staticmethod_getaddr (gpy_object_t * self)
 {
-  gpy_object_state_t * state = self->o.object_state;
-  struct gpy_object_staticmethod_t * s = state->state;
+  gpy_object_state_t state = OBJECT_STATE (self);
+  struct gpy_object_staticmethod_t * s =
+    (struct gpy_object_staticmethod_t *) state.state;
   return s->code;
 }
 

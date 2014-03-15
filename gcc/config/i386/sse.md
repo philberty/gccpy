@@ -3603,7 +3603,7 @@
 	(vec_select:V4SF
 	  (vec_concat:V8SF
 	    (match_operand:V4SF 1 "nonimmediate_operand" " 0,x,0,x,0")
-	    (match_operand:V4SF 2 "nonimmediate_operand" " x,x,m,x,x"))
+	    (match_operand:V4SF 2 "nonimmediate_operand" " x,x,m,m,x"))
 	  (parallel [(const_int 0)
 		     (const_int 1)
 		     (const_int 4)
@@ -5638,7 +5638,7 @@
   if (TARGET_SSE4_1)
     {
       if (CONSTANT_P (operands[2]))
-	operands[2] = force_const_mem (<MODE>mode, operands[2]);
+	operands[2] = validize_mem (force_const_mem (<MODE>mode, operands[2]));
       ix86_fixup_binary_operands_no_copy (MULT, <MODE>mode, operands);
     }
   else
@@ -7758,9 +7758,17 @@
 		       (mem:V16QI (match_dup 0))]
 		      UNSPEC_MASKMOV))]
   "TARGET_SSE2"
-  "%vmaskmovdqu\t{%2, %1|%1, %2}"
+{
+  /* We can't use %^ here due to ASM_OUTPUT_OPCODE processing
+     that requires %v to be at the beginning of the opcode name.  */
+  if (Pmode != word_mode)
+    fputs ("\taddr32", asm_out_file);
+  return "%vmaskmovdqu\t{%2, %1|%1, %2}";
+}
   [(set_attr "type" "ssemov")
    (set_attr "prefix_data16" "1")
+   (set (attr "length_address")
+     (symbol_ref ("Pmode != word_mode")))
    ;; The implicit %rdi operand confuses default length_vex computation.
    (set (attr "length_vex")
      (symbol_ref ("3 + REX_SSE_REGNO_P (REGNO (operands[2]))")))
@@ -7808,26 +7816,18 @@
   "mwait"
   [(set_attr "length" "3")])
 
-(define_insn "sse3_monitor"
-  [(unspec_volatile [(match_operand:SI 0 "register_operand" "a")
-		     (match_operand:SI 1 "register_operand" "c")
-		     (match_operand:SI 2 "register_operand" "d")]
-		    UNSPECV_MONITOR)]
-  "TARGET_SSE3 && !TARGET_64BIT"
-  "monitor\t%0, %1, %2"
-  [(set_attr "length" "3")])
-
-(define_insn "sse3_monitor64_<mode>"
+(define_insn "sse3_monitor_<mode>"
   [(unspec_volatile [(match_operand:P 0 "register_operand" "a")
 		     (match_operand:SI 1 "register_operand" "c")
 		     (match_operand:SI 2 "register_operand" "d")]
 		    UNSPECV_MONITOR)]
-  "TARGET_SSE3 && TARGET_64BIT"
+  "TARGET_SSE3"
 ;; 64bit version is "monitor %rax,%rcx,%rdx". But only lower 32bits in
 ;; RCX and RDX are used.  Since 32bit register operands are implicitly
 ;; zero extended to 64bit, we only need to set up 32bit registers.
-  "monitor"
-  [(set_attr "length" "3")])
+  "%^monitor"
+  [(set (attr "length")
+     (symbol_ref ("(Pmode != word_mode) + 3")))])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -9942,7 +9942,8 @@
 	 (match_operand:SI 2 "const_0_to_<sserotatemax>_operand" "n")))]
   "TARGET_XOP"
 {
-  operands[3] = GEN_INT ((<ssescalarnum> * 8) - INTVAL (operands[2]));
+  operands[3]
+    = GEN_INT (GET_MODE_BITSIZE (<ssescalarmode>mode) - INTVAL (operands[2]));
   return \"vprot<ssemodesuffix>\t{%3, %1, %0|%0, %1, %3}\";
 }
   [(set_attr "type" "sseishft")

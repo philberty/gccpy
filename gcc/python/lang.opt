@@ -41,6 +41,10 @@ fpy-dump-dot
 Python Var(GPY_OPT_dump_dot) Init(0)
 -fpy-dump-dot    Makes front-end dump dotIL Types and AST
 
+fpy-optimize
+Python Var(GPY_OPT_optimize) Init(0)
+-fpy-optimize    Try to do some preliminary optimizations on python
+
 o
 Python Joined Separate
 ; Documented in common.opt

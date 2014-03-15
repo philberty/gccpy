@@ -38,7 +38,7 @@ extern char * dot_pass_concat (const char *, const char *);
 /* Appends vector y on x */
 #define GPY_VEC_stmts_append(T,x,y)			\
   do {							\
-    int x_; T t_ = NULL_TREE;				\
+    size_t x_; T t_;					\
     for (x_ = 0; y->iterate (x_, &t_); ++x_)		\
       vec_safe_push (x, t_);				\
   } while (0);
@@ -70,5 +70,8 @@ extern void gpy_import_read (const char *);
 extern gpy_dataExport * gpy_readExportData (const char *);
 extern void gpy_pushExportData (struct gpy_dataExport *);
 extern void gpy_writeExport (const char *, bool, const char *, const char *);
+
+// gpy-builtins.c
+extern int gpy_checkBuiltin (const char *);
 
 #endif //__GCC_DOT_TREE_H__

@@ -40,16 +40,16 @@ struct gpy_object_func_t {
 
 /* args = code addr/nargs */
 gpy_object_t * gpy_object_func_new (gpy_typedef_t * type,
-				    gpy_object_t ** args)
+				    gpy_object_t * args)
 {
   gpy_object_t * retval = NULL_OBJECT;
 
   bool check = gpy_args_check_fmt (args, "s,p,i.");
   gpy_assert (check);
 
-  char * id = gpy_args_lit_parse_string (args[0]);
-  unsigned char * code_addr = gpy_args_lit_parse_pointer (args[1]);
-  int nargs = gpy_args_lit_parse_int (args[2]);
+  char * id = gpy_args_lit_parse_string (&args[0]);
+  unsigned char * code_addr = gpy_args_lit_parse_pointer (&args[1]);
+  int nargs = gpy_args_lit_parse_int (&args[2]);
 
   struct gpy_object_func_t * self = gpy_malloc (type->state_size);
   self->identifier = id;
@@ -65,10 +65,10 @@ gpy_object_t * gpy_object_func_new (gpy_typedef_t * type,
 void gpy_object_func_dealloc (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  gpy_free (object_state->state);
-  object_state->state = NULL;
+  gpy_free (object_state.state);
+  object_state.state = NULL;
 }
 
 void gpy_object_func_print (gpy_object_t * self, FILE *fd, bool newline)
@@ -82,10 +82,10 @@ gpy_object_t * gpy_object_func_call (gpy_object_t * self,
 				     gpy_object_t ** arguments)
 {
    gpy_assert (self->T == TYPE_OBJECT_DECL);
-   gpy_object_state_t * object_state = self->o.object_state;
+   gpy_object_state_t object_state = OBJECT_STATE (self);
 
-   struct gpy_object_func_t * func = (struct gpy_object_func_t *)
-     object_state->state;
+   struct gpy_object_func_t * func =
+     (struct gpy_object_func_t *) object_state.state;
    GPY_CFUNC code = func->code;
 
    /*
@@ -102,20 +102,20 @@ gpy_object_t * gpy_object_func_call (gpy_object_t * self,
 unsigned char * gpy_object_func_getaddr (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  struct gpy_object_func_t * func = (struct gpy_object_func_t *)
-    object_state->state;
+  struct gpy_object_func_t * func =
+    (struct gpy_object_func_t *) object_state.state;
   return (unsigned char *) func->code;
 }
 
 int gpy_object_func_nparms (gpy_object_t * self)
 {
   gpy_assert (self->T == TYPE_OBJECT_DECL);
-  gpy_object_state_t * object_state = self->o.object_state;
+  gpy_object_state_t object_state = OBJECT_STATE (self);
 
-  struct gpy_object_func_t * func = (struct gpy_object_func_t *)
-    object_state->state;
+  struct gpy_object_func_t * func =
+    (struct gpy_object_func_t *) object_state.state;
   return func->nargs;
 }
 

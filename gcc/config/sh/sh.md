@@ -687,9 +687,9 @@
   [(set_attr "type" "mt_group")])
 
 ;; Extract contiguous bits and compare them against zero.
-(define_insn "tstsi_t_zero_extract_eq"
+(define_insn "tst<mode>_t_zero_extract_eq"
   [(set (reg:SI T_REG)
-	(eq:SI (zero_extract:SI (match_operand 0 "logical_operand" "z")
+	(eq:SI (zero_extract:SI (match_operand:QIHISIDI 0 "logical_operand" "z")
 				(match_operand:SI 1 "const_int_operand")
 				(match_operand:SI 2 "const_int_operand"))
 	       (const_int 0)))]
@@ -2154,7 +2154,7 @@
    (clobber (reg:SI PR_REG))
    (clobber (reg:SI R4_REG))
    (use (match_operand:SI 1 "arith_reg_operand" "r"))]
-  "TARGET_SH1 && (! TARGET_SH4 || TARGET_DIVIDE_CALL_DIV1)"
+  "TARGET_SH1 && TARGET_DIVIDE_CALL_DIV1"
   "jsr	@%1%#"
   [(set_attr "type" "sfunc")
    (set_attr "needs_delay_slot" "yes")])
@@ -2217,7 +2217,7 @@
    (clobber (reg:SI R5_REG))
    (use (reg:PSI FPSCR_REG))
    (use (match_operand:SI 1 "arith_reg_operand" "r"))]
-  "TARGET_SH4 && ! TARGET_FPU_SINGLE"
+  "TARGET_FPU_DOUBLE && ! TARGET_FPU_SINGLE"
   "jsr	@%1%#"
   [(set_attr "type" "sfunc")
    (set_attr "fp_mode" "double")
@@ -2236,7 +2236,8 @@
    (clobber (reg:SI R4_REG))
    (clobber (reg:SI R5_REG))
    (use (match_operand:SI 1 "arith_reg_operand" "r"))]
-  "(TARGET_HARD_SH4 || TARGET_SHCOMPACT) && TARGET_FPU_SINGLE"
+  "(TARGET_FPU_SINGLE_ONLY || TARGET_FPU_DOUBLE || TARGET_SHCOMPACT)
+   && TARGET_FPU_SINGLE"
   "jsr	@%1%#"
   [(set_attr "type" "sfunc")
    (set_attr "needs_delay_slot" "yes")])
@@ -2358,7 +2359,7 @@
    (clobber (reg:SI R2_REG))
    (clobber (reg:SI R3_REG))
    (use (match_operand:SI 1 "arith_reg_operand" "r"))]
-  "TARGET_SH1 && (! TARGET_SH4 || TARGET_DIVIDE_CALL_DIV1)"
+  "TARGET_SH1 && TARGET_DIVIDE_CALL_DIV1"
   "jsr	@%1%#"
   [(set_attr "type" "sfunc")
    (set_attr "needs_delay_slot" "yes")])
@@ -2487,7 +2488,7 @@
    (clobber (reg:DF DR2_REG))
    (use (reg:PSI FPSCR_REG))
    (use (match_operand:SI 1 "arith_reg_operand" "r"))]
-  "TARGET_SH4 && ! TARGET_FPU_SINGLE"
+  "TARGET_FPU_DOUBLE && ! TARGET_FPU_SINGLE"
   "jsr	@%1%#"
   [(set_attr "type" "sfunc")
    (set_attr "fp_mode" "double")
@@ -2501,7 +2502,8 @@
    (clobber (reg:DF DR2_REG))
    (clobber (reg:SI R2_REG))
    (use (match_operand:SI 1 "arith_reg_operand" "r"))]
-  "(TARGET_HARD_SH4 || TARGET_SHCOMPACT) && TARGET_FPU_SINGLE"
+  "(TARGET_FPU_SINGLE_ONLY || TARGET_FPU_DOUBLE || TARGET_SHCOMPACT)
+   && TARGET_FPU_SINGLE"
   "jsr	@%1%#"
   [(set_attr "type" "sfunc")
    (set_attr "needs_delay_slot" "yes")])
@@ -6832,10 +6834,11 @@ label:
 ;; If movqi_reg_reg is specified as an alternative of movqi, movqi will be
 ;; selected to copy QImode regs.  If one of them happens to be allocated
 ;; on the stack, reload will stick to movqi insn and generate wrong
-;; displacement addressing because of the generic m alternatives.  
-;; With the movqi_reg_reg being specified before movqi it will be initially 
-;; picked to load/store regs.  If the regs regs are on the stack reload will
-;; try other insns and not stick to movqi_reg_reg.
+;; displacement addressing because of the generic m alternatives.
+;; With the movqi_reg_reg being specified before movqi it will be initially
+;; picked to load/store regs.  If the regs regs are on the stack reload
+;; try other insns and not stick to movqi_reg_reg, unless there were spilled
+;; pseudos in which case 'm' constraints pertain.
 ;; The same applies to the movhi variants.
 ;;
 ;; Notice, that T bit is not allowed as a mov src operand here.  This is to
@@ -6847,11 +6850,14 @@ label:
 ;; reloading MAC subregs otherwise.  For that probably special patterns
 ;; would be required.
 (define_insn "*mov<mode>_reg_reg"
-  [(set (match_operand:QIHI 0 "arith_reg_dest" "=r")
-	(match_operand:QIHI 1 "register_operand" "r"))]
+  [(set (match_operand:QIHI 0 "arith_reg_dest" "=r,m,*z")
+	(match_operand:QIHI 1 "register_operand" "r,*z,m"))]
   "TARGET_SH1 && !t_reg_operand (operands[1], VOIDmode)"
-  "mov	%1,%0"
-  [(set_attr "type" "move")])
+  "@
+    mov		%1,%0
+    mov.<bw>	%1,%0
+    mov.<bw>	%1,%0"
+  [(set_attr "type" "move,store,load")])
 
 ;; FIXME: The non-SH2A and SH2A variants should be combined by adding
 ;; "enabled" attribute as it is done in other targets.
@@ -12071,10 +12077,10 @@ label:
 
 ;; FMA (fused multiply-add) patterns
 (define_expand "fmasf4"
-  [(set (match_operand:SF 0 "fp_arith_reg_operand" "")
-	(fma:SF (match_operand:SF 1 "fp_arith_reg_operand" "")
-		(match_operand:SF 2 "fp_arith_reg_operand" "")
-		(match_operand:SF 3 "fp_arith_reg_operand" "")))]
+  [(set (match_operand:SF 0 "fp_arith_reg_operand")
+	(fma:SF (match_operand:SF 1 "fp_arith_reg_operand")
+		(match_operand:SF 2 "fp_arith_reg_operand")
+		(match_operand:SF 3 "fp_arith_reg_operand")))]
   "TARGET_SH2E || TARGET_SHMEDIA_FPU"
 {
   if (TARGET_SH2E)
@@ -12102,6 +12108,43 @@ label:
 		(match_operand:SF 2 "fp_arith_reg_operand" "f")
 		(match_operand:SF 3 "fp_arith_reg_operand" "0")))]
   "TARGET_SHMEDIA_FPU"
+  "fmac.s %1, %2, %0"
+  [(set_attr "type" "fparith_media")])
+
+;; For some cases such as 'a * b + a' the FMA pattern is not generated by
+;; previous transformations.  If FMA is generally allowed, let the combine
+;; pass utilize it.
+(define_insn_and_split "*fmasf4"
+  [(set (match_operand:SF 0 "fp_arith_reg_operand" "=f")
+	(plus:SF (mult:SF (match_operand:SF 1 "fp_arith_reg_operand" "%w")
+			  (match_operand:SF 2 "fp_arith_reg_operand" "f"))
+		 (match_operand:SF 3 "arith_reg_operand" "0")))
+   (use (match_operand:PSI 4 "fpscr_operand"))]
+  "TARGET_SH2E && flag_fp_contract_mode != FP_CONTRACT_OFF"
+  "fmac	%1,%2,%0"
+  "&& can_create_pseudo_p ()"
+  [(parallel [(set (match_dup 0)
+		   (fma:SF (match_dup 1) (match_dup 2) (match_dup 3)))
+	      (use (match_dup 4))])]
+{
+  /* Change 'b * a + a' into 'a * b + a'.
+     This is better for register allocation.  */
+  if (REGNO (operands[2]) == REGNO (operands[3]))
+    {
+      rtx tmp = operands[1];
+      operands[1] = operands[2];
+      operands[2] = tmp;
+    }
+}
+  [(set_attr "type" "fp")
+   (set_attr "fp_mode" "single")])
+
+(define_insn "*fmasf4_media"
+  [(set (match_operand:SF 0 "fp_arith_reg_operand" "=f")
+	(plus:SF (mult:SF (match_operand:SF 1 "fp_arith_reg_operand" "%f")
+			  (match_operand:SF 2 "fp_arith_reg_operand" "f"))
+		 (match_operand:SF 3 "fp_arith_reg_operand" "0")))]
+  "TARGET_SHMEDIA_FPU && flag_fp_contract_mode != FP_CONTRACT_OFF"
   "fmac.s %1, %2, %0"
   [(set_attr "type" "fparith_media")])
 

@@ -777,6 +777,9 @@ case "${target}" in
   sh*-*-pe|mips*-*-pe|*arm-wince-pe)
     libgloss_dir=wince
     ;;
+  aarch64*-*-* )
+    libgloss_dir=aarch64
+    ;;
   arm*-*-*)
     libgloss_dir=arm
     ;;
@@ -1628,6 +1631,9 @@ if test "x$with_isl" != "xno" &&
   ISL_CHECK_VERSION(0,10)
   if test "${gcc_cv_isl}" = no ; then
     ISL_CHECK_VERSION(0,11)
+    if test "${gcc_cv_isl}" = no ; then
+      ISL_CHECK_VERSION(0,12)
+    fi
   fi
   dnl Only execute fail-action, if ISL has been requested.
   ISL_IF_FAILED([

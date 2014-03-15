@@ -284,9 +284,6 @@ static struct
   { "rsqrtd",	 (RECIP_DF_RSQRT | RECIP_V2DF_RSQRT) },
 };
 
-/* 2 argument gen function typedef.  */
-typedef rtx (*gen_2arg_fn_t) (rtx, rtx, rtx);
-
 /* Pointer to function (in rs6000-c.c) that can define or undefine target
    macros that have changed.  Languages that don't support the preprocessor
    don't link in rs6000-c.c, so we can't call it directly.  */
@@ -2186,8 +2183,17 @@ rs6000_init_hard_regno_mode_ok (bool global_init_p)
 	reg_size = UNITS_PER_WORD;
 
       for (m = 0; m < NUM_MACHINE_MODES; ++m)
-	rs6000_class_max_nregs[m][c]
-	  = (GET_MODE_SIZE (m) + reg_size - 1) / reg_size;
+	{
+	  int reg_size2 = reg_size;
+
+	  /* TFmode/TDmode always takes 2 registers, even in VSX.  */
+	  if (TARGET_VSX && VSX_REG_CLASS_P (c)
+	      && (m == TDmode || m == TFmode))
+	    reg_size2 = UNITS_PER_FP_WORD;
+
+	  rs6000_class_max_nregs[m][c]
+	    = (GET_MODE_SIZE (m) + reg_size2 - 1) / reg_size2;
+	}
     }
 
   if (TARGET_E500_DOUBLE)
@@ -4231,7 +4237,7 @@ vspltis_constant (rtx op, unsigned step, unsigned copies)
   bitsize = GET_MODE_BITSIZE (inner);
   mask = GET_MODE_MASK (inner);
 
-  val = const_vector_elt_as_int (op, nunits - 1);
+  val = const_vector_elt_as_int (op, BYTES_BIG_ENDIAN ? nunits - 1 : 0);
   splat_val = val;
   msb_val = val > 0 ? 0 : -1;
 
@@ -4271,7 +4277,7 @@ vspltis_constant (rtx op, unsigned step, unsigned copies)
   for (i = 0; i < nunits - 1; ++i)
     {
       HOST_WIDE_INT desired_val;
-      if (((i + 1) & (step - 1)) == 0)
+      if (((BYTES_BIG_ENDIAN ? i + 1 : i) & (step - 1)) == 0)
 	desired_val = val;
       else
 	desired_val = msb_val;
@@ -4356,13 +4362,13 @@ gen_easy_altivec_constant (rtx op)
 {
   enum machine_mode mode = GET_MODE (op);
   int nunits = GET_MODE_NUNITS (mode);
-  rtx last = CONST_VECTOR_ELT (op, nunits - 1);
+  rtx val = CONST_VECTOR_ELT (op, BYTES_BIG_ENDIAN ? nunits - 1 : 0);
   unsigned step = nunits / 4;
   unsigned copies = 1;
 
   /* Start with a vspltisw.  */
   if (vspltis_constant (op, step, copies))
-    return gen_rtx_VEC_DUPLICATE (V4SImode, gen_lowpart (SImode, last));
+    return gen_rtx_VEC_DUPLICATE (V4SImode, gen_lowpart (SImode, val));
 
   /* Then try with a vspltish.  */
   if (step == 1)
@@ -4371,7 +4377,7 @@ gen_easy_altivec_constant (rtx op)
     step >>= 1;
 
   if (vspltis_constant (op, step, copies))
-    return gen_rtx_VEC_DUPLICATE (V8HImode, gen_lowpart (HImode, last));
+    return gen_rtx_VEC_DUPLICATE (V8HImode, gen_lowpart (HImode, val));
 
   /* And finally a vspltisb.  */
   if (step == 1)
@@ -4380,7 +4386,7 @@ gen_easy_altivec_constant (rtx op)
     step >>= 1;
 
   if (vspltis_constant (op, step, copies))
-    return gen_rtx_VEC_DUPLICATE (V16QImode, gen_lowpart (QImode, last));
+    return gen_rtx_VEC_DUPLICATE (V16QImode, gen_lowpart (QImode, val));
 
   gcc_unreachable ();
 }
@@ -5329,7 +5335,7 @@ toc_relative_expr_p (const_rtx op, bool strict)
 
   tocrel_base = op;
   tocrel_offset = const0_rtx;
-  if (GET_CODE (op) == PLUS && CONST_INT_P (XEXP (op, 1)))
+  if (GET_CODE (op) == PLUS && add_cint_operand (XEXP (op, 1), GET_MODE (op)))
     {
       tocrel_base = XEXP (op, 0);
       tocrel_offset = XEXP (op, 1);
@@ -9058,19 +9064,20 @@ setup_incoming_varargs (cumulative_args_t cum, enum machine_mode mode,
       && cfun->va_list_gpr_size)
     {
       int nregs = GP_ARG_NUM_REG - first_reg_offset;
+      int n_gpr;
 
       if (va_list_gpr_counter_field)
 	{
 	  /* V4 va_list_gpr_size counts number of registers needed.  */
-	  if (nregs > cfun->va_list_gpr_size)
-	    nregs = cfun->va_list_gpr_size;
+	  n_gpr = cfun->va_list_gpr_size;
 	}
       else
 	{
 	  /* char * va_list instead counts number of bytes needed.  */
-	  if (nregs > cfun->va_list_gpr_size / reg_size)
-	    nregs = cfun->va_list_gpr_size / reg_size;
+	  n_gpr = (cfun->va_list_gpr_size + reg_size - 1) / reg_size;
 	}
+      if (nregs > n_gpr)
+	nregs = n_gpr;
 
       mem = gen_rtx_MEM (BLKmode,
 			 plus_constant (Pmode, save_area,
@@ -16892,8 +16899,9 @@ rs6000_adjust_atomic_subword (rtx orig_mem, rtx *pshift, rtx *pmask)
   shift = gen_reg_rtx (SImode);
   addr = gen_lowpart (SImode, addr);
   emit_insn (gen_rlwinm (shift, addr, GEN_INT (3), GEN_INT (shift_mask)));
-  shift = expand_simple_binop (SImode, XOR, shift, GEN_INT (shift_mask),
-			       shift, 1, OPTAB_LIB_WIDEN);
+  if (WORDS_BIG_ENDIAN)
+    shift = expand_simple_binop (SImode, XOR, shift, GEN_INT (shift_mask),
+			         shift, 1, OPTAB_LIB_WIDEN);
   *pshift = shift;
 
   /* Mask for insertion.  */
@@ -19949,8 +19957,7 @@ rs6000_emit_prologue (void)
 	  HOST_WIDE_INT offset;
 
 	  if (!(strategy & SAVE_INLINE_GPRS))
-	    ool_adjust = 8 * (info->first_gp_reg_save
-			      - (FIRST_SAVRES_REGISTER + 1));
+	    ool_adjust = 8 * (info->first_gp_reg_save - FIRST_SAVED_GP_REGNO);
 	  offset = info->spe_gp_save_offset + frame_off - ool_adjust;
 	  spe_save_area_ptr = gen_rtx_REG (Pmode, 11);
 	  save_off = frame_off - offset;
@@ -21192,8 +21199,7 @@ rs6000_emit_epilogue (int sibcall)
 	     anew to every function.  */
 
 	  if (!restoring_GPRs_inline)
-	    ool_adjust = 8 * (info->first_gp_reg_save
-			      - (FIRST_SAVRES_REGISTER + 1));
+	    ool_adjust = 8 * (info->first_gp_reg_save - FIRST_SAVED_GP_REGNO);
 	  frame_reg_rtx = gen_rtx_REG (Pmode, 11);
 	  emit_insn (gen_addsi3 (frame_reg_rtx, old_frame_reg_rtx,
 				 GEN_INT (info->spe_gp_save_offset
@@ -22143,20 +22149,22 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 
       if (TARGET_64BIT)
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs (DOUBLE_INT_ASM_OP, file);
 	  else
 	    fprintf (file, "\t.tc FT_%lx_%lx_%lx_%lx[TC],",
 		     k[0] & 0xffffffff, k[1] & 0xffffffff,
 		     k[2] & 0xffffffff, k[3] & 0xffffffff);
 	  fprintf (file, "0x%lx%08lx,0x%lx%08lx\n",
-		   k[0] & 0xffffffff, k[1] & 0xffffffff,
-		   k[2] & 0xffffffff, k[3] & 0xffffffff);
+		   k[WORDS_BIG_ENDIAN ? 0 : 1] & 0xffffffff,
+		   k[WORDS_BIG_ENDIAN ? 1 : 0] & 0xffffffff,
+		   k[WORDS_BIG_ENDIAN ? 2 : 3] & 0xffffffff,
+		   k[WORDS_BIG_ENDIAN ? 3 : 2] & 0xffffffff);
 	  return;
 	}
       else
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs ("\t.long ", file);
 	  else
 	    fprintf (file, "\t.tc FT_%lx_%lx_%lx_%lx[TC],",
@@ -22183,18 +22191,19 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 
       if (TARGET_64BIT)
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs (DOUBLE_INT_ASM_OP, file);
 	  else
 	    fprintf (file, "\t.tc FD_%lx_%lx[TC],",
 		     k[0] & 0xffffffff, k[1] & 0xffffffff);
 	  fprintf (file, "0x%lx%08lx\n",
-		   k[0] & 0xffffffff, k[1] & 0xffffffff);
+		   k[WORDS_BIG_ENDIAN ? 0 : 1] & 0xffffffff,
+		   k[WORDS_BIG_ENDIAN ? 1 : 0] & 0xffffffff);
 	  return;
 	}
       else
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs ("\t.long ", file);
 	  else
 	    fprintf (file, "\t.tc FD_%lx_%lx[TC],",
@@ -22218,16 +22227,19 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 
       if (TARGET_64BIT)
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs (DOUBLE_INT_ASM_OP, file);
 	  else
 	    fprintf (file, "\t.tc FS_%lx[TC],", l & 0xffffffff);
-	  fprintf (file, "0x%lx00000000\n", l & 0xffffffff);
+	  if (WORDS_BIG_ENDIAN)
+	    fprintf (file, "0x%lx00000000\n", l & 0xffffffff);
+	  else
+	    fprintf (file, "0x%lx\n", l & 0xffffffff);
 	  return;
 	}
       else
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs ("\t.long ", file);
 	  else
 	    fprintf (file, "\t.tc FS_%lx[TC],", l & 0xffffffff);
@@ -22259,9 +22271,8 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 	}
 #endif
 
-      /* TOC entries are always Pmode-sized, but since this
-	 is a bigendian machine then if we're putting smaller
-	 integer constants in the TOC we have to pad them.
+      /* TOC entries are always Pmode-sized, so when big-endian
+	 smaller integer constants in the TOC need to be padded.
 	 (This is still a win over putting the constants in
 	 a separate constant pool, because then we'd have
 	 to have both a TOC entry _and_ the actual constant.)
@@ -22272,7 +22283,7 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
       /* It would be easy to make this work, but it doesn't now.  */
       gcc_assert (!TARGET_64BIT || POINTER_SIZE >= GET_MODE_BITSIZE (mode));
 
-      if (POINTER_SIZE > GET_MODE_BITSIZE (mode))
+      if (WORDS_BIG_ENDIAN && POINTER_SIZE > GET_MODE_BITSIZE (mode))
 	{
 #if HOST_BITS_PER_WIDE_INT == 32
 	  lshift_double (low, high, POINTER_SIZE - GET_MODE_BITSIZE (mode),
@@ -22287,7 +22298,7 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 
       if (TARGET_64BIT)
 	{
-	  if (TARGET_MINIMAL_TOC)
+	  if (TARGET_ELF || TARGET_MINIMAL_TOC)
 	    fputs (DOUBLE_INT_ASM_OP, file);
 	  else
 	    fprintf (file, "\t.tc ID_%lx_%lx[TC],",
@@ -22300,7 +22311,7 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 	{
 	  if (POINTER_SIZE < GET_MODE_BITSIZE (mode))
 	    {
-	      if (TARGET_MINIMAL_TOC)
+	      if (TARGET_ELF || TARGET_MINIMAL_TOC)
 		fputs ("\t.long ", file);
 	      else
 		fprintf (file, "\t.tc ID_%lx_%lx[TC],",
@@ -22310,7 +22321,7 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
 	    }
 	  else
 	    {
-	      if (TARGET_MINIMAL_TOC)
+	      if (TARGET_ELF || TARGET_MINIMAL_TOC)
 		fputs ("\t.long ", file);
 	      else
 		fprintf (file, "\t.tc IS_%lx[TC],", (long) low & 0xffffffff);
@@ -22348,7 +22359,7 @@ output_toc (FILE *file, rtx x, int labelno, enum machine_mode mode)
       gcc_unreachable ();
     }
 
-  if (TARGET_MINIMAL_TOC)
+  if (TARGET_ELF || TARGET_MINIMAL_TOC)
     fputs (TARGET_32BIT ? "\t.long " : DOUBLE_INT_ASM_OP, file);
   else
     {
@@ -25913,7 +25924,7 @@ rs6000_xcoff_section_type_flags (tree decl, const char *name, int reloc)
   unsigned int flags = default_section_type_flags (decl, name, reloc);
 
   /* Align to at least UNIT size.  */
-  if (flags & SECTION_CODE || !decl)
+  if ((flags & SECTION_CODE) != 0 || !decl || !DECL_P (decl))
     align = MIN_UNITS_PER_WORD;
   else
     /* Increase alignment of large objects if not already stricter.  */
@@ -26643,7 +26654,7 @@ rs6000_emit_swdiv_high_precision (rtx dst, rtx n, rtx d)
   enum machine_mode mode = GET_MODE (dst);
   rtx x0, e0, e1, y1, u0, v0;
   enum insn_code code = optab_handler (smul_optab, mode);
-  gen_2arg_fn_t gen_mul = (gen_2arg_fn_t) GEN_FCN (code);
+  insn_gen_fn gen_mul = GEN_FCN (code);
   rtx one = rs6000_load_constant_and_splat (mode, dconst1);
 
   gcc_assert (code != CODE_FOR_nothing);
@@ -26681,7 +26692,7 @@ rs6000_emit_swdiv_low_precision (rtx dst, rtx n, rtx d)
   enum machine_mode mode = GET_MODE (dst);
   rtx x0, e0, e1, e2, y1, y2, y3, u0, v0, one;
   enum insn_code code = optab_handler (smul_optab, mode);
-  gen_2arg_fn_t gen_mul = (gen_2arg_fn_t) GEN_FCN (code);
+  insn_gen_fn gen_mul = GEN_FCN (code);
 
   gcc_assert (code != CODE_FOR_nothing);
 
@@ -26752,7 +26763,7 @@ rs6000_emit_swrsqrt (rtx dst, rtx src)
   int i;
   rtx halfthree;
   enum insn_code code = optab_handler (smul_optab, mode);
-  gen_2arg_fn_t gen_mul = (gen_2arg_fn_t) GEN_FCN (code);
+  insn_gen_fn gen_mul = GEN_FCN (code);
 
   gcc_assert (code != CODE_FOR_nothing);
 

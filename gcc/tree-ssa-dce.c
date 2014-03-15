@@ -574,6 +574,11 @@ mark_aliased_reaching_defs_necessary_1 (ao_ref *ref, tree vdef, void *data)
 		      in the references (gcc.c-torture/execute/pr42142.c).
 		      The simplest way is to check if the kill dominates
 		      the use.  */
+		   /* But when both are in the same block we cannot
+		      easily tell whether we came from a backedge
+		      unless we decide to compute stmt UIDs
+		      (see PR58246).  */
+		   && (basic_block) data != gimple_bb (def_stmt)
 		   && dominated_by_p (CDI_DOMINATORS, (basic_block) data,
 				      gimple_bb (def_stmt))
 		   && operand_equal_p (ref->ref, lhs, 0))
@@ -1607,10 +1612,8 @@ perform_tree_ssa_dce (bool aggressive)
   free_edge_list (el);
 
   if (something_changed)
-    return (TODO_update_ssa | TODO_cleanup_cfg | TODO_ggc_collect
-	    | TODO_remove_unused_locals);
-  else
-    return 0;
+    return TODO_update_ssa | TODO_cleanup_cfg;
+  return 0;
 }
 
 /* Pass entry points.  */

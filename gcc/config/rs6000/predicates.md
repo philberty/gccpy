@@ -275,14 +275,18 @@
   (ior (match_code "const_int")
        (match_operand 0 "gpc_reg_operand")))
 
+;; Return 1 if op is a constant integer valid for addition with addis, addi.
+(define_predicate "add_cint_operand"
+  (and (match_code "const_int")
+       (match_test "(unsigned HOST_WIDE_INT)
+		      (INTVAL (op) + (mode == SImode ? 0x80000000 : 0x80008000))
+		    < (unsigned HOST_WIDE_INT) 0x100000000ll")))
+
 ;; Return 1 if op is a constant integer valid for addition
 ;; or non-special register.
 (define_predicate "reg_or_add_cint_operand"
   (if_then_else (match_code "const_int")
-    (match_test "(HOST_BITS_PER_WIDE_INT == 32
-		  && (mode == SImode || INTVAL (op) < 0x7fff8000))
-		 || ((unsigned HOST_WIDE_INT) (INTVAL (op) + 0x80008000)
-		     < (unsigned HOST_WIDE_INT) 0x100000000ll)")
+    (match_operand 0 "add_cint_operand")
     (match_operand 0 "gpc_reg_operand")))
 
 ;; Return 1 if op is a constant integer valid for subtraction
@@ -464,9 +468,11 @@
 	    (match_test "easy_altivec_constant (op, mode)")))
 {
   HOST_WIDE_INT val;
+  int elt;
   if (mode == V2DImode || mode == V2DFmode)
     return 0;
-  val = const_vector_elt_as_int (op, GET_MODE_NUNITS (mode) - 1);
+  elt = BYTES_BIG_ENDIAN ? GET_MODE_NUNITS (mode) - 1 : 0;
+  val = const_vector_elt_as_int (op, elt);
   val = ((val & 0xff) ^ 0x80) - 0x80;
   return EASY_VECTOR_15_ADD_SELF (val);
 })
@@ -478,9 +484,11 @@
 	    (match_test "easy_altivec_constant (op, mode)")))
 {
   HOST_WIDE_INT val;
+  int elt;
   if (mode == V2DImode || mode == V2DFmode)
     return 0;
-  val = const_vector_elt_as_int (op, GET_MODE_NUNITS (mode) - 1);
+  elt = BYTES_BIG_ENDIAN ? GET_MODE_NUNITS (mode) - 1 : 0;
+  val = const_vector_elt_as_int (op, elt);
   return EASY_VECTOR_MSB (val, GET_MODE_INNER (mode));
 })
 
@@ -1521,7 +1529,7 @@
 (define_predicate "small_toc_ref"
   (match_code "unspec,plus")
 {
-  if (GET_CODE (op) == PLUS && CONST_INT_P (XEXP (op, 1)))
+  if (GET_CODE (op) == PLUS && add_cint_operand (XEXP (op, 1), mode))
     op = XEXP (op, 0);
 
   return GET_CODE (op) == UNSPEC && XINT (op, 1) == UNSPEC_TOCREL;

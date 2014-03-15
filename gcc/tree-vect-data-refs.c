@@ -2498,10 +2498,17 @@ vect_analyze_data_ref_access (struct data_reference *dr)
       return false;
     }
 
-  /* Allow invariant loads in loops.  */
+  /* Allow invariant loads in not nested loops.  */
   if (loop_vinfo && integer_zerop (step))
     {
       GROUP_FIRST_ELEMENT (vinfo_for_stmt (stmt)) = NULL;
+      if (nested_in_vect_loop_p (loop, stmt))
+	{
+	  if (dump_enabled_p ())
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "zero step in inner loop of nest");
+	  return false;
+	}
       return DR_IS_READ (dr);
     }
 
@@ -4218,7 +4225,9 @@ vect_permute_store_chain (vec<tree> dr_chain,
   unsigned int j, nelt = TYPE_VECTOR_SUBPARTS (vectype);
   unsigned char *sel = XALLOCAVEC (unsigned char, nelt);
 
-  *result_chain = dr_chain.copy ();
+  result_chain->quick_grow (length);
+  memcpy (result_chain->address (), dr_chain.address (),
+	  length * sizeof (tree));
 
   for (i = 0, n = nelt / 2; i < n; i++)
     {
@@ -4259,7 +4268,8 @@ vect_permute_store_chain (vec<tree> dr_chain,
 	  vect_finish_stmt_generation (stmt, perm_stmt, gsi);
 	  (*result_chain)[2*j+1] = low;
 	}
-      dr_chain = result_chain->copy ();
+      memcpy (dr_chain.address (), result_chain->address (),
+	      length * sizeof (tree));
     }
 }
 
@@ -4673,7 +4683,9 @@ vect_permute_load_chain (vec<tree> dr_chain,
   unsigned nelt = TYPE_VECTOR_SUBPARTS (vectype);
   unsigned char *sel = XALLOCAVEC (unsigned char, nelt);
 
-  *result_chain = dr_chain.copy ();
+  result_chain->quick_grow (length);
+  memcpy (result_chain->address (), dr_chain.address (),
+	  length * sizeof (tree));
 
   for (i = 0; i < nelt; ++i)
     sel[i] = i * 2;
@@ -4708,7 +4720,8 @@ vect_permute_load_chain (vec<tree> dr_chain,
 	  vect_finish_stmt_generation (stmt, perm_stmt, gsi);
 	  (*result_chain)[j/2+length/2] = data_ref;
 	}
-      dr_chain = result_chain->copy ();
+      memcpy (dr_chain.address (), result_chain->address (),
+	      length * sizeof (tree));
     }
 }
 
@@ -4823,9 +4836,12 @@ vect_can_force_dr_alignment_p (const_tree decl, unsigned int alignment)
   /* We cannot change alignment of common or external symbols as another
      translation unit may contain a definition with lower alignment.  
      The rules of common symbol linking mean that the definition
-     will override the common symbol.  */
+     will override the common symbol.  The same is true for constant
+     pool entries which may be shared and are not properly merged
+     by LTO.  */
   if (DECL_EXTERNAL (decl)
-      || DECL_COMMON (decl))
+      || DECL_COMMON (decl)
+      || DECL_IN_CONSTANT_POOL (decl))
     return false;
 
   if (TREE_ASM_WRITTEN (decl))

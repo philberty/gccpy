@@ -30,10 +30,10 @@ struct MoveOnly
 };
 
 struct equal {
-  bool operator()(const MoveOnly&, const MoveOnly) const { return true; }
+  bool operator()(const MoveOnly&, const MoveOnly&) const { return true; }
 };
 struct hash {
-  size_t operator()(const MoveOnly&) const { return 0; }
+  std::size_t operator()(const MoveOnly&) const { return 0; }
 };
 
 template<typename Alloc>

@@ -41,6 +41,9 @@ extern tree GPY_RR_fold_string (tree);
 /* do flat import */
 extern tree GPY_RR_foldImport (tree, tree);
 
+/* do builtin import */
+extern tree GPY_RR_foldBuiltinImport (tree, tree);
+
 /* Get slice of object */
 extern tree GPY_RR_makeSlice (tree, tree);
 

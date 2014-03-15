@@ -19,9 +19,14 @@
 /* DEFINES */
 #define DOT_CURRENT_CONTEXT(x_)					\
   VEC_index (dot_contextEntry_t, x_, VEC_length (x_) - 1)
-/* ... ... ... */
 
-static tree moduleInit = NULL_TREE;
+struct dot_global_context {
+  int offset;
+  tree size;
+  tree stack_offs;
+  tree stack_ptr;
+};
+/* ... ... ... */
 
 /* PROTOTYPES... */
 static tree dot_pass_genFndecl_Basic (tree, tree);
@@ -43,6 +48,7 @@ static vec<tree,va_gc> * dot_pass_genClass (gpy_dot_tree_t *, dot_contextTable_t
 static tree dot_pass_genScalar (gpy_dot_tree_t *, tree *);
 static tree dot_pass_genEnclosure (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 static void dot_pass_genCBlock (gpy_dot_tree_t *, tree *, dot_contextTable_t, tree, tree);
+static void dot_pass_genGlobal (gpy_dot_tree_t *, tree *, dot_contextTable_t);
 
 static tree dot_pass_lowerExpr (gpy_dot_tree_t *, dot_contextTable_t, tree *);
 static void dot_pass_genPrintStmt (gpy_dot_tree_t * , tree *, dot_contextTable_t);
@@ -341,13 +347,16 @@ void dot_pass_setupContext (tree module,
   TREE_STATIC (stack_offset) = 1;
   TREE_PUBLIC (stack_offset) = 0;
   TREE_USED (stack_offset) = 1;
-  DECL_INITIAL (stack_offset) = build_int_cst (integer_type_node, 0);
+  DECL_EXTERNAL (stack_offset) = 0;
   rest_of_decl_compilation (stack_offset, 1, 0);
+
+  gpy_dd_hash_insert (gpy_dd_hash_string ("__MODULE_STK_OFFS"),
+		      stack_offset, globls);
+  vec_safe_push (generic, stack_offset);
 
   append_to_statement_list (build2 (MODIFY_EXPR, integer_type_node,
 				    stack_offset, stack_extendCall),
 			    block);
-  
   offset = 0;
   field_count = 0;
   for (field = TYPE_FIELDS (module); field != NULL_TREE;
@@ -356,35 +365,18 @@ void dot_pass_setupContext (tree module,
       gcc_assert (TREE_CODE (field) == FIELD_DECL);
       const char * ident = IDENTIFIER_POINTER (DECL_NAME (field));
 
-      tree element_size = TYPE_SIZE_UNIT (TREE_TYPE (field));
+      struct dot_global_context * ctx = (struct dot_global_context *)
+	xmalloc (sizeof (dot_global_context));
+      ctx->offset = offset;
+      ctx->size = TYPE_SIZE_UNIT (TREE_TYPE (field));
+      ctx->stack_offs = stack_offset;
+      ctx->stack_ptr = stack_pointer;
 
-      tree offs1 = build2 (MULT_EXPR, sizetype,
-			   build_int_cst (sizetype, offset),
-			   element_size);
-      tree offs2 = build2 (MULT_EXPR, sizetype,
-			   stack_offset,
-			   element_size);
+      gcc_assert (dot_pass_pushDecl ((tree) ctx, ident, globls_symbols));
 
-      tree offs = build2 (PLUS_EXPR, sizetype,
-			  offs1, offs2);
-      tree addr = build2 (POINTER_PLUS_EXPR,
-			  TREE_TYPE (stack_pointer),
-			  stack_pointer, offs);
-
-      gcc_assert (dot_pass_pushDecl (addr, ident, globls_symbols));
       offset++;
       field_count++;
     }
-
-  // the module_init shizzle!
-  moduleInit = build_decl (BUILTINS_LOCATION, VAR_DECL,
-			   get_identifier ("__MOD_INIT_CHK"),
-			   boolean_type_node);
-  TREE_STATIC (moduleInit) = 1;
-  TREE_PUBLIC (moduleInit) = 0;
-  TREE_USED (moduleInit) = 1;
-  DECL_INITIAL(moduleInit) = boolean_false_node;
-  rest_of_decl_compilation (moduleInit, 1, 0);
 }
 
 static
@@ -420,7 +412,40 @@ tree dot_pass_lookupDecl (dot_contextTable_t context,
       if (o)
 	if (o->data)
 	  {
-	    retval = (tree) o->data;
+	    void * tmp = (tree) o->data;
+	    if (i == 1)
+	      {
+		/* This is a global stack pointer symbol we need to create */
+		struct dot_global_context * ctx =
+		  (struct dot_global_context *) tmp;
+
+		int offset = ctx->offset;
+		tree element_size = ctx->size;
+		tree stack_offset = ctx->stack_offs;
+		// tree stack_pointer = ctx->stack_ptr;
+		
+		tree stack_pointer = build_decl (BUILTINS_LOCATION, VAR_DECL,
+						 get_identifier (GPY_RR_stack_ptr),
+						 gpy_object_type_ptr_ptr);
+		TREE_PUBLIC (stack_pointer) = 1;
+		TREE_USED (stack_pointer) = 1;
+		DECL_EXTERNAL (stack_pointer) = 1;
+
+		tree offs1 = build2 (MULT_EXPR, sizetype,
+				     build_int_cst (sizetype, offset),
+				     element_size);
+		tree offs2 = build2 (MULT_EXPR, sizetype,
+				     stack_offset,
+				     element_size);
+		
+		tree offs = build2 (PLUS_EXPR, sizetype,
+				    offs1, offs2);
+		retval = fold_build2 (POINTER_PLUS_EXPR,
+				      TREE_TYPE (stack_pointer),
+				      stack_pointer, offs);
+	      }
+	    else
+	      retval = (tree) tmp;
 	    break;
 	  }
     }
@@ -436,7 +461,7 @@ tree dot_pass_genScalar (gpy_dot_tree_t * decl, tree * block)
   gcc_assert (DOT_lhs_T (decl) == D_TD_COM);
 
   switch (DOT_lhs_TC (decl)->T)
-    {
+   {
     case D_T_INTEGER:
       {
         retval = build_decl (UNKNOWN_LOCATION, VAR_DECL,
@@ -547,6 +572,10 @@ void dot_pass_genSuite (gpy_dot_tree_t * decl,
 	  dot_pass_genFor (node, block, context);
 	  break;
 
+	case GLOBAL_STMT:
+	  dot_pass_genGlobal (node, block, context);
+	  break;
+
 	default:
 	  error ("unhandled syntax within suite");
 	  break;
@@ -643,6 +672,18 @@ void dot_pass_genCBlock (gpy_dot_tree_t * decl,
   append_to_statement_list (label_exit_expr, block);
 }
 
+/*
+ * Currently ignored because the global keyword is stupid!
+ * Only really for people using python interactivly is the
+ * single rationale i can think of...
+ */
+static
+void dot_pass_genGlobal (gpy_dot_tree_t * decl,
+			 tree * block,
+			 dot_contextTable_t context)
+{
+  return;
+}
 
 static
 void dot_pass_genImport (gpy_dot_tree_t * decl,
@@ -653,33 +694,46 @@ void dot_pass_genImport (gpy_dot_tree_t * decl,
   tree lookup = dot_pass_lookupDecl (context, import);
   gcc_assert (lookup != error_mark_node);
 
-  struct gpy_dataExport * exp = gpy_readExportData (import);
-  if (exp == NULL)
-    error ("No export data for module <%s>\n", import);
+  /* check if its a builtin like __builtin__ or sys... */
+  int builtin = gpy_checkBuiltin (import);
+  if (builtin > 0)
+    {
+      /* is builtin so we already have this in memory */
+      tree imp = GPY_RR_foldBuiltinImport (lookup,
+					   build_int_cst (unsigned_type_node,
+							  builtin));
+      append_to_statement_list (imp, block);
+    }
   else
     {
-      if (GPY_OPT_gen_main && exp->main)
-	error ("Module %s already has main!\n", import);
+      struct gpy_dataExport * exp = gpy_readExportData (import);
+      if (exp == NULL)
+	error ("No export data for module <%s>\n", import);
+      else
+	{
+	  if (GPY_OPT_gen_main && exp->main)
+	    error ("Module %s already has main!\n", import);
 
-      // ... setup runtime to call module entry...
-      tree decl = lookup;
-      tree ident = get_identifier (exp->entry);
+	  // ... setup runtime to call module entry...
+	  tree decl = lookup;
+	  tree ident = get_identifier (exp->entry);
 
-      tree fntype = build_function_type_list (void_type_node, NULL_TREE);
-      tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
-				ident, fntype);
-      tree restype = TREE_TYPE (fndecl);
-      tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
-				 restype);
-      DECL_CONTEXT (resdecl) = fndecl;
-      DECL_RESULT (fndecl) = resdecl;
-      DECL_EXTERNAL (fndecl) = 1;
-      TREE_PUBLIC (fndecl) = 1;
-      append_to_statement_list (build_call_expr (fndecl, 0), block);
+	  tree fntype = build_function_type_list (void_type_node, NULL_TREE);
+	  tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
+				    ident, fntype);
+	  tree restype = TREE_TYPE (fndecl);
+	  tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
+				     restype);
+	  DECL_CONTEXT (resdecl) = fndecl;
+	  DECL_RESULT (fndecl) = resdecl;
+	  DECL_EXTERNAL (fndecl) = 1;
+	  TREE_PUBLIC (fndecl) = 1;
+	  append_to_statement_list (build_call_expr (fndecl, 0), block);
 
-      tree tstr = gpy_dot_type_const_string_tree (import);
-      tree imp = GPY_RR_foldImport (decl, build_fold_addr_expr (tstr));
-      append_to_statement_list (imp, block);
+	  tree tstr = gpy_dot_type_const_string_tree (import);
+	  tree imp = GPY_RR_foldImport (decl, build_fold_addr_expr (tstr));
+	  append_to_statement_list (imp, block);
+	}
     }
 }
 
@@ -688,14 +742,7 @@ void dot_pass_genFor (gpy_dot_tree_t * decl,
 		      tree * block,
 		      dot_contextTable_t context)
 {
-  debug ("Trying to compile the for loop!\n");
-
-  /*  gpy_dot_tree_t * it = DOT_FIELD (decl);
-  gpy_dot_tree_t * in = DOT_lhs_TT (decl);
-  gpy_dot_tree_t * suite = DOT_rhs (decl);*/
-
   fatal_error ("For loops/iterators not implemented yet!\n");
-
 }
 
 static
@@ -1179,10 +1226,10 @@ tree dot_pass_lowerExpr (gpy_dot_tree_t * dot,
 					      build_fold_indirect_ref (lhs_tree)),
 				      block);
 	  }
-	tree attrib_ref = build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr, addr_1,
-				  GPY_RR_fold_attrib_ref (lhs_tree_fold,
-							  build_fold_addr_expr (str))
-				  );
+	tree attrib_ref = fold_build2 (MODIFY_EXPR, gpy_object_type_ptr_ptr, addr_1,
+				       GPY_RR_fold_attrib_ref (lhs_tree_fold,
+							       build_fold_addr_expr (str))
+				       );
 	append_to_statement_list (attrib_ref, block);
 	retval = addr_1;
       }
@@ -1407,7 +1454,7 @@ tree dot_pass_genFunction (gpy_dot_tree_t * dot,
 			   dot_contextTable_t context,
 			   const char * parentID)
 {
-  /* setup next context */
+  /* setup next context for arguments */
   gpy_hash_tab_t ctx;
   gpy_dd_hash_init_table (&ctx);
   gpy_vec_push (context, &ctx);
@@ -1444,38 +1491,9 @@ tree dot_pass_genFunction (gpy_dot_tree_t * dot,
   DECL_ARGUMENTS (fndecl) = arglist;
 
   tree block = alloc_stmt_list ();
-  gpy_dot_tree_t * node;
-  for (node = DOT_rhs_TT (dot); node != NULL_DOT;
-       node = DOT_CHAIN (node))
-    {
-      if (DOT_T_FIELD (node) ==  D_D_EXPR)
-	{
-	  dot_pass_lowerExpr (node, context, &block);
-	  continue;
-	}
-      switch (DOT_TYPE (node))
-	{
-	case D_PRINT_STMT:
-	  dot_pass_genPrintStmt (node, &block, context);
-	  break;
+  gpy_dot_tree_t * node = DOT_rhs_TT (dot);
+  dot_pass_genSuite (node, &block, context);
 
-	case D_KEY_RETURN:
-	  dot_pass_genReturnStmt (node, &block, context);
-	  break;
-
-	case D_STRUCT_CONDITIONAL:
-	  dot_pass_genConditional (node, &block, context);
-	  break;
-
-	case D_STRUCT_WHILE:
-	  dot_pass_genWhile (node, &block, context);
-	  break;
-
-	default:
-	  error ("unhandled syntax within toplevel function!\n");
-	  break;
-	}
-    }
   tree bind = NULL_TREE;
   tree bl = build_block (DECL_RESULT (fndecl), NULL_TREE, fndecl, NULL_TREE);
   DECL_INITIAL (fndecl) = bl;
@@ -1498,8 +1516,20 @@ tree dot_pass_genFunction (gpy_dot_tree_t * dot,
 }
 
 static
-void dot_pass_mainInitCheck (tree * block)
+void dot_pass_mainInitCheck (tree * block, vec<tree,va_gc> * generic)
 {
+  // the module_init shizzle!
+  tree moduleInit = build_decl (BUILTINS_LOCATION, VAR_DECL,
+				get_identifier ("__MOD_INIT_CHK"),
+				boolean_type_node);
+  TREE_STATIC (moduleInit) = 1;
+  TREE_PUBLIC (moduleInit) = 0;
+  TREE_USED (moduleInit) = 1;
+  DECL_INITIAL (moduleInit) = boolean_false_node;
+
+  rest_of_decl_compilation (moduleInit, 1, 0);
+  vec_safe_push (generic, moduleInit);
+  
    // if we have already initilized we should just return...
   tree label_decl = build_decl (UNKNOWN_LOCATION, LABEL_DECL,
 				create_tmp_var_name ("LBIF"),
@@ -1552,15 +1582,16 @@ void dot_pass_generic_TU (gpy_hash_tab_t * types,
 
   tree block = alloc_stmt_list ();
   tree module = dot_pass_getModuleType (GPY_current_module_name, types);
-  dot_pass_setupContext (module, &context, generic, &block);
-
+  
   tree fntype = build_function_type_list (void_type_node, NULL_TREE);
   tree ident =  dot_pass_concat_identifier (GPY_current_module_name,
-					    "__main_start__");
+					   "__main_start__");
   tree fndecl = dot_pass_genFndecl_Basic (ident, fntype);
   current_function_decl = fndecl;
-  dot_pass_mainInitCheck (&block);
- 
+
+  dot_pass_mainInitCheck (&block, generic);
+  dot_pass_setupContext (module, &context, generic, &block);
+
   int i;
   gpy_dot_tree_t * dot = NULL_DOT;
   for (i = 0; decls->iterate (i, &dot); ++i)
@@ -1712,6 +1743,8 @@ vec<tree,va_gc> * dot_pass_genericify (vec<tree,va_gc> * modules,
 		     IDENTIFIER_POINTER (DECL_NAME (type)));
     }
   dot_pass_generic_TU (&types, decls, retval);
+
+  debug ("Genericification completed...passing to middle-end\n")
 
   if (types.array)
     free (types.array);

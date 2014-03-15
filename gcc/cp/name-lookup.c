@@ -3015,8 +3015,10 @@ push_class_level_binding_1 (tree name, tree x)
   if (name == error_mark_node)
     return false;
 
-  /* Check for invalid member names.  */
-  gcc_assert (TYPE_BEING_DEFINED (current_class_type));
+  /* Check for invalid member names.  But don't worry about a default
+     argument-scope lambda being pushed after the class is complete.  */
+  gcc_assert (TYPE_BEING_DEFINED (current_class_type)
+	      || LAMBDA_TYPE_P (TREE_TYPE (decl)));
   /* Check that we're pushing into the right binding level.  */
   gcc_assert (current_class_type == class_binding_level->this_entity);
 
@@ -3026,14 +3028,6 @@ push_class_level_binding_1 (tree name, tree x)
   if (TREE_CODE (decl) == TREE_LIST
       && TREE_TYPE (decl) == error_mark_node)
     decl = TREE_VALUE (decl);
-
-  if (TREE_CODE (decl) == USING_DECL
-      && TREE_CODE (USING_DECL_SCOPE (decl)) == TEMPLATE_TYPE_PARM
-      && DECL_NAME (decl) == TYPE_IDENTIFIER (USING_DECL_SCOPE (decl)))
-    /* This using-declaration declares constructors that inherit from the
-       constructors for the template parameter.  It does not redeclare the
-       name of the template parameter.  */
-    return true;
 
   if (!check_template_shadow (decl))
     return false;
@@ -3226,8 +3220,14 @@ do_class_using_decl (tree scope, tree name)
       error ("%<%T::%D%> names destructor", scope, name);
       return NULL_TREE;
     }
-  if (MAYBE_CLASS_TYPE_P (scope) && constructor_name_p (name, scope))
-    maybe_warn_cpp0x (CPP0X_INHERITING_CTORS);
+  /* Using T::T declares inheriting ctors, even if T is a typedef.  */
+  if (MAYBE_CLASS_TYPE_P (scope)
+      && ((TYPE_NAME (scope) && name == TYPE_IDENTIFIER (scope))
+	  || constructor_name_p (name, scope)))
+    {
+      maybe_warn_cpp0x (CPP0X_INHERITING_CTORS);
+      name = ctor_identifier;
+    }
   if (constructor_name_p (name, current_class_type))
     {
       error ("%<%T::%D%> names constructor in %qT",

@@ -517,7 +517,10 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 
   if (!arch)
     {
-      if (vendor == signature_AMD_ebx)
+      if (vendor == signature_AMD_ebx
+	  || vendor == signature_CENTAUR_ebx
+	  || vendor == signature_CYRIX_ebx
+	  || vendor == signature_NSC_ebx)
 	cache = detect_caches_amd (ext_level);
       else if (vendor == signature_INTEL_ebx)
 	{
@@ -559,6 +562,37 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	processor = PROCESSOR_K6;
       else
 	processor = PROCESSOR_PENTIUM;
+    }
+  else if (vendor == signature_CENTAUR_ebx)
+    {
+      if (arch)
+	{
+	  switch (family)
+	    {
+	    case 6:
+	      if (model > 9)
+		/* Use the default detection procedure.  */
+		processor = PROCESSOR_GENERIC32;
+	      else if (model == 9)
+		cpu = "c3-2";
+	      else if (model >= 6)
+		cpu = "c3";
+	      else
+		processor = PROCESSOR_GENERIC32;
+	      break;
+	    case 5:
+	      if (has_3dnow)
+		cpu = "winchip2";
+	      else if (has_mmx)
+		cpu = "winchip2-c6";
+	      else
+		processor = PROCESSOR_GENERIC32;
+	      break;
+	    default:
+	      /* We have no idea.  */
+	      processor = PROCESSOR_GENERIC32;
+	    }
+	}
     }
   else
     {
@@ -604,13 +638,18 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	  /* Atom.  */
 	  cpu = "atom";
 	  break;
+	case 0x0f:
+	  /* Merom.  */
+	case 0x17:
+	case 0x1d:
+	  /* Penryn.  */
+	  cpu = "core2";
+	  break;
 	case 0x1a:
 	case 0x1e:
 	case 0x1f:
 	case 0x2e:
 	  /* Nehalem.  */
-	  cpu = "corei7";
-	  break;
 	case 0x25:
 	case 0x2c:
 	case 0x2f:
@@ -622,20 +661,25 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	  /* Sandy Bridge.  */
 	  cpu = "corei7-avx";
 	  break;
-	case 0x17:
-	case 0x1d:
-	  /* Penryn.  */
-	  cpu = "core2";
+	case 0x3a:
+	case 0x3e:
+	  /* Ivy Bridge.  */
+	  cpu = "core-avx-i";
 	  break;
-	case 0x0f:
-	  /* Merom.  */
-	  cpu = "core2";
+	case 0x3c:
+	case 0x45:
+	case 0x46:
+	  /* Haswell.  */
+	  cpu = "core-avx2";
 	  break;
 	default:
 	  if (arch)
 	    {
 	      /* This is unknown family 0x6 CPU.  */
-	      if (has_avx)
+	      if (has_avx2)
+		/* Assume Haswell.  */
+		cpu = "core-avx2";
+	      else if (has_avx)
 		/* Assume Sandy Bridge.  */
 		cpu = "corei7-avx";
 	      else if (has_sse4_2)

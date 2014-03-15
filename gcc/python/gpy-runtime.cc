@@ -71,11 +71,31 @@ tree GPY_RR_fold_string (tree decl)
 tree GPY_RR_foldImport (tree decl, tree entry)
 {
   tree fntype = build_function_type_list (void_type_node,
-	                 gpy_attrib_type_ptr_ptr,
+	                 gpy_object_type_ptr_ptr,
 			 gpy_const_char_ptr,
 			 NULL_TREE);
   tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
 			    get_identifier ("gpy_rr_foldImport"),
+			    fntype);
+  tree restype = TREE_TYPE (fndecl);
+  tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,
+			     restype);
+  DECL_CONTEXT (resdecl) = fndecl;
+  DECL_RESULT (fndecl) = resdecl;
+  DECL_EXTERNAL (fndecl) = 1;
+  TREE_PUBLIC (fndecl) = 1;
+
+  return build_call_expr (fndecl, 2, decl, entry);
+}
+
+tree GPY_RR_foldBuiltinImport (tree decl, tree entry)
+{
+  tree fntype = build_function_type_list (void_type_node,
+	                 gpy_object_type_ptr_ptr,
+			 unsigned_type_node,
+			 NULL_TREE);
+  tree fndecl = build_decl (BUILTINS_LOCATION, FUNCTION_DECL,
+			    get_identifier ("gpy_rr_foldBuiltinImport"),
 			    fntype);
   tree restype = TREE_TYPE (fndecl);
   tree resdecl = build_decl (BUILTINS_LOCATION, RESULT_DECL, NULL_TREE,

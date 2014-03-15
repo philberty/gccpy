@@ -309,7 +309,7 @@ static GTY(()) tree aarch64_builtin_decls[AARCH64_BUILTIN_MAX];
 #define NUM_DREG_TYPES 6
 #define NUM_QREG_TYPES 6
 
-void
+static void
 aarch64_init_simd_builtins (void)
 {
   unsigned int i, fcode = AARCH64_SIMD_BUILTIN_BASE + 1;
@@ -1154,6 +1154,7 @@ aarch64_simd_expand_builtin (int fcode, tree exp, rtx target)
       return aarch64_simd_expand_args (target, icode, 1, exp,
 				       SIMD_ARG_COPY_TO_REG, SIMD_ARG_STOP);
 
+    case AARCH64_SIMD_STORE1:
     case AARCH64_SIMD_STORESTRUCT:
       return aarch64_simd_expand_args (target, icode, 0, exp,
 				       SIMD_ARG_COPY_TO_REG,

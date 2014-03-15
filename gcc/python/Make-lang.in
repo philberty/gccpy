@@ -136,6 +136,12 @@ gpy-data-export.o: $(srcdir)/python/gpy-data-export.cc $(CONFIG_H) $(SYSTEM_H) c
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
 	$(LDFLAGS) -c -o $@ $(srcdir)/python/gpy-data-export.cc
 
+gpy-builtins.o: $(srcdir)/python/gpy-builtins.cc $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \
+  $(FLAGS_H) toplev.h $(GGC_H) $(TREE_H) $(DIAGNOSTIC_H) input.h options.h opts.h \
+  gt-python-py-lang.h gtype-python.h
+	$(COMPILER) $(GPY_CFLAGS) $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
+	$(LDFLAGS) -c -o $@ $(srcdir)/python/gpy-builtins.cc
+
 GPY_OBJS = \
 	py-parser.o \
 	py-lexer.o \
@@ -153,7 +159,8 @@ GPY_OBJS = \
 	dot-pass-const_fold.o \
 	dot-pass-dot-PrettyPrint.o \
 	dot-pass-types-PrettyPrint.o \
-	gpy-data-export.o
+	gpy-data-export.o \
+	gpy-builtins.o
 
 gpy1$(exeext): $(GPY_OBJS) attribs.o $(BACKEND) $(LIBDEPS)
 	$(COMPILER) $(GPY_CFLAGS) $(ALL_CFLAGS) $(LDFLAGS) -o $@ \

@@ -523,6 +523,14 @@ class Type
   static Type*
   make_forward_declaration(Named_object*);
 
+  // Make a builtin struct type from a list of fields.
+  static Struct_type*
+  make_builtin_struct_type(int nfields, ...);
+
+  // Make a builtin named type.
+  static Named_type*
+  make_builtin_named_type(const char* name, Type* type);
+
   // Traverse a type.
   static int
   traverse(Type*, Traverse*);
@@ -1034,14 +1042,6 @@ class Type
   Expression*
   type_descriptor_constructor(Gogo*, int runtime_type_kind, Named_type*,
 			      const Methods*, bool only_value_methods);
-
-  // Make a builtin struct type from a list of fields.
-  static Struct_type*
-  make_builtin_struct_type(int nfields, ...);
-
-  // Make a builtin named type.
-  static Named_type*
-  make_builtin_named_type(const char* name, Type* type);
 
   // For the benefit of child class reflection string generation.
   void
@@ -1789,6 +1789,12 @@ class Function_type : public Type
   Function_type*
   copy_with_receiver(Type*) const;
 
+  // Return a copy of this type ignoring any receiver and using dummy
+  // names for all parameters.  This is used for thunks for method
+  // values.
+  Function_type*
+  copy_with_names() const;
+
   static Type*
   make_function_type_descriptor_type();
 
@@ -1796,7 +1802,7 @@ class Function_type : public Type
   int
   do_traverse(Traverse*);
 
-  // A trampoline function has a pointer which matters for GC.
+  // A function descriptor may be allocated on the heap.
   bool
   do_has_pointer() const
   { return true; }
@@ -1920,6 +1926,10 @@ class Struct_field
   bool
   is_field_name(const std::string& name) const;
 
+  // Return whether this struct field is an embedded built-in type.
+  bool
+  is_embedded_builtin(Gogo*) const;
+
   // The field type.
   Type*
   type() const
@@ -2031,8 +2041,7 @@ class Struct_type : public Type
  public:
   Struct_type(Struct_field_list* fields, Location location)
     : Type(TYPE_STRUCT),
-      fields_(fields), location_(location), all_methods_(NULL),
-      interface_method_tables_(NULL), pointer_interface_method_tables_(NULL)
+      fields_(fields), location_(location), all_methods_(NULL)
   { }
 
   // Return the field NAME.  This only looks at local fields, not at
@@ -2190,6 +2199,16 @@ class Struct_type : public Type
 
   static Identical_structs identical_structs;
 
+  // Used to manage method tables for identical unnamed structs.
+  typedef std::pair<Interface_method_tables*, Interface_method_tables*>
+    Struct_method_table_pair;
+
+  typedef Unordered_map_hash(Struct_type*, Struct_method_table_pair*,
+			     Type_hash_identical, Type_identical)
+    Struct_method_tables;
+
+  static Struct_method_tables struct_method_tables;
+
   // Used to avoid infinite loops in field_reference_depth.
   struct Saw_named_type
   {
@@ -2208,13 +2227,6 @@ class Struct_type : public Type
   Location location_;
   // If this struct is unnamed, a list of methods.
   Methods* all_methods_;
-  // A mapping from interfaces to the associated interface method
-  // tables for this type.  Only used if this struct is unnamed.
-  Interface_method_tables* interface_method_tables_;
-  // A mapping from interfaces to the associated interface method
-  // tables for pointers to this type.  Only used if this struct is
-  // unnamed.
-  Interface_method_tables* pointer_interface_method_tables_;
 };
 
 // The type of an array.

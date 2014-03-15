@@ -513,6 +513,12 @@ pa_option_override (void)
       write_symbols = NO_DEBUG;
     }
 
+#ifdef AUTO_INC_DEC
+  /* FIXME: Disable auto increment and decrement processing until reload
+     is completed.  See PR middle-end 56791.  */
+  flag_auto_inc_dec = reload_completed;
+#endif
+
   /* We only support the "big PIC" model now.  And we always generate PIC
      code when in 64bit mode.  */
   if (flag_pic == 1 || TARGET_64BIT)
@@ -792,7 +798,9 @@ legitimize_pic_address (rtx orig, enum machine_mode mode, rtx reg)
 	  /* Extract CODE_LABEL.  */
 	  orig = XEXP (orig, 0);
 	  add_reg_note (insn, REG_LABEL_OPERAND, orig);
-	  LABEL_NUSES (orig)++;
+	  /* Make sure we have label and not a note.  */
+	  if (LABEL_P (orig))
+	    LABEL_NUSES (orig)++;
 	}
       crtl->uses_pic_offset_table = 1;
       return reg;
@@ -4036,7 +4044,8 @@ pa_expand_prologue (void)
 	      || (! TARGET_64BIT && df_regs_ever_live_p (i + 1)))
 	    {
 	      rtx addr, insn, reg;
-	      addr = gen_rtx_MEM (DFmode, gen_rtx_POST_INC (DFmode, tmpreg));
+	      addr = gen_rtx_MEM (DFmode,
+				  gen_rtx_POST_INC (word_mode, tmpreg));
 	      reg = gen_rtx_REG (DFmode, i);
 	      insn = emit_move_insn (addr, reg);
 	      if (DO_FRAME_NOTES)
@@ -4329,7 +4338,8 @@ pa_expand_epilogue (void)
 	if (df_regs_ever_live_p (i)
 	    || (! TARGET_64BIT && df_regs_ever_live_p (i + 1)))
 	  {
-	    rtx src = gen_rtx_MEM (DFmode, gen_rtx_POST_INC (DFmode, tmpreg));
+	    rtx src = gen_rtx_MEM (DFmode,
+				   gen_rtx_POST_INC (word_mode, tmpreg));
 	    rtx dest = gen_rtx_REG (DFmode, i);
 	    emit_move_insn (dest, src);
 	  }
@@ -10517,21 +10527,13 @@ pa_legitimate_address_p (enum machine_mode mode, rtx x, bool strict)
 	     the majority of accesses will use floating point instructions
 	     that don't support 14-bit offsets.  */
 	  if (!INT14_OK_STRICT
-	      && (GET_MODE_CLASS (mode) == MODE_FLOAT
-		  || (reload_in_progress
-		      && strict
-		      && (mode == SImode || mode == DImode))))
-	   return false;
+	      && reload_in_progress
+	      && strict
+	      && mode != QImode
+	      && mode != HImode)
+	    return false;
 
-	  if (INT_14_BITS (index)
-	      && (mode == BLKmode
-		  || mode == QImode
-		  || mode == HImode
-		  /* Displacement must be a multiple of its size.  */
-		  || (INTVAL (index) % GET_MODE_SIZE (mode)) == 0))
-	    return true;
-
-	  return false;
+	  return base14_operand (index, mode);
 	}
 
       if (!TARGET_DISABLE_INDEXING
@@ -10586,11 +10588,11 @@ pa_legitimate_address_p (enum machine_mode mode, rtx x, bool strict)
 	    return true;
 
 	  if (!INT14_OK_STRICT
-	      && (GET_MODE_CLASS (mode) == MODE_FLOAT
-		  || (reload_in_progress
-		      && strict
-		      && (mode == SImode || mode == DImode))))
-	   return false;
+	      && reload_in_progress
+	      && strict
+	      && mode != QImode
+	      && mode != HImode)
+	    return false;
 
 	  if (CONSTANT_P (XEXP (x, 1)))
 	    return true;

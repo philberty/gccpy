@@ -119,7 +119,7 @@ struct store_by_pieces_d
   int reverse;
 };
 
-static void move_by_pieces_1 (rtx (*) (rtx, ...), enum machine_mode,
+static void move_by_pieces_1 (insn_gen_fn, machine_mode,
 			      struct move_by_pieces_d *);
 static bool block_move_libcall_safe_for_call_parm (void);
 static bool emit_block_move_via_movmem (rtx, rtx, rtx, unsigned, unsigned, HOST_WIDE_INT);
@@ -128,7 +128,7 @@ static void emit_block_move_via_loop (rtx, rtx, rtx, unsigned);
 static rtx clear_by_pieces_1 (void *, HOST_WIDE_INT, enum machine_mode);
 static void clear_by_pieces (rtx, unsigned HOST_WIDE_INT, unsigned int);
 static void store_by_pieces_1 (struct store_by_pieces_d *, unsigned int);
-static void store_by_pieces_2 (rtx (*) (rtx, ...), enum machine_mode,
+static void store_by_pieces_2 (insn_gen_fn, machine_mode,
 			       struct store_by_pieces_d *);
 static tree clear_storage_libcall_fn (int);
 static rtx compress_float_constant (rtx, rtx);
@@ -1043,7 +1043,7 @@ move_by_pieces_ninsns (unsigned HOST_WIDE_INT l, unsigned int align,
    to make a move insn for that mode.  DATA has all the other info.  */
 
 static void
-move_by_pieces_1 (rtx (*genfun) (rtx, ...), enum machine_mode mode,
+move_by_pieces_1 (insn_gen_fn genfun, machine_mode mode,
 		  struct move_by_pieces_d *data)
 {
   unsigned int size = GET_MODE_SIZE (mode);
@@ -2657,7 +2657,7 @@ store_by_pieces_1 (struct store_by_pieces_d *data ATTRIBUTE_UNUSED,
    to make a move insn for that mode.  DATA has all the other info.  */
 
 static void
-store_by_pieces_2 (rtx (*genfun) (rtx, ...), enum machine_mode mode,
+store_by_pieces_2 (insn_gen_fn genfun, machine_mode mode,
 		   struct store_by_pieces_d *data)
 {
   unsigned int size = GET_MODE_SIZE (mode);
@@ -7563,6 +7563,15 @@ expand_expr_addr_expr_1 (tree exp, rtx target, enum machine_mode tmode,
       inner = TREE_OPERAND (exp, 0);
       break;
 
+    case COMPOUND_LITERAL_EXPR:
+      /* Allow COMPOUND_LITERAL_EXPR in initializers, if e.g.
+	 rtl_for_decl_init is called on DECL_INITIAL with
+	 COMPOUNT_LITERAL_EXPRs in it, they aren't gimplified.  */
+      if (modifier == EXPAND_INITIALIZER
+	  && COMPOUND_LITERAL_EXPR_DECL (exp))
+	return expand_expr_addr_expr_1 (COMPOUND_LITERAL_EXPR_DECL (exp),
+					target, tmode, modifier, as);
+      /* FALLTHRU */
     default:
       /* If the object is a DECL, then expand it for its rtl.  Don't bypass
 	 expand_expr, as that can have various side effects; LABEL_DECLs for
@@ -7884,6 +7893,7 @@ expand_cond_expr_using_cmove (tree treeop0 ATTRIBUTE_UNUSED,
   tree type = TREE_TYPE (treeop1);
   int unsignedp = TYPE_UNSIGNED (type);
   enum machine_mode mode = TYPE_MODE (type);
+  enum machine_mode orig_mode = mode;
 
   /* If we cannot do a conditional move on the mode, try doing it
      with the promoted mode. */
@@ -7949,7 +7959,7 @@ expand_cond_expr_using_cmove (tree treeop0 ATTRIBUTE_UNUSED,
       rtx seq = get_insns ();
       end_sequence ();
       emit_insn (seq);
-      return temp;
+      return convert_modes (orig_mode, mode, temp, 0);
     }
 
   /* Otherwise discard the sequence and fall back to code with
@@ -8382,6 +8392,15 @@ expand_expr_real_2 (sepops ops, rtx target, enum machine_mode tmode,
 	      else
 		expand_operands (treeop0, treeop1, NULL_RTX, &op1, &op0,
 				 EXPAND_NORMAL);
+	      /* op0 and op1 might still be constant, despite the above
+		 != INTEGER_CST check.  Handle it.  */
+	      if (GET_MODE (op0) == VOIDmode && GET_MODE (op1) == VOIDmode)
+		{
+		  op0 = convert_modes (innermode, mode, op0, true);
+		  op1 = convert_modes (innermode, mode, op1, false);
+		  return REDUCE_BIT_FIELD (expand_mult (mode, op0, op1,
+							target, unsignedp));
+		}
 	      goto binop3;
 	    }
 	}
@@ -8404,6 +8423,19 @@ expand_expr_real_2 (sepops ops, rtx target, enum machine_mode tmode,
 		{
 		  expand_operands (treeop0, treeop1, NULL_RTX, &op0, &op1,
 				   EXPAND_NORMAL);
+		  /* op0 and op1 might still be constant, despite the above
+		     != INTEGER_CST check.  Handle it.  */
+		  if (GET_MODE (op0) == VOIDmode && GET_MODE (op1) == VOIDmode)
+		    {
+		     widen_mult_const:
+		      op0 = convert_modes (innermode, mode, op0, zextend_p);
+		      op1
+			= convert_modes (innermode, mode, op1,
+					 TYPE_UNSIGNED (TREE_TYPE (treeop1)));
+		      return REDUCE_BIT_FIELD (expand_mult (mode, op0, op1,
+							    target,
+							    unsignedp));
+		    }
 		  temp = expand_widening_mult (mode, op0, op1, target,
 					       unsignedp, this_optab);
 		  return REDUCE_BIT_FIELD (temp);
@@ -8416,9 +8448,14 @@ expand_expr_real_2 (sepops ops, rtx target, enum machine_mode tmode,
 		  op0 = expand_normal (treeop0);
 		  if (TREE_CODE (treeop1) == INTEGER_CST)
 		    op1 = convert_modes (innermode, mode,
-					 expand_normal (treeop1), unsignedp);
+					 expand_normal (treeop1),
+					 TYPE_UNSIGNED (TREE_TYPE (treeop1)));
 		  else
 		    op1 = expand_normal (treeop1);
+		  /* op0 and op1 might still be constant, despite the above
+		     != INTEGER_CST check.  Handle it.  */
+		  if (GET_MODE (op0) == VOIDmode && GET_MODE (op1) == VOIDmode)
+		    goto widen_mult_const;
 		  temp = expand_binop (mode, other_optab, op0, op1, target,
 				       unsignedp, OPTAB_LIB_WIDEN);
 		  hipart = gen_highpart (innermode, temp);
@@ -9551,6 +9588,7 @@ expand_expr_real_1 (tree exp, rtx target, enum machine_mode tmode,
 	set_mem_addr_space (temp, as);
 	align = get_object_alignment (exp);
 	if (modifier != EXPAND_WRITE
+	    && modifier != EXPAND_MEMORY
 	    && mode != BLKmode
 	    && align < GET_MODE_ALIGNMENT (mode)
 	    /* If the target does not have special handling for unaligned
@@ -9639,6 +9677,7 @@ expand_expr_real_1 (tree exp, rtx target, enum machine_mode tmode,
 	if (TREE_THIS_VOLATILE (exp))
 	  MEM_VOLATILE_P (temp) = 1;
 	if (modifier != EXPAND_WRITE
+	    && modifier != EXPAND_MEMORY
 	    && mode != BLKmode
 	    && align < GET_MODE_ALIGNMENT (mode))
 	  {
